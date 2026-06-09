@@ -50,7 +50,7 @@ defineProps<{
                     :href="`/cuisine/${categorySlug}`"
                     class="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                    &larr; Back to subcategories
+                    &larr; Back to categories
                 </a>
                 <a
                     v-else
@@ -60,7 +60,7 @@ defineProps<{
                     &larr; Back to categories
                 </a>
                 <h1 class="mt-4 text-3xl font-bold text-foreground">
-                    Top {{ cuisineName || 'All' }} Restaurants
+                    Top {{ (cuisineName || 'All').toLowerCase() }} Restaurants
                 </h1>
                 <p class="mt-1 text-muted-foreground">
                     Ranked by popularity score from Google, Yelp, and live busyness data.

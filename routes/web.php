@@ -2,12 +2,17 @@
 
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\CuisineController;
+use App\Http\Controllers\GeocodeController;
 use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', HomeController::class);
+
+Route::get('/api/restaurants', [RestaurantController::class, 'apiIndex']);
+Route::get('/api/geocode', [GeocodeController::class, 'reverse']);
+Route::get('/api/geocode/forward', [GeocodeController::class, 'forward']);
 
 Route::get('/cuisine/{category:slug}', [CuisineController::class, 'show']);
 

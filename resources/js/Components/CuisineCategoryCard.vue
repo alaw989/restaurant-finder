@@ -19,7 +19,7 @@ defineEmits<{
 
 <template>
     <Card
-        class="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1"
+        class="cursor-pointer ring-0 border border-border shadow-sm transition-all hover:shadow-lg hover:-translate-y-1"
         @click="$emit('select', category.slug)"
     >
         <CardContent class="flex flex-col items-center gap-3 p-6 text-center">

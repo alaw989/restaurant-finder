@@ -19,8 +19,12 @@ class YelpApiService
     /**
      * Search for businesses on Yelp by location and cuisine.
      */
-    public function searchBusinesses(float $lat, float $lng, string $cuisine, int $radius = 25000): array
+    public function searchBusinesses(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000): array
     {
+        if (empty($this->apiKey)) {
+            return [];
+        }
+
         $cacheKey = $this->buildCacheKey('yelp_search', compact('lat', 'lng', 'cuisine', 'radius'));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
@@ -29,16 +33,21 @@ class YelpApiService
         }
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer {$this->apiKey}",
-            ])->get("{$this->baseUrl}/businesses/search", [
+            $params = [
                 'latitude' => $lat,
                 'longitude' => $lng,
-                'term' => $cuisine . ' restaurant',
                 'radius' => $radius,
                 'categories' => 'restaurants',
                 'limit' => 50,
-            ]);
+            ];
+
+            if ($cuisine) {
+                $params['term'] = $cuisine . ' restaurant';
+            }
+
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer {$this->apiKey}",
+            ])->get("{$this->baseUrl}/businesses/search", $params);
 
             if ($response->failed()) {
                 Log::error('Yelp business search request failed', [

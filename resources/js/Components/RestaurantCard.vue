@@ -25,11 +25,22 @@ defineProps<{
     };
     rank: number;
 }>();
+
+function mapsUrl(name: string, city: string | null): string {
+    const q = city ? `${name}, ${city}` : name;
+    return `https://www.google.com/maps/search/${encodeURIComponent(q)}`;
+}
 </script>
 
 <template>
-    <Link :href="`/restaurants/${restaurant.slug}`">
-        <Card class="group overflow-hidden transition-all hover:shadow-lg">
+    <Component
+        :is="restaurant.id > 0 ? Link : 'a'"
+        v-bind="restaurant.id > 0
+            ? { href: `/restaurants/${restaurant.slug}` }
+            : { href: mapsUrl(restaurant.name, restaurant.city), target: '_blank', rel: 'noopener' }
+        "
+    >
+        <Card class="group overflow-hidden ring-0 border border-border shadow-sm transition-all hover:shadow-lg">
             <div class="flex flex-col sm:flex-row">
                 <div
                     v-if="restaurant.photo_url"
@@ -48,9 +59,10 @@ defineProps<{
                         <div class="min-w-0">
                             <h3 class="truncate text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
                                 {{ restaurant.name }}
+                                <span v-if="restaurant.id < 0" class="ml-1 text-xs text-muted-foreground">↗</span>
                             </h3>
                             <p v-if="restaurant.address" class="truncate text-sm text-muted-foreground">
-                                {{ restaurant.city ? `${restaurant.city}, ` : '' }}{{ restaurant.address }}
+                                {{ restaurant.address }}
                             </p>
                         </div>
                         <PopularityBadge :rank="rank" />
@@ -58,12 +70,20 @@ defineProps<{
 
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <StarRating
-                            v-if="restaurant.google_rating"
+                            v-if="restaurant.yelp_rating"
+                            :rating="restaurant.yelp_rating"
+                            size="sm"
+                        />
+                        <StarRating
+                            v-else-if="restaurant.google_rating"
                             :rating="restaurant.google_rating"
                             size="sm"
                         />
-                        <span class="text-sm text-muted-foreground">
-                            {{ restaurant.google_review_count.toLocaleString() }} reviews
+                        <span v-if="restaurant.yelp_review_count" class="text-sm text-muted-foreground">
+                            {{ restaurant.yelp_review_count }} reviews
+                        </span>
+                        <span v-else-if="restaurant.google_review_count" class="text-sm text-muted-foreground">
+                            {{ restaurant.google_review_count }} reviews
                         </span>
                         <span v-if="restaurant.price_range" class="text-sm font-medium text-foreground">
                             {{ restaurant.price_range }}
@@ -86,5 +106,5 @@ defineProps<{
                 </CardContent>
             </div>
         </Card>
-    </Link>
+    </Component>
 </template>

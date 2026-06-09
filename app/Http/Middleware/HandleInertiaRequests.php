@@ -30,11 +30,20 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        // Persist coordinates from request params into session
+        if ($request->filled('lat') && $request->filled('lng')) {
+            $request->session()->put('user_coords', [
+                'lat' => (float) $request->input('lat'),
+                'lng' => (float) $request->input('lng'),
+            ]);
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
             ],
+            'userCoords' => $request->session()->get('user_coords'),
             'ziggy' => fn () => [
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),

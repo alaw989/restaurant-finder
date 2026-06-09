@@ -3,11 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\CuisineCategory;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class CuisineController extends Controller
 {
-    public function show(CuisineCategory $category)
+    public function show(Request $request, CuisineCategory $category)
     {
         $category->load([
             'cuisines' => fn ($query) => $query->orderBy('sort_order'),
@@ -15,6 +16,7 @@ class CuisineController extends Controller
 
         return Inertia::render('Cuisine/Subcategories', [
             'category' => $category,
+            'coords' => $request->only(['lat', 'lng']),
         ]);
     }
 }

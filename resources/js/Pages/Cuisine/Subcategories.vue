@@ -3,7 +3,7 @@ import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import SubcategoryCard from '@/Components/SubcategoryCard.vue';
 
-defineProps<{
+const props = defineProps<{
     category: {
         id: number;
         name: string;
@@ -18,18 +18,20 @@ defineProps<{
             icon: string | null;
         }>;
     };
+    coords: {
+        lat?: string;
+        lng?: string;
+    };
 }>();
 
 function selectCuisine(slug: string) {
-    const url = new URL(window.location.href);
-    const params = new URLSearchParams(url.search);
+    const data: Record<string, string> = { cuisine: slug };
+    if (props.coords.lat && props.coords.lng) {
+        data.lat = props.coords.lat;
+        data.lng = props.coords.lng;
+    }
 
-    router.visit('/restaurants', {
-        data: {
-            cuisine: slug,
-            ...Object.fromEntries(params.entries()),
-        },
-    });
+    router.visit('/restaurants', { data });
 }
 </script>
 

@@ -36,17 +36,5 @@ import { Link } from '@inertiajs/vue3';
             <slot />
         </main>
 
-        <footer class="mt-auto border-t border-border bg-card">
-            <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-                <div class="flex flex-col items-center justify-between gap-2 sm:flex-row">
-                    <p class="text-sm text-muted-foreground">
-                        FoodRank — Restaurant popularity rankings powered by Google, Yelp, and live busyness data.
-                    </p>
-                    <p class="text-xs text-muted-foreground">
-                        &copy; {{ new Date().getFullYear() }} FoodRank
-                    </p>
-                </div>
-            </div>
-        </footer>
     </div>
 </template>

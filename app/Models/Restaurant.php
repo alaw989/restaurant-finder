@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Str;
 
 class Restaurant extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'name',
         'slug',
@@ -66,20 +68,21 @@ class Restaurant extends Model
 
     public function scopeNearby(Builder $query, float $lat, float $lng, float $radiusKm = 25): Builder
     {
+        $haversine = '(
+            6371 * acos(
+                MIN(1.0, MAX(-1.0, cos(radians(?))
+                * cos(radians(latitude))
+                * cos(radians(longitude) - radians(?))
+                + sin(radians(?))
+                * sin(radians(latitude))))
+            )
+        )';
+
         return $query
-            ->selectRaw('*, (
-                6371 * acos(
-                    cos(radians(?))
-                    * cos(radians(latitude))
-                    * cos(radians(longitude) - radians(?))
-                    + sin(radians(?))
-                    * sin(radians(latitude))
-                )
-            ) AS distance', [$lat, $lng, $lat])
+            ->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->having('distance', '<=', $radiusKm)
-            ->orderBy('distance');
+            ->whereRaw("{$haversine} <= CAST(? AS REAL)", [$lat, $lng, $lat, $radiusKm]);
     }
 
     public function scopeByPopularity(Builder $query): Builder
