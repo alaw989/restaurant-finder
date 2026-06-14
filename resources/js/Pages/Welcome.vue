@@ -62,17 +62,29 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const searched = ref(false)
 const nextPageUrl = ref<string | null>(null)
+const detectingLocation = ref(false)
 
 onMounted(() => {
+    // Check if we already have location from server (IP-based) or prior session
+    const savedLocation = localStorage.getItem('foodrank_location')
+    if (savedLocation) {
+        try {
+            const parsed = JSON.parse(savedLocation)
+            location.value = parsed
+            if (parsed.city) return // Don't re-prompt if user already has a saved location
+        } catch {}
+    }
+
     if (lat.value !== null && location.value.city) return
 
+    // Auto-detect via GPS
     if (navigator.geolocation) {
+        detectingLocation.value = true
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 lat.value = position.coords.latitude
                 lng.value = position.coords.longitude
 
-                // Only reverse-geocode if we don't already have a city
                 if (!location.value.city) {
                     try {
                         const res = await fetch(
@@ -84,14 +96,18 @@ onMounted(() => {
                                 city: data.city ?? null,
                                 state: data.state ?? null,
                             }
+                            localStorage.setItem('foodrank_location', JSON.stringify(location.value))
                         }
                     } catch {
                         // Silently fall back to IP-based location
                     }
                 }
+                detectingLocation.value = false
             },
-            () => {},
-            { timeout: 10000 }
+            () => {
+                detectingLocation.value = false
+            },
+            { timeout: 10000, enableHighAccuracy: false }
         )
     }
 })
@@ -104,6 +120,7 @@ function onCuisineSelect(payload: { category: string; cuisine?: string; label: s
 
 async function onLocationUpdate(newLocation: Location) {
     location.value = newLocation
+    localStorage.setItem('foodrank_location', JSON.stringify(newLocation))
 
     if (newLocation.city) {
         try {
@@ -200,7 +217,7 @@ async function loadMore() {
                     <span>Find the most Popular</span>
                     <CuisinePicker :categories="categories" @select="onCuisineSelect" />
                     <span>Restaurants in</span>
-                    <LocationPicker :location="location" @update="onLocationUpdate" />
+                    <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" />
                 </div>
 
                 <!-- Search button -->
@@ -209,7 +226,8 @@ async function loadMore() {
                         size="lg"
                         :disabled="loading"
                         @click="search"
-                        class="px-8"
+                        class="relative px-8 overflow-hidden transition-all"
+                        :class="loading ? 'scale-95' : 'hover:scale-105'"
                     >
                         <span v-if="loading" class="inline-flex items-center gap-2">
                             <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -222,13 +240,14 @@ async function loadMore() {
 
             <!-- Results -->
             <div v-if="searched" class="mt-12 w-full max-w-3xl">
-                <div v-if="loading" class="flex justify-center py-8">
-                    <span class="inline-block h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                <div v-if="loading" class="flex flex-col items-center gap-3 py-12">
+                    <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <p class="text-sm text-muted-foreground animate-pulse">Finding the best spots...</p>
                 </div>
                 <div v-else-if="restaurants.length === 0" class="py-8 text-center text-muted-foreground">
                     No restaurants found. Try a different cuisine or location.
                 </div>
-                <div v-else class="flex flex-col gap-4">
+                <div v-else class="flex flex-col gap-3">
                     <RestaurantCard
                         v-for="(restaurant, index) in restaurants"
                         :key="restaurant.id"

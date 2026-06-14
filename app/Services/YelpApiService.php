@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 class YelpApiService
 {
-    private string $apiKey;
+    private ?string $apiKey;
     private string $baseUrl = 'https://api.yelp.com/v3';
 
     public function __construct()
@@ -58,7 +58,26 @@ class YelpApiService
             }
 
             $data = $response->json();
-            $businesses = $data['businesses'] ?? [];
+
+            // A 200 carrying an error envelope (or no businesses key) is a
+            // transient/failed response. Return [] WITHOUT caching it, otherwise
+            // one bad response poisons this cuisine/location for 24h and silently
+            // drops Yelp (the primary free source) from ranking. A genuine
+            // zero-results response still carries the businesses key (empty []),
+            // which correctly passes this guard and caches as a real negative.
+            if (isset($data['error']) || !isset($data['businesses'])) {
+                Log::warning('Yelp business search returned error/no businesses', [
+                    'status' => $response->status(),
+                    'lat' => $lat,
+                    'lng' => $lng,
+                    'cuisine' => $cuisine,
+                    'body' => $response->body(),
+                ]);
+
+                return [];
+            }
+
+            $businesses = $data['businesses'];
 
             ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(24));
 
@@ -79,6 +98,10 @@ class YelpApiService
      */
     public function getBusinessDetails(string $businessId): array
     {
+        if (empty($this->apiKey)) {
+            return [];
+        }
+
         $cacheKey = $this->buildCacheKey('yelp_details', ['business_id' => $businessId]);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
@@ -100,6 +123,18 @@ class YelpApiService
             }
 
             $data = $response->json();
+
+            // Same poison-cache guard as searchBusinesses: an error envelope or a
+            // payload missing the business id is not a real result; don't cache it.
+            if (isset($data['error']) || empty($data['id'])) {
+                Log::warning('Yelp business details returned error/no id', [
+                    'business_id' => $businessId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return [];
+            }
 
             ExternalApiCache::storeByKey($cacheKey, $data, now()->addHours(24));
 

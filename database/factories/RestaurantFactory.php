@@ -34,8 +34,24 @@ class RestaurantFactory extends Factory
             'yelp_rating' => fake()->randomFloat(1, 3.0, 5.0),
             'yelp_review_count' => fake()->numberBetween(50, 4000),
             'popular_times_avg_busyness' => fake()->randomFloat(2, 10, 90),
+            'has_award' => false,
             'popularity_score' => fake()->randomFloat(4, 0.1, 0.99),
             'is_active' => true,
         ];
+    }
+
+    /**
+     * A restaurant populated only by free-first sources (Yelp/OSM): no Google
+     * or Outscraper paid-enrichment fields, no award record.
+     */
+    public function freeOnly(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'google_place_id' => null,
+            'google_rating' => null,
+            'google_review_count' => 0,
+            'popular_times_avg_busyness' => null,
+            'has_award' => false,
+        ]);
     }
 }

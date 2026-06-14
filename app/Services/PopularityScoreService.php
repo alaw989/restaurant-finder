@@ -8,101 +8,211 @@ use Illuminate\Support\Collection;
 class PopularityScoreService
 {
     /**
-     * Default weights for each signal.
+     * Fallback weight set used when the container/config is unavailable (e.g.
+     * pure unit tests). Mirrors config/restaurant-finder.php -> ranking.weights.
+     * Free signals (yelp_*, data_completeness, has_award) sum to 0.95; the two
+     * google_* signals are pure bonus; popular_times is opt-in (weight 0.0).
      */
-    private const WEIGHTS = [
-        'google_review_count' => 0.30,
-        'google_rating' => 0.15,
-        'popular_times_avg_busyness' => 0.20,
-        'yelp_review_count' => 0.15,
-        'yelp_rating' => 0.10,
-        'review_recency_score' => 0.05,
-        'has_michelin_star' => 0.05,
+    private const DEFAULT_WEIGHTS = [
+        'yelp_rating' => 0.40,
+        'yelp_review_count' => 0.30,
+        'data_completeness' => 0.15,
+        'has_award' => 0.10,
+        'google_rating' => 0.03,
+        'google_review_count' => 0.02,
+        'popular_times_avg_busyness' => 0.0,
     ];
+
+    /**
+     * Per-signal normalization method. See docs/ranking-metrics.md.
+     */
+    private const METHODS = [
+        'yelp_rating' => 'linear_rating',
+        'google_rating' => 'linear_rating',
+        'yelp_review_count' => 'log_count',
+        'google_review_count' => 'log_count',
+        'data_completeness' => 'completeness',
+        'has_award' => 'boolean',
+        'popular_times_avg_busyness' => 'minmax',
+    ];
+
+    /**
+     * Signals that are always "active": data_completeness is always computable
+     * (a 0 ratio is a valid measurement) and has_award (false is legitimate).
+     */
+    private const ALWAYS_ACTIVE = ['data_completeness', 'has_award'];
+
+    /**
+     * The nine row fields that feed data_completeness. popular_times_avg_busyness
+     * stands in for "hours" — the only operational/hours data we persist.
+     */
+    private const COMPLETENESS_FIELDS = [
+        'name',
+        'address',
+        'phone',
+        'latitude',
+        'longitude',
+        'price_range',
+        'popular_times_avg_busyness',
+        'yelp_business_id',
+        'photo_url',
+    ];
+
+    private array $weights;
+    private int $logReviewFloor;
+    private int $logReviewDefault;
+
+    public function __construct(?array $weights = null, ?int $logReviewFloor = null, ?int $logReviewDefault = null)
+    {
+        $this->weights = $weights ?? $this->configValue('restaurant-finder.ranking.weights', self::DEFAULT_WEIGHTS);
+        $this->logReviewFloor = $logReviewFloor ?? (int) $this->configValue('restaurant-finder.ranking.log_review_floor', 500);
+        $this->logReviewDefault = $logReviewDefault ?? (int) $this->configValue('restaurant-finder.ranking.log_review_default', 5000);
+    }
 
     /**
      * Calculate a composite popularity score for a restaurant, normalized
      * against the provided collection of all restaurants in the same context.
+     * Free signals alone are sufficient; paid Google signals add an optional bonus.
      */
     public function calculateScore(Restaurant $restaurant, Collection $allRestaurants): float
     {
-        $rawSignals = [
-            'google_review_count' => $restaurant->google_review_count ?? null,
-            'google_rating' => $restaurant->google_rating ?? null,
-            'popular_times_avg_busyness' => $restaurant->popular_times_avg_busyness ?? null,
-            'yelp_review_count' => $restaurant->yelp_review_count ?? null,
-            'yelp_rating' => $restaurant->yelp_rating ?? null,
-            'review_recency_score' => $this->calculateReviewRecencyScore($restaurant),
-            'has_michelin_star' => $restaurant->has_michelin_star ?? false,
+        // Precompute collection-level stats needed by log + min-max normalization.
+        $logDenoms = [
+            'yelp_review_count' => $this->logDenominator($allRestaurants, 'yelp_review_count'),
+            'google_review_count' => $this->logDenominator($allRestaurants, 'google_review_count'),
+        ];
+        $minmax = [
+            'popular_times_avg_busyness' => $this->minmaxStats($allRestaurants, 'popular_times_avg_busyness'),
         ];
 
-        // Compute min and max for each numeric signal across the collection
-        $stats = [];
-        foreach (['google_review_count', 'google_rating', 'popular_times_avg_busyness', 'yelp_review_count', 'yelp_rating', 'review_recency_score'] as $signal) {
-            $values = $allRestaurants
-                ->pluck($signal === 'review_recency_score' ? 'id' : $signal)
-                ->filter(fn($v) => $v !== null);
-
-            if ($signal === 'review_recency_score') {
-                // All restaurants get 0.5 as a placeholder, so min=0.5, max=0.5
-                $values = collect([0.5]);
-            }
-
-            $stats[$signal] = [
-                'min' => $values->min(),
-                'max' => $values->max(),
-            ];
-        }
-
-        // Determine which signals are available for this restaurant
         $activeWeights = [];
         $activeNormalized = [];
 
-        foreach (self::WEIGHTS as $signal => $weight) {
-            if ($signal === 'has_michelin_star') {
-                // Boolean signal — always computable
-                $activeWeights[$signal] = $weight;
-                $activeNormalized[$signal] = $rawSignals[$signal] ? 1.0 : 0.0;
+        foreach ($this->weights as $signal => $weight) {
+            $method = self::METHODS[$signal] ?? null;
+            if ($method === null) {
                 continue;
             }
 
-            $value = $rawSignals[$signal];
+            $raw = $this->rawValue($restaurant, $signal);
 
-            if ($value === null) {
-                // Signal is missing — skip it; its weight will be redistributed
+            if (!$this->isPresent($signal, $method, $raw)) {
                 continue;
             }
 
-            $activeWeights[$signal] = $weight;
-            $activeNormalized[$signal] = $this->normalize(
-                $value,
-                $stats[$signal]['min'],
-                $stats[$signal]['max']
-            );
+            $activeWeights[$signal] = (float) $weight;
+            $activeNormalized[$signal] = $this->normalize($method, $raw, $signal, $logDenoms, $minmax);
         }
 
-        // Redistribute weights from missing signals proportionally
         $totalActiveWeight = array_sum($activeWeights);
-
-        if ($totalActiveWeight === 0.0) {
+        if ($totalActiveWeight <= 0.0) {
             return 0.0;
         }
 
         $score = 0.0;
         foreach ($activeWeights as $signal => $weight) {
-            $redistributedWeight = $weight / $totalActiveWeight;
-            $score += $redistributedWeight * ($activeNormalized[$signal] ?? 0.0);
+            $score += ($weight / $totalActiveWeight) * ($activeNormalized[$signal] ?? 0.0);
+        }
+
+        // Guard against NaN / INF (e.g. from a misconfigured log denominator).
+        if (!is_finite($score)) {
+            return 0.0;
         }
 
         return round($score, 4);
     }
 
-    /**
-     * Min-max normalization: scale a value to [0, 1].
-     * Returns 0.5 when min equals max (no variance).
-     */
-    private function normalize(float $value, float $min, float $max): float
+    private function rawValue(Restaurant $restaurant, string $signal): mixed
     {
+        if ($signal === 'data_completeness') {
+            return $this->computeCompleteness($restaurant);
+        }
+
+        return $restaurant->{$signal} ?? null;
+    }
+
+    /**
+     * Whether a signal contributes to this restaurant's score. Always-active
+     * signals are always present; paid Google signals additionally require a
+     * configured key (stale seeded values must not count on a no-key deploy).
+     */
+    private function isPresent(string $signal, string $method, mixed $raw): bool
+    {
+        if (in_array($signal, self::ALWAYS_ACTIVE, true)) {
+            return true;
+        }
+
+        if (str_starts_with($signal, 'google_') && !$this->googleKeyConfigured()) {
+            return false;
+        }
+
+        if ($raw === null) {
+            return false;
+        }
+
+        if ($method === 'log_count' || $method === 'minmax') {
+            // 0 reviews / 0 busyness means "no data for this source", not a real measurement.
+            return (float) $raw > 0.0;
+        }
+
+        return true;
+    }
+
+    private function normalize(string $method, mixed $raw, string $signal, array $logDenoms, array $minmax): float
+    {
+        return match ($method) {
+            'linear_rating' => $this->normalizeLinearRating((float) $raw),
+            'log_count' => $this->normalizeLogCount((float) $raw, (float) ($logDenoms[$signal] ?? $this->logReviewDefault)),
+            'completeness' => max(0.0, min(1.0, (float) $raw)),
+            'boolean' => $raw ? 1.0 : 0.0,
+            'minmax' => $this->normalizeMinMax((float) $raw, $minmax[$signal] ?? null),
+            default => 0.0,
+        };
+    }
+
+    /**
+     * Linear ÷ 5 normalization for ratings on a 1-5 scale (already bounded).
+     */
+    private function normalizeLinearRating(float $rating): float
+    {
+        if ($rating <= 0.0) {
+            return 0.0;
+        }
+
+        return max(0.0, min(1.0, $rating / 5.0));
+    }
+
+    /**
+     * Log normalization for heavy-tailed counts: log(1+n) / log(1+denom).
+     * Clamped to [0,1] and guarded against NaN/INF.
+     */
+    private function normalizeLogCount(float $count, float $denom): float
+    {
+        if ($count <= 0.0 || $denom <= 0.0) {
+            return 0.0;
+        }
+
+        $value = log(1.0 + $count) / log(1.0 + $denom);
+
+        if (!is_finite($value)) {
+            return 0.0;
+        }
+
+        return max(0.0, min(1.0, $value));
+    }
+
+    /**
+     * Min-max normalization (kept for the opt-in popular_times signal only).
+     * Returns 0.5 when the collection has no variance.
+     */
+    private function normalizeMinMax(float $value, ?array $stats): float
+    {
+        if ($stats === null) {
+            return 0.5;
+        }
+
+        ['min' => $min, 'max' => $max] = $stats;
+
         if ($max == $min) {
             return 0.5;
         }
@@ -111,11 +221,90 @@ class PopularityScoreService
     }
 
     /**
-     * Placeholder for review recency score.
-     * Returns 0.5 for now.
+     * Log denominator for a count signal: max(collectionMax, floor). Falls back
+     * to the configured default when the collection is empty or all-zero.
      */
-    private function calculateReviewRecencyScore(Restaurant $restaurant): float
+    private function logDenominator(Collection $all, string $signal): float
     {
-        return 0.5;
+        $values = $all->pluck($signal)->filter(fn ($v) => $v !== null && (float) $v > 0.0);
+
+        if ($values->isEmpty()) {
+            return (float) $this->logReviewDefault;
+        }
+
+        return max((float) $values->max(), (float) $this->logReviewFloor);
+    }
+
+    private function minmaxStats(Collection $all, string $signal): ?array
+    {
+        $values = $all->pluck($signal)->filter(fn ($v) => $v !== null && (float) $v > 0.0);
+
+        if ($values->isEmpty()) {
+            return null;
+        }
+
+        return [
+            'min' => (float) $values->min(),
+            'max' => (float) $values->max(),
+        ];
+    }
+
+    /**
+     * Ratio of populated descriptive fields ÷ 9. See docs/ranking-metrics.md.
+     */
+    private function computeCompleteness(Restaurant $restaurant): float
+    {
+        $filled = 0;
+
+        foreach (self::COMPLETENESS_FIELDS as $field) {
+            if ($this->isFilled($restaurant->{$field} ?? null)) {
+                $filled++;
+            }
+        }
+
+        return round($filled / count(self::COMPLETENESS_FIELDS), 4);
+    }
+
+    private function isFilled(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        // Check numeric BEFORE string: lat/lng come back from the decimal cast
+        // as strings like "37.77490000" / "-122.41940000". A bare is_string
+        // check would count the zero sentinel ("0.00000000") as filled; instead
+        // treat any non-zero numeric as present (negative longitudes count).
+        if (is_numeric($value)) {
+            return (float) $value != 0.0; // 0 lat/lng/busyness counts as absent
+        }
+
+        if (is_string($value)) {
+            return trim($value) !== '';
+        }
+
+        return (bool) $value;
+    }
+
+    private function googleKeyConfigured(): bool
+    {
+        try {
+            return !empty(config('services.google.places_key'));
+        } catch (\Throwable $e) {
+            // Pure unit-test context (no booted container): assume present so the
+            // Google bonus path remains testable.
+            return true;
+        }
+    }
+
+    private function configValue(string $key, mixed $default): mixed
+    {
+        try {
+            $value = config($key);
+
+            return $value === null ? $default : $value;
+        } catch (\Throwable $e) {
+            return $default;
+        }
     }
 }

@@ -30,9 +30,15 @@ class OverpassService
 
         foreach ($this->mirrors as $mirror) {
             try {
-                $response = Http::timeout(30)->asForm()->post($mirror, [
-                    'data' => $query,
-                ]);
+                // Overpass's usage policy requires a descriptive User-Agent;
+                // without one the public mirrors reject requests (HTTP 406)
+                // far more aggressively under load.
+                $response = Http::timeout(30)
+                    ->asForm()
+                    ->withHeaders(['User-Agent' => 'FoodRank/1.0 (restaurant-finder)'])
+                    ->post($mirror, [
+                        'data' => $query,
+                    ]);
 
                 if ($response->failed()) {
                     Log::warning('Overpass mirror returned error, trying next', [
@@ -105,6 +111,8 @@ class OverpassService
                 'description' => null,
                 'address' => $this->buildAddress($tags),
                 'city' => $tags['addr:city'] ?? null,
+                'lat' => $el['lat'],
+                'lng' => $el['lon'],
                 'photo_url' => null,
                 'price_range' => $this->mapPriceRange($tags),
                 'google_rating' => null,

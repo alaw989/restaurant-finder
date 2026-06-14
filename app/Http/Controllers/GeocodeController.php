@@ -26,6 +26,17 @@ class GeocodeController extends Controller
         return response()->json($result ?? ['city' => null, 'state' => null]);
     }
 
+    public function search(Request $request)
+    {
+        $request->validate([
+            'q' => 'required|string|min:3|max:100',
+        ]);
+
+        return response()->json(
+            $this->geolocationService->searchCities($request->input('q'))
+        );
+    }
+
     public function forward(Request $request)
     {
         $request->validate([

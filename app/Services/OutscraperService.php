@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 class OutscraperService
 {
-    private string $apiKey;
+    private ?string $apiKey;
 
     public function __construct()
     {
@@ -20,6 +20,11 @@ class OutscraperService
      */
     public function getPopularTimes(string $googlePlaceId): array
     {
+        if (empty($this->apiKey)) {
+            Log::debug('Outscraper popular times skipped — no API key configured', ['place_id' => $googlePlaceId]);
+            return [];
+        }
+
         $cacheKey = $this->buildCacheKey('outscraper_popular_times', ['place_id' => $googlePlaceId]);
 
         $cached = ExternalApiCache::findByKey($cacheKey);

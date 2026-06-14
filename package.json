@@ -25,6 +25,7 @@
     "dependencies": {
         "@lucide/vue": "^1.17.0",
         "@vueuse/core": "^14.3.0",
+        "@vueuse/motion": "^3.0.3",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "reka-ui": "^2.9.9",

@@ -108,7 +108,7 @@ function clearSelection() {
                         </CommandItem>
                     </CommandGroup>
                     <CommandGroup v-if="selectedLabel">
-                        <CommandItem @select="clearSelection" class="text-muted-foreground">
+                        <CommandItem value="__clear" @select="clearSelection" class="text-muted-foreground">
                             ✕ Clear selection
                         </CommandItem>
                     </CommandGroup>
@@ -119,7 +119,7 @@ function clearSelection() {
                 <CommandList>
                     <CommandEmpty>No cuisines found.</CommandEmpty>
                     <CommandGroup>
-                        <CommandItem @select="goBack" class="text-muted-foreground">
+                        <CommandItem value="__back" @select="goBack" class="text-muted-foreground">
                             ← Back to categories
                         </CommandItem>
                         <CommandItem

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 class GooglePlacesService
 {
-    private string $apiKey;
+    private ?string $apiKey;
     private string $baseUrl = 'https://maps.googleapis.com/maps/api/place';
 
     public function __construct()
@@ -21,6 +21,15 @@ class GooglePlacesService
      */
     public function searchNearbyRestaurants(float $lat, float $lng, string $cuisine, int $radius = 25000): array
     {
+        if (empty($this->apiKey)) {
+            Log::debug('Google Places search skipped — no API key configured', [
+                'lat' => $lat,
+                'lng' => $lng,
+                'cuisine' => $cuisine,
+            ]);
+            return [];
+        }
+
         $cacheKey = $this->buildCacheKey('google_nearby', compact('lat', 'lng', 'cuisine', 'radius'));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
@@ -76,6 +85,11 @@ class GooglePlacesService
      */
     public function getPlaceDetails(string $placeId): array
     {
+        if (empty($this->apiKey)) {
+            Log::debug('Google Places details skipped — no API key configured', ['place_id' => $placeId]);
+            return [];
+        }
+
         $cacheKey = $this->buildCacheKey('google_details', ['place_id' => $placeId]);
 
         $cached = ExternalApiCache::findByKey($cacheKey);

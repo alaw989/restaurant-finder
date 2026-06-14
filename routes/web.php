@@ -13,6 +13,7 @@ Route::get('/', HomeController::class);
 Route::get('/api/restaurants', [RestaurantController::class, 'apiIndex']);
 Route::get('/api/geocode', [GeocodeController::class, 'reverse']);
 Route::get('/api/geocode/forward', [GeocodeController::class, 'forward']);
+Route::get('/api/geocode/search', [GeocodeController::class, 'search']);
 
 Route::get('/cuisine/{category:slug}', [CuisineController::class, 'show']);
 

@@ -41,4 +41,39 @@ return [
         'Filipino',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Ranking weights + normalization knobs
+    |--------------------------------------------------------------------------
+    | Free signals (yelp_*, data_completeness, has_award) sum to 0.95 and are
+    | all that is required for a score. The two google_* signals are pure
+    | bonus (active only with a key + value). popular_times_avg_busyness is
+    | min-max normalized but carries 0.0 weight by default (no free source).
+    | Every weight is env-overridable; weights need not sum to 1 because the
+    | active set is always renormalized.
+    */
+    'ranking' => [
+        'weights' => [
+            'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0.40),
+            'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0.30),
+            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.15),
+            'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.10),
+            'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.03),
+            'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.02),
+            'popular_times_avg_busyness' => env('RANK_WEIGHT_POPULAR_TIMES', 0.0),
+        ],
+
+        // Floor for the log-review-count denominator: max(collectionMax, floor).
+        // Prevents a single low-review venue from compressing everyone to ~1.0.
+        'log_review_floor' => (int) env('RANK_LOG_REVIEW_FLOOR', 500),
+
+        // Fallback denominator when the collection is empty or all-zero so the
+        // log scale still produces sane, bounded values.
+        'log_review_default' => (int) env('RANK_LOG_REVIEW_DEFAULT', 5000),
+
+        // Similarity (0-1) above which a Wikidata entity name is considered to
+        // match a restaurant name in WikidataService::hasAward().
+        'award_name_similarity' => (float) env('RANK_AWARD_NAME_SIMILARITY', 0.7),
+    ],
+
 ];
