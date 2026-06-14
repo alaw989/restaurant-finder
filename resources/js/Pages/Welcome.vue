@@ -65,7 +65,7 @@ const nextPageUrl = ref<string | null>(null)
 const detectingLocation = ref(false)
 
 onMounted(() => {
-    // Check if we already have location from server (IP-based) or prior session
+    // Check if we already have location from prior session
     const savedLocation = localStorage.getItem('foodrank_location')
     if (savedLocation) {
         try {
@@ -75,9 +75,7 @@ onMounted(() => {
         } catch {}
     }
 
-    if (lat.value !== null && location.value.city) return
-
-    // Auto-detect via GPS
+    // Auto-detect via GPS — always try on first visit, overrides IP-based guess
     if (navigator.geolocation) {
         detectingLocation.value = true
         navigator.geolocation.getCurrentPosition(
@@ -85,22 +83,20 @@ onMounted(() => {
                 lat.value = position.coords.latitude
                 lng.value = position.coords.longitude
 
-                if (!location.value.city) {
-                    try {
-                        const res = await fetch(
-                            `/api/geocode?lat=${lat.value}&lng=${lng.value}`
-                        )
-                        const data = await res.json()
-                        if (data.city || data.state) {
-                            location.value = {
-                                city: data.city ?? null,
-                                state: data.state ?? null,
-                            }
-                            localStorage.setItem('foodrank_location', JSON.stringify(location.value))
+                try {
+                    const res = await fetch(
+                        `/api/geocode?lat=${lat.value}&lng=${lng.value}`
+                    )
+                    const data = await res.json()
+                    if (data.city || data.state) {
+                        location.value = {
+                            city: data.city ?? null,
+                            state: data.state ?? null,
                         }
-                    } catch {
-                        // Silently fall back to IP-based location
+                        localStorage.setItem('foodrank_location', JSON.stringify(location.value))
                     }
+                } catch {
+                    // Keep IP-based fallback
                 }
                 detectingLocation.value = false
             },
@@ -111,6 +107,28 @@ onMounted(() => {
         )
     }
 })
+
+function detectLocation() {
+    if (!navigator.geolocation) return
+    detectingLocation.value = true
+    navigator.geolocation.getCurrentPosition(
+        async (position) => {
+            lat.value = position.coords.latitude
+            lng.value = position.coords.longitude
+            try {
+                const res = await fetch(`/api/geocode?lat=${lat.value}&lng=${lng.value}`)
+                const data = await res.json()
+                if (data.city || data.state) {
+                    location.value = { city: data.city ?? null, state: data.state ?? null }
+                    localStorage.setItem('foodrank_location', JSON.stringify(location.value))
+                }
+            } catch {}
+            detectingLocation.value = false
+        },
+        () => { detectingLocation.value = false },
+        { timeout: 10000, enableHighAccuracy: false }
+    )
+}
 
 function onCuisineSelect(payload: { category: string; cuisine?: string; label: string }) {
     selectedCategory.value = payload.category
@@ -217,7 +235,7 @@ async function loadMore() {
                     <span>Find the most Popular</span>
                     <CuisinePicker :categories="categories" @select="onCuisineSelect" />
                     <span>Restaurants in</span>
-                    <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" />
+                    <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" @detect="detectLocation" />
                 </div>
 
                 <!-- Search button -->

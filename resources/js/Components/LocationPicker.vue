@@ -26,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     update: [location: Location]
     coords: [lat: number, lng: number]
+    detect: []
 }>()
 
 const open = ref(false)
@@ -42,6 +43,11 @@ const displayText = computed(() => {
     if (props.location?.city) return props.location.city
     return 'your city'
 })
+
+function useMyLocation() {
+    open.value = false
+    emit('detect')
+}
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -132,8 +138,16 @@ function onKeydown(e: KeyboardEvent) {
 
                 <!-- Results -->
                 <div class="max-h-64 overflow-y-auto">
-                    <div v-if="query.length < 3" class="px-4 py-6 text-center text-xs text-muted-foreground">
-                        Type at least 3 characters to search
+                    <div v-if="query.length < 3" class="flex flex-col items-center gap-3 px-4 py-6">
+                        <p class="text-xs text-muted-foreground">Type at least 3 characters to search</p>
+                        <button @click="useMyLocation" class="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+                                <path d="M2 12h20"/>
+                            </svg>
+                            Use my current location
+                        </button>
                     </div>
                     <div v-else-if="results.length === 0 && !searching" class="px-4 py-6 text-center text-xs text-muted-foreground">
                         No cities found
