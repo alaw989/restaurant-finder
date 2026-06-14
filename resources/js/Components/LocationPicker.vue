@@ -53,7 +53,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(query, (val) => {
     if (debounceTimer) clearTimeout(debounceTimer)
-    if (val.length < 3) {
+    if (val.length < 2) {
         results.value = []
         return
     }
@@ -138,8 +138,8 @@ function onKeydown(e: KeyboardEvent) {
 
                 <!-- Results -->
                 <div class="max-h-64 overflow-y-auto">
-                    <div v-if="query.length < 3" class="flex flex-col items-center gap-3 px-4 py-6">
-                        <p class="text-xs text-muted-foreground">Type at least 3 characters to search</p>
+                    <div v-if="query.length < 2" class="flex flex-col items-center gap-3 px-4 py-6">
+                        <p class="text-xs text-muted-foreground">Type to search cities</p>
                         <button @click="useMyLocation" class="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="10"/>

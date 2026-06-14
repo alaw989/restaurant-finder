@@ -57,47 +57,46 @@ class GeolocationService
 
     public function searchCities(string $query): array
     {
-        if (strlen($query) < 3) return [];
+        if (strlen($query) < 2) return [];
 
         $key = 'citysearch:' . md5($query);
 
         return Cache::remember($key, now()->addDay(), function () use ($query) {
             try {
+                // Photon (Komoot) — free, no API key, built for autocomplete
                 $response = Http::timeout(5)
-                    ->withHeaders(['User-Agent' => 'FoodRank/1.0'])
-                    ->get('https://nominatim.openstreetmap.org/search', [
+                    ->get('https://photon.komoot.io/api/', [
                         'q' => $query,
-                        'format' => 'json',
-                        'limit' => 8,
-                        'addressdetails' => 1,
-                        'countrycodes' => 'us,ca',
+                        'limit' => 10,
                     ]);
 
-                if ($response->failed() || empty($response->json())) return [];
+                if ($response->failed()) return [];
 
-                return collect($response->json())
-                    ->filter(fn ($item) =>
-                        ($item['class'] ?? '') === 'boundary'
-                        && ($item['type'] ?? '') === 'administrative'
-                        && in_array($item['addresstype'] ?? '', ['city', 'town', 'village', 'municipality'])
-                    )
-                    ->map(fn ($item) => [
-                        'city' => $item['address']['city']
-                            ?? $item['address']['town']
-                            ?? $item['address']['village']
-                            ?? $item['address']['municipality']
-                            ?? $item['name']
-                            ?? null,
-                        'state' => $item['address']['state']
-                            ?? $item['address']['region']
-                            ?? null,
-                        'country' => $item['address']['country_code']
-                            ?? null,
-                        'lat' => (float) $item['lat'],
-                        'lng' => (float) $item['lon'],
-                        'display' => $item['display_name'] ?? null,
+                $data = $response->json();
+                $features = $data['features'] ?? [];
+
+                return collect($features)
+                    ->filter(fn ($f) => in_array(
+                        $f['properties']['osm_value'] ?? '',
+                        ['city', 'town', 'village', 'hamlet', 'municipality']
+                    ))
+                    ->filter(fn ($f) => in_array(
+                        strtoupper($f['properties']['countrycode'] ?? ''),
+                        ['US', 'CA']
+                    ))
+                    ->map(fn ($f) => [
+                        'city' => $f['properties']['name'] ?? null,
+                        'state' => $f['properties']['state'] ?? null,
+                        'country' => $f['properties']['countrycode'] ?? null,
+                        'lat' => $f['geometry']['coordinates'][1] ?? null,
+                        'lng' => $f['geometry']['coordinates'][0] ?? null,
+                        'display' => trim(collect([
+                            $f['properties']['name'] ?? null,
+                            $f['properties']['state'] ?? null,
+                            $f['properties']['country'] ?? null,
+                        ])->filter()->implode(', ')),
                     ])
-                    ->filter(fn ($r) => $r['city'] !== null)
+                    ->filter(fn ($r) => $r['city'] !== null && $r['lat'] !== null)
                     ->values()
                     ->all();
             } catch (\Throwable $e) {
