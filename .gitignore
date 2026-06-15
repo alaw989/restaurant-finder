@@ -26,3 +26,10 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Tooling / MCP config
+/.claude
+/.playwright-mcp
+
+# Test screenshots
+/screenshots
