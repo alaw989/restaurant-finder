@@ -33,15 +33,31 @@ interface Restaurant {
     description: string | null
     address: string | null
     city: string | null
+    state: string | null
+    lat: number | null
+    lng: number | null
     photo_url: string | null
     price_range: string | null
+    phone: string | null
+    website_url: string | null
     google_rating: number | null
     google_review_count: number
     yelp_rating: number | null
     yelp_review_count: number
+    has_award: boolean
     popularity_score: number
     distance: number | null
     cuisines: Array<{ id: number; name: string; slug: string }>
+    source: string | null
+    score_breakdown: {
+        signals: Array<{
+            label: string
+            weight: number
+            normalized: number
+            contribution: number
+        }>
+        total: number
+    }
 }
 
 const props = defineProps<{
@@ -257,7 +273,7 @@ async function loadMore() {
             </div>
 
             <!-- Results -->
-            <div v-if="searched" class="mt-12 w-full max-w-3xl">
+            <div v-if="searched" class="mt-12 w-full max-w-5xl">
                 <div v-if="loading" class="flex flex-col items-center gap-3 py-12">
                     <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     <p class="text-sm text-muted-foreground animate-pulse">Finding the best spots...</p>

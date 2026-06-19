@@ -21,15 +21,31 @@ defineProps<{
             description: string | null;
             address: string | null;
             city: string | null;
+            state: string | null;
+            lat: number | null;
+            lng: number | null;
             photo_url: string | null;
             price_range: string | null;
+            phone: string | null;
+            website_url: string | null;
             google_rating: number | null;
             google_review_count: number;
             yelp_rating: number | null;
             yelp_review_count: number;
+            has_award: boolean;
             popularity_score: number;
             distance: number | null;
             cuisines: Array<{ id: number; name: string; slug: string }>;
+            source: string | null;
+            score_breakdown: {
+                signals: Array<{
+                    label: string;
+                    weight: number;
+                    normalized: number;
+                    contribution: number;
+                }>;
+                total: number;
+            };
         }>;
         current_page: number;
         last_page: number;

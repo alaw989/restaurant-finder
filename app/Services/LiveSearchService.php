@@ -91,12 +91,18 @@ class LiveSearchService
             'description' => null,
             'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
             'city' => $r['location']['locality'] ?? null,
+            'state' => $r['location']['region'] ?? null,
+            'lat' => $geocodes['latitude'] ?? null,
+            'lng' => $geocodes['longitude'] ?? null,
             'photo_url' => null,
             'price_range' => $r['price'] ?? null,
+            'phone' => $r['tel'] ?? null,
+            'website_url' => $r['website'] ?? null,
             'google_rating' => null,
             'google_review_count' => 0,
             'yelp_rating' => null,
             'yelp_review_count' => 0,
+            'has_award' => false,
             'popularity_score' => 0,
             'distance' => $distance,
             'cuisines' => $this->extractFoursquareCategories($r['categories'] ?? []),
@@ -166,12 +172,18 @@ class LiveSearchService
             'description' => null,
             'address' => $this->buildYelpAddress($b['location'] ?? []),
             'city' => $b['location']['city'] ?? null,
+            'state' => $b['location']['state'] ?? null,
+            'lat' => $b['coordinates']['latitude'] ?? null,
+            'lng' => $b['coordinates']['longitude'] ?? null,
             'photo_url' => $b['image_url'] ?? null,
             'price_range' => $b['price'] ?? null,
+            'phone' => $b['phone'] ?? null,
+            'website_url' => $b['url'] ?? null,
             'google_rating' => null,
             'google_review_count' => 0,
             'yelp_rating' => isset($b['rating']) ? (float) $b['rating'] : null,
             'yelp_review_count' => (int) ($b['review_count'] ?? 0),
+            'has_award' => false,
             'popularity_score' => 0,
             'distance' => $distance,
             'cuisines' => $this->extractYelpCategories($b['categories'] ?? []),
@@ -234,6 +246,35 @@ class LiveSearchService
             $reviewScore = log(1 + $totalReviews) / log(1 + $maxReviews);
 
             $r['popularity_score'] = round($ratingScore * 0.6 + $reviewScore * 0.4, 4);
+
+            $signalContributions = [];
+
+            $contribRating = round(0.6 * $ratingScore, 4);
+            if ($contribRating > 0) {
+                $signalContributions[] = [
+                    'label' => 'Rating',
+                    'weight' => 0.6,
+                    'normalized' => round($ratingScore, 4),
+                    'contribution' => $contribRating,
+                ];
+            }
+
+            $contribReviews = round(0.4 * $reviewScore, 4);
+            if ($contribReviews > 0) {
+                $signalContributions[] = [
+                    'label' => 'Reviews',
+                    'weight' => 0.4,
+                    'normalized' => round($reviewScore, 4),
+                    'contribution' => $contribReviews,
+                ];
+            }
+
+            usort($signalContributions, fn ($a, $b) => $b['contribution'] <=> $a['contribution']);
+
+            $r['score_breakdown'] = [
+                'signals' => $signalContributions,
+                'total' => $r['popularity_score'],
+            ];
         }
 
         usort($results, fn ($a, $b) => $b['popularity_score'] <=> $a['popularity_score']);

@@ -76,6 +76,16 @@ class PopularityScoreService
      */
     public function calculateScore(Restaurant $restaurant, Collection $allRestaurants): float
     {
+        return $this->calculateBreakdown($restaurant, $allRestaurants)['total'];
+    }
+
+    /**
+     * Calculate a detailed per-signal breakdown of the popularity score.
+     * Returns an array with 'signals' (label, weight, normalized, contribution)
+     * and 'total' (final rounded score).
+     */
+    public function calculateBreakdown(Restaurant $restaurant, Collection $allRestaurants): array
+    {
         // Precompute collection-level stats needed by log + min-max normalization.
         $logDenoms = [
             'yelp_review_count' => $this->logDenominator($allRestaurants, 'yelp_review_count'),
@@ -83,6 +93,16 @@ class PopularityScoreService
         ];
         $minmax = [
             'popular_times_avg_busyness' => $this->minmaxStats($allRestaurants, 'popular_times_avg_busyness'),
+        ];
+
+        $signalLabels = [
+            'yelp_rating' => 'Yelp Rating',
+            'yelp_review_count' => 'Yelp Reviews',
+            'data_completeness' => 'Profile Completeness',
+            'has_award' => 'Award',
+            'google_rating' => 'Google Rating',
+            'google_review_count' => 'Google Reviews',
+            'popular_times_avg_busyness' => 'Busyness',
         ];
 
         $activeWeights = [];
@@ -106,20 +126,35 @@ class PopularityScoreService
 
         $totalActiveWeight = array_sum($activeWeights);
         if ($totalActiveWeight <= 0.0) {
-            return 0.0;
+            return ['signals' => [], 'total' => 0.0];
         }
 
+        $signals = [];
         $score = 0.0;
         foreach ($activeWeights as $signal => $weight) {
-            $score += ($weight / $totalActiveWeight) * ($activeNormalized[$signal] ?? 0.0);
+            $normalized = $activeNormalized[$signal] ?? 0.0;
+            $contribution = ($weight / $totalActiveWeight) * $normalized;
+            $score += $contribution;
+            $signals[] = [
+                'label' => $signalLabels[$signal] ?? $signal,
+                'weight' => round($weight / $totalActiveWeight, 4),
+                'normalized' => round($normalized, 4),
+                'contribution' => round($contribution, 4),
+            ];
         }
 
-        // Guard against NaN / INF (e.g. from a misconfigured log denominator).
+        // Sort by contribution descending
+        usort($signals, fn ($a, $b) => $b['contribution'] <=> $a['contribution']);
+
+        // Guard against NaN / INF
         if (!is_finite($score)) {
-            return 0.0;
+            return ['signals' => [], 'total' => 0.0];
         }
 
-        return round($score, 4);
+        return [
+            'signals' => $signals,
+            'total' => round($score, 4),
+        ];
     }
 
     private function rawValue(Restaurant $restaurant, string $signal): mixed
