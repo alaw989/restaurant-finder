@@ -26,7 +26,7 @@ class FoursquareService
             return [];
         }
 
-        $cacheKey = $this->buildCacheKey('foursquare_search', compact('lat', 'lng', 'cuisine', 'radius'));
+        $cacheKey = $this->buildCacheKey('foursquare_search_v2', compact('lat', 'lng', 'cuisine', 'radius'));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -43,7 +43,7 @@ class FoursquareService
                 'query' => $cuisine,
                 'categories' => '13065',
                 'limit' => 50,
-                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories',
+                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
             ]);
 
             if ($response->failed()) {

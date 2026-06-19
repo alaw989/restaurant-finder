@@ -83,6 +83,11 @@ class LiveSearchService
     {
         $geocodes = $r['geocodes']['main'] ?? [];
         $distance = isset($r['distance']) ? round($r['distance'] / 1000, 1) : null;
+        $photos = $r['photos'] ?? [];
+        $photoUrl = null;
+        if (!empty($photos) && isset($photos[0]['prefix'], $photos[0]['suffix'])) {
+            $photoUrl = $photos[0]['prefix'] . '300x300' . $photos[0]['suffix'];
+        }
 
         return [
             'id' => -1 * abs(crc32('foursquare:' . ($r['fsq_id'] ?? ''))),
@@ -94,7 +99,7 @@ class LiveSearchService
             'state' => $r['location']['region'] ?? null,
             'lat' => $geocodes['latitude'] ?? null,
             'lng' => $geocodes['longitude'] ?? null,
-            'photo_url' => null,
+            'photo_url' => $photoUrl,
             'price_range' => $r['price'] ?? null,
             'phone' => $r['tel'] ?? null,
             'website_url' => $r['website'] ?? null,
