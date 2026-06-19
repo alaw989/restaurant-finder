@@ -10,20 +10,7 @@ class BizDataApiService
 {
     private string $baseUrl = 'https://bizdata-web.vercel.app';
 
-    private const CUISINE_KEYWORDS = [
-        'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'hunan'],
-        'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
-        'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'napoli'],
-        'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'quesadilla', 'enchilada'],
-        'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan'],
-        'thai'      => ['thai', 'pad.thai', 'tom.yum', 'lemongrass'],
-        'korean'    => ['korean', 'kimchi', 'bulgogi', 'bibimbap'],
-        'vietnamese' => ['vietnamese', 'pho', 'banh.mi'],
-        'american'  => ['american', 'burger', 'diner', 'smokehouse', 'steakhouse'],
-        'greek'     => ['greek', 'gyro', 'mediterranean'],
-    ];
-
-    public function search(float $lat, float $lng, ?string $cuisine = null, int $radius = 5, int $limit = 50): array
+    public function search(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): array
     {
         $cacheKey = 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
 
@@ -71,17 +58,11 @@ class BizDataApiService
 
     private function normalizeResults(array $businesses, float $searchLat, float $searchLng, ?string $cuisine = null): array
     {
-        $keywords = $cuisine ? $this->cuisineKeywords($cuisine) : null;
-
         $results = [];
 
         foreach ($businesses as $b) {
             $name = $b['name'] ?? null;
             if (!$name) {
-                continue;
-            }
-
-            if ($keywords !== null && !$this->nameMatchesCuisine($name, $keywords)) {
                 continue;
             }
 
@@ -121,23 +102,6 @@ class BizDataApiService
         }
 
         return $results;
-    }
-
-    private function cuisineKeywords(string $cuisine): array
-    {
-        $key = strtolower(trim($cuisine));
-        return self::CUISINE_KEYWORDS[$key] ?? [strtolower($cuisine)];
-    }
-
-    private function nameMatchesCuisine(string $name, array $keywords): bool
-    {
-        $lower = strtolower($name);
-        foreach ($keywords as $kw) {
-            if (str_contains($lower, $kw)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float

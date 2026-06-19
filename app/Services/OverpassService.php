@@ -202,11 +202,13 @@ class OverpassService
      */
     private function buildCuisineFilter(string $cuisine): string
     {
-        if (str_contains($cuisine, '|')) {
-            return $cuisine;
-        }
+        $parts = str_contains($cuisine, '|')
+            ? explode('|', $cuisine)
+            : [$cuisine];
 
-        return $cuisine;
+        $parts = array_map(fn ($p) => '(?:^|;)' . preg_quote($p, '/') . '(?:$|;)', $parts);
+
+        return implode('|', $parts);
     }
 
     /**

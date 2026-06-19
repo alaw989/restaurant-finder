@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\Log;
 class LiveSearchService
 {
     public function __construct(
-        private YelpApiService $yelpService,
         private OverpassService $overpassService,
         private BizDataApiService $bizDataService,
         private FoursquareService $foursquareService,
@@ -15,7 +14,7 @@ class LiveSearchService
 
     /**
      * Search for restaurants near coordinates using external APIs.
-     * Yelp + BizData fire in parallel; Overpass fallback when both return empty.
+     * All sources fire (BizData, Foursquare, Overpass) and are merged together.
      */
     public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null): array
     {
@@ -26,31 +25,15 @@ class LiveSearchService
         }
 
         $results = array_merge(
-            $this->fetchYelp($lat, $lng, $cuisineName),
             $this->fetchBizData($lat, $lng, $cuisineName),
             $this->fetchFoursquare($lat, $lng, $cuisineName),
+            $this->fetchOverpass($lat, $lng, $cuisineName),
         );
-
-        if (empty($results)) {
-            $results = $this->fetchOverpass($lat, $lng, $cuisineName);
-        }
 
         $results = $this->deduplicate($results);
         $results = $this->scoreResults($results);
 
         return $results;
-    }
-
-    private function fetchYelp(float $lat, float $lng, ?string $cuisine): array
-    {
-        try {
-            $businesses = $this->yelpService->searchBusinesses($lat, $lng, $cuisine);
-
-            return array_map(fn ($b) => $this->normalizeYelp($b), $businesses);
-        } catch (\Throwable $e) {
-            Log::warning('LiveSearch Yelp fetch failed', ['message' => $e->getMessage()]);
-            return [];
-        }
     }
 
     private function fetchBizData(float $lat, float $lng, ?string $cuisine): array
@@ -65,10 +48,6 @@ class LiveSearchService
 
     private function fetchFoursquare(float $lat, float $lng, ?string $cuisine): array
     {
-        if (empty($cuisine)) {
-            return [];
-        }
-
         try {
             $results = $this->foursquareService->searchNearbyRestaurants($lat, $lng, $cuisine);
 
@@ -165,60 +144,6 @@ class LiveSearchService
         return $map[$key] ?? [strtolower($cuisine)];
     }
 
-    private function normalizeYelp(array $b): array
-    {
-        $yelpId = $b['id'] ?? '';
-        $distance = isset($b['distance']) ? round($b['distance'] / 1000, 1) : null;
-
-        return [
-            'id' => -1 * abs(crc32('yelp:' . $yelpId)),
-            'name' => $b['name'] ?? 'Unknown',
-            'slug' => \Illuminate\Support\Str::slug($b['name'] ?? 'unknown') . '-' . substr(md5($yelpId), 0, 6),
-            'description' => null,
-            'address' => $this->buildYelpAddress($b['location'] ?? []),
-            'city' => $b['location']['city'] ?? null,
-            'state' => $b['location']['state'] ?? null,
-            'lat' => $b['coordinates']['latitude'] ?? null,
-            'lng' => $b['coordinates']['longitude'] ?? null,
-            'photo_url' => $b['image_url'] ?? null,
-            'price_range' => $b['price'] ?? null,
-            'phone' => $b['phone'] ?? null,
-            'website_url' => $b['url'] ?? null,
-            'google_rating' => null,
-            'google_review_count' => 0,
-            'yelp_rating' => isset($b['rating']) ? (float) $b['rating'] : null,
-            'yelp_review_count' => (int) ($b['review_count'] ?? 0),
-            'has_award' => false,
-            'popularity_score' => 0,
-            'distance' => $distance,
-            'cuisines' => $this->extractYelpCategories($b['categories'] ?? []),
-            'source' => 'yelp',
-        ];
-    }
-
-    private function buildYelpAddress(array $location): ?string
-    {
-        $parts = array_filter([
-            $location['address1'] ?? null,
-            $location['address2'] ?? null,
-            $location['address3'] ?? null,
-        ]);
-
-        return $parts ? implode(', ', $parts) : null;
-    }
-
-    private function extractYelpCategories(array $categories): array
-    {
-        return collect($categories)
-            ->map(fn ($c) => [
-                'id' => abs(crc32($c['alias'] ?? '')),
-                'name' => $c['title'] ?? '',
-                'slug' => \Illuminate\Support\Str::slug($c['alias'] ?? ''),
-            ])
-            ->values()
-            ->all();
-    }
-
     private function deduplicate(array $results): array
     {
         $seen = [];
@@ -241,36 +166,51 @@ class LiveSearchService
             ($r['yelp_review_count'] ?? 0) + ($r['google_review_count'] ?? 0)
         ) ?: 1;
 
+        $maxDistance = collect($results)->max(fn ($r) => $r['distance'] ?? 0) ?: 1;
+
         foreach ($results as &$r) {
-            $ratingScore = (
-                (($r['yelp_rating'] ?? 0) * 0.5) +
-                (($r['google_rating'] ?? 0) * 0.5)
-            ) / 5;
-
-            $totalReviews = ($r['yelp_review_count'] ?? 0) + ($r['google_review_count'] ?? 0);
-            $reviewScore = log(1 + $totalReviews) / log(1 + $maxReviews);
-
-            $r['popularity_score'] = round($ratingScore * 0.6 + $reviewScore * 0.4, 4);
-
+            $hasRating = ($r['yelp_rating'] ?? null) !== null || ($r['google_rating'] ?? null) !== null;
             $signalContributions = [];
 
-            $contribRating = round(0.6 * $ratingScore, 4);
-            if ($contribRating > 0) {
-                $signalContributions[] = [
-                    'label' => 'Rating',
-                    'weight' => 0.6,
-                    'normalized' => round($ratingScore, 4),
-                    'contribution' => $contribRating,
-                ];
-            }
+            if ($hasRating) {
+                $ratingScore = (
+                    (($r['yelp_rating'] ?? 0) * 0.5) +
+                    (($r['google_rating'] ?? 0) * 0.5)
+                ) / 5;
 
-            $contribReviews = round(0.4 * $reviewScore, 4);
-            if ($contribReviews > 0) {
+                $totalReviews = ($r['yelp_review_count'] ?? 0) + ($r['google_review_count'] ?? 0);
+                $reviewScore = log(1 + $totalReviews) / log(1 + $maxReviews);
+
+                $r['popularity_score'] = round($ratingScore * 0.6 + $reviewScore * 0.4, 4);
+
+                $contribRating = round(0.6 * $ratingScore, 4);
+                if ($contribRating > 0) {
+                    $signalContributions[] = [
+                        'label' => 'Rating',
+                        'weight' => 0.6,
+                        'normalized' => round($ratingScore, 4),
+                        'contribution' => $contribRating,
+                    ];
+                }
+
+                $contribReviews = round(0.4 * $reviewScore, 4);
+                if ($contribReviews > 0) {
+                    $signalContributions[] = [
+                        'label' => 'Reviews',
+                        'weight' => 0.4,
+                        'normalized' => round($reviewScore, 4),
+                        'contribution' => $contribReviews,
+                    ];
+                }
+            } else {
+                $distanceScore = $maxDistance > 0 ? 1 - (($r['distance'] ?? 0) / $maxDistance) : 0;
+                $r['popularity_score'] = round(0.1 + $distanceScore * 0.2, 4);
+
                 $signalContributions[] = [
-                    'label' => 'Reviews',
-                    'weight' => 0.4,
-                    'normalized' => round($reviewScore, 4),
-                    'contribution' => $contribReviews,
+                    'label' => 'Proximity',
+                    'weight' => 1.0,
+                    'normalized' => round($distanceScore, 4),
+                    'contribution' => round($distanceScore * 0.3, 4),
                 ];
             }
 

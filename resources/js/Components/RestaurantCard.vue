@@ -7,6 +7,25 @@ import ResultMap from '@/Components/ResultMap.vue';
 import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
+const cuisineGradient = (slug: string): string => {
+    const gradients: Record<string, string> = {
+        italian: 'linear-gradient(135deg, #e63946 0%, #f1faee 50%, #457b9d 100%)',
+        mexican: 'linear-gradient(135deg, #f77f00 0%, #fcbf49 20%, #d62828 100%)',
+        chinese: 'linear-gradient(135deg, #d90429 0%, #ef233c 30%, #8d0801 100%)',
+        japanese: 'linear-gradient(135deg, #e63946 0%, #f4a261 40%, #264653 100%)',
+        thai: 'linear-gradient(135deg, #e63946 0%, #e9c46a 40%, #2a9d8f 100%)',
+        indian: 'linear-gradient(135deg, #e76f51 0%, #f4a261 30%, #264653 100%)',
+        american: 'linear-gradient(135deg, #457b9d 0%, #1d3557 50%, #e63946 100%)',
+        greek: 'linear-gradient(135deg, #457b9d 0%, #a8dadc 40%, #f1faee 100%)',
+        korean: 'linear-gradient(135deg, #d62828 0%, #e76f51 40%, #264653 100%)',
+        vietnamese: 'linear-gradient(135deg, #2a9d8f 0%, #e9c46a 40%, #f4a261 100%)',
+        pizza: 'linear-gradient(135deg, #e63946 0%, #f1faee 40%, #a8dadc 100%)',
+        burger: 'linear-gradient(135deg, #d62828 0%, #f77f00 50%, #fcbf49 100%)',
+        sushi: 'linear-gradient(135deg, #264653 0%, #2a9d8f 40%, #e9c46a 100%)',
+    };
+    return gradients[slug] ?? 'linear-gradient(135deg, #1d3557 0%, #457b9d 30%, #a8dadc 100%)';
+};
+
 const props = defineProps<{
     restaurant: {
         id: number;
@@ -60,7 +79,6 @@ const rankLabel = computed(() => {
 
 const sourceColor = computed(() => {
     switch (props.restaurant.source) {
-        case 'yelp': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
         case 'foursquare': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
         case 'overpass': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
         case 'bizdata': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
@@ -74,10 +92,12 @@ const displayRating = computed(() => {
     return null;
 });
 
-const photoSrc = computed(() => {
-    if (props.restaurant.photo_url) return props.restaurant.photo_url
-    const firstCuisine = props.restaurant.cuisines[0]?.slug || 'food'
-    return `https://picsum.photos/seed/${firstCuisine}/400/300`
+const bgStyle = computed(() => {
+    const gradient = cuisineGradient(props.restaurant.cuisines[0]?.slug || 'food')
+    if (props.restaurant.photo_url) {
+        return { backgroundImage: `url(${props.restaurant.photo_url}), ${gradient}` }
+    }
+    return { backgroundImage: gradient }
 })
 
 const mapCoords = computed(() => {
@@ -140,7 +160,7 @@ function openWebsite(url: string) {
             <div class="relative h-44 w-full overflow-hidden sm:h-52">
                 <div
                     class="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
-                    :style="{ backgroundImage: `url(${photoSrc})` }"
+                    :style="bgStyle"
                 />
 
                 <!-- Dark gradient overlay at bottom for readability -->

@@ -39,10 +39,6 @@ return [
         'places_key' => env('GOOGLE_PLACES_API_KEY'),
     ],
 
-    'yelp' => [
-        'api_key' => env('YELP_API_KEY'),
-    ],
-
     'outscraper' => [
         'api_key' => env('OUTSCRAPER_API_KEY'),
     ],

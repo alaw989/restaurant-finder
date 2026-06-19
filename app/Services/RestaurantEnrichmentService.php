@@ -26,7 +26,6 @@ class RestaurantEnrichmentService
 
     public function __construct(
         private GooglePlacesService $googlePlaces,
-        private YelpApiService $yelpApi,
         private OutscraperService $outscraper,
         private OverpassService $overpass,
         private BizDataApiService $bizData,
@@ -41,48 +40,20 @@ class RestaurantEnrichmentService
      */
     public function enrichByCuisine(float $lat, float $lng, Cuisine $cuisine): int
     {
-        // 1. Yelp (primary free source; returns [] with no key)
-        $yelpBusinesses = $this->yelpApi->searchBusinesses($lat, $lng, $cuisine->name);
-        $venues = array_map(fn ($b) => $this->normalizeYelpVenue($b), $yelpBusinesses);
+        $venues = [];
 
-        $yelpIndex = $this->buildYelpIndex($yelpBusinesses);
-
-        // 2. BizData (free, no key) — deduped against Yelp
+        // 1. BizData
         foreach ($this->fetchBizData($lat, $lng, $cuisine->name) as $bd) {
-            $bdLat = $bd['lat'] ?? null;
-            $bdLng = $bd['lng'] ?? null;
-
-            if ($bdLat !== null && $bdLng !== null
-                && $this->matchYelpBusiness($bd['name'] ?? null, (float) $bdLat, (float) $bdLng, $yelpIndex) !== null) {
-                continue;
-            }
-
             $venues[] = $this->normalizeBizDataVenue($bd);
         }
 
-        // 3. Foursquare (free with key, 500/mo) — deduped against Yelp
+        // 2. Foursquare
         foreach ($this->fetchFoursquare($lat, $lng, $cuisine->name) as $fs) {
-            $fsLat = $fs['lat'] ?? null;
-            $fsLng = $fs['lng'] ?? null;
-
-            if ($fsLat !== null && $fsLng !== null
-                && $this->matchYelpBusiness($fs['name'] ?? null, (float) $fsLat, (float) $fsLng, $yelpIndex) !== null) {
-                continue;
-            }
-
             $venues[] = $this->normalizeFoursquareVenue($fs);
         }
 
-        // 4. Overpass backfill — deduped against Yelp (free, no key)
+        // 3. Overpass
         foreach ($this->fetchOverpass($lat, $lng, $cuisine->name) as $osm) {
-            $osmLat = $osm['lat'] ?? null;
-            $osmLng = $osm['lng'] ?? null;
-
-            if ($osmLat !== null && $osmLng !== null
-                && $this->matchYelpBusiness($osm['name'] ?? null, (float) $osmLat, (float) $osmLng, $yelpIndex) !== null) {
-                continue;
-            }
-
             $venues[] = $this->normalizeOverpassVenue($osm);
         }
 
@@ -110,6 +81,8 @@ class RestaurantEnrichmentService
                 ]);
             }
         }
+
+        $restaurantIds = array_unique($restaurantIds);
 
         if (empty($restaurantIds)) {
             return 0;
@@ -176,35 +149,6 @@ class RestaurantEnrichmentService
             Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
             return [];
         }
-    }
-
-    /**
-     * Build a common venue shape from a raw Yelp business.
-     *
-     * @return array{name: string, lat: ?float, lng: ?float, yelp_business_id: ?string, source: string}
-     */
-    private function normalizeYelpVenue(array $b): array
-    {
-        $location = $b['location'] ?? [];
-        $coords = $b['coordinates'] ?? [];
-
-        return [
-            'yelp_business_id' => $b['id'] ?? null,
-            'name' => $b['name'] ?? 'Unknown',
-            'lat' => isset($coords['latitude']) ? (float) $coords['latitude'] : null,
-            'lng' => isset($coords['longitude']) ? (float) $coords['longitude'] : null,
-            'address' => $this->buildYelpAddress($location),
-            'city' => $location['city'] ?? null,
-            'state' => $location['state'] ?? null,
-            'postal_code' => $location['zip_code'] ?? null,
-            'country' => $location['country'] ?? null,
-            'phone' => $b['phone'] ?? null,
-            'price_range' => $b['price'] ?? null,
-            'photo_url' => $b['image_url'] ?? null,
-            'yelp_rating' => isset($b['rating']) ? (float) $b['rating'] : null,
-            'yelp_review_count' => (int) ($b['review_count'] ?? 0),
-            'source' => 'yelp',
-        ];
     }
 
     /**
@@ -342,9 +286,7 @@ class RestaurantEnrichmentService
             $restaurant = Restaurant::create($attributes);
         }
 
-        if ($venue['source'] === 'yelp') {
-            $restaurant->cuisines()->syncWithoutDetaching([$cuisine->id]);
-        }
+        $restaurant->cuisines()->syncWithoutDetaching([$cuisine->id]);
 
         return $restaurant;
     }
@@ -507,54 +449,6 @@ class RestaurantEnrichmentService
     }
 
     /**
-     * Build an index of Yelp businesses keyed by lowercase name for matching.
-     */
-    private function buildYelpIndex(array $yelpResults): array
-    {
-        $index = [];
-        foreach ($yelpResults as $business) {
-            $name = strtolower(trim($business['name'] ?? ''));
-            if ($name !== '') {
-                $index[$name] = $business;
-            }
-        }
-        return $index;
-    }
-
-    /**
-     * Attempt to match a restaurant to a Yelp business by name proximity and
-     * geographic distance (≤200m).
-     */
-    private function matchYelpBusiness(?string $name, float $lat, float $lng, array $yelpIndex): ?array
-    {
-        if ($name === null) {
-            return null;
-        }
-
-        $normalizedName = strtolower(trim($name));
-
-        if (isset($yelpIndex[$normalizedName])) {
-            return $yelpIndex[$normalizedName];
-        }
-
-        foreach ($yelpIndex as $yelpName => $business) {
-            if (!$this->namesMatch($normalizedName, $yelpName)) {
-                continue;
-            }
-
-            $businessLat = $business['coordinates']['latitude'] ?? null;
-            $businessLng = $business['coordinates']['longitude'] ?? null;
-
-            if ($businessLat !== null && $businessLng !== null
-                && $this->haversineDistance($lat, $lng, (float) $businessLat, (float) $businessLng) <= self::MATCH_RADIUS_KM) {
-                return $business;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Exact (case-insensitive) match or a high name-similarity ratio. Replaces
      * bare str_contains, which false-matched distinct venues whose names are
      * substrings of one another (e.g. "Pizza" vs "Pizza Express").
@@ -572,17 +466,6 @@ class RestaurantEnrichmentService
         similar_text($a, $b, $percent);
 
         return $percent >= 85.0;
-    }
-
-    private function buildYelpAddress(array $location): ?string
-    {
-        $parts = array_filter([
-            $location['address1'] ?? null,
-            $location['address2'] ?? null,
-            $location['address3'] ?? null,
-        ]);
-
-        return $parts ? implode(', ', $parts) : null;
     }
 
     private function buildGooglePhotoUrl(string $photoReference): string
