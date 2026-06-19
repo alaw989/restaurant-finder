@@ -46,7 +46,14 @@ class LiveSearchService
     private function fetchOverpass(float $lat, float $lng, ?string $cuisine): array
     {
         try {
-            return $this->overpassService->search($lat, $lng, $cuisine);
+            $results = $this->overpassService->search($lat, $lng, $cuisine);
+            if (!empty($results)) {
+                return $results;
+            }
+            // Cuisine-tagged search returned nothing — retry without cuisine
+            // filter.  Many OSM restaurants lack a cuisine tag, especially in
+            // smaller cities, so a hard filter produces false negatives.
+            return $this->overpassService->search($lat, $lng, null);
         } catch (\Throwable $e) {
             Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
             return [];
