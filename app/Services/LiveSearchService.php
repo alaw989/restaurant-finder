@@ -9,17 +9,23 @@ class LiveSearchService
     public function __construct(
         private YelpApiService $yelpService,
         private OverpassService $overpassService,
+        private BizDataApiService $bizDataService,
+        private FoursquareService $foursquareService,
     ) {}
 
     /**
      * Search for restaurants near coordinates using external APIs.
-     * Falls back from Yelp → Overpass.
+     * Yelp + BizData fire in parallel; Overpass fallback when both return empty.
      */
     public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null): array
     {
         $cuisineName = $this->resolveCuisineName($cuisineSlug);
 
-        $results = $this->fetchYelp($lat, $lng, $cuisineName);
+        $results = array_merge(
+            $this->fetchYelp($lat, $lng, $cuisineName),
+            $this->fetchBizData($lat, $lng, $cuisineName),
+            $this->fetchFoursquare($lat, $lng, $cuisineName),
+        );
 
         if (empty($results)) {
             $results = $this->fetchOverpass($lat, $lng, $cuisineName);
@@ -41,6 +47,67 @@ class LiveSearchService
             Log::warning('LiveSearch Yelp fetch failed', ['message' => $e->getMessage()]);
             return [];
         }
+    }
+
+    private function fetchBizData(float $lat, float $lng, ?string $cuisine): array
+    {
+        try {
+            return $this->bizDataService->search($lat, $lng, $cuisine);
+        } catch (\Throwable $e) {
+            Log::warning('LiveSearch BizData fetch failed', ['message' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    private function fetchFoursquare(float $lat, float $lng, ?string $cuisine): array
+    {
+        if (empty($cuisine)) {
+            return [];
+        }
+
+        try {
+            $results = $this->foursquareService->searchNearbyRestaurants($lat, $lng, $cuisine);
+
+            return array_map(fn ($r) => $this->normalizeFoursquare($r), $results);
+        } catch (\Throwable $e) {
+            Log::warning('LiveSearch Foursquare fetch failed', ['message' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    private function normalizeFoursquare(array $r): array
+    {
+        $geocodes = $r['geocodes']['main'] ?? [];
+        $distance = isset($r['distance']) ? round($r['distance'] / 1000, 1) : null;
+
+        return [
+            'id' => -1 * abs(crc32('foursquare:' . ($r['fsq_id'] ?? ''))),
+            'name' => $r['name'] ?? 'Unknown',
+            'slug' => \Illuminate\Support\Str::slug($r['name'] ?? 'unknown') . '-' . substr(md5($r['fsq_id'] ?? ''), 0, 6),
+            'description' => null,
+            'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
+            'city' => $r['location']['locality'] ?? null,
+            'photo_url' => null,
+            'price_range' => $r['price'] ?? null,
+            'google_rating' => null,
+            'google_review_count' => 0,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'popularity_score' => 0,
+            'distance' => $distance,
+            'cuisines' => $this->extractFoursquareCategories($r['categories'] ?? []),
+            'source' => 'foursquare',
+        ];
+    }
+
+    private function extractFoursquareCategories(array $categories): array
+    {
+        return collect($categories)
+            ->map(fn ($c) => [
+                'id' => $c['id'] ?? abs(crc32($c['name'] ?? '')),
+                'name' => $c['name'] ?? '',
+                'slug' => \Illuminate\Support\Str::slug($c['name'] ?? ''),
+            ])->values()->all();
     }
 
     private function fetchOverpass(float $lat, float $lng, ?string $cuisine): array

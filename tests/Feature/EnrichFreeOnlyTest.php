@@ -61,6 +61,7 @@ class EnrichFreeOnlyTest extends TestCase
 
         Http::fake([
             'api.yelp.com/*' => Http::response(['businesses' => [$this->yelpBusiness('yelp-abc', 'Test Italian')]], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -111,6 +112,7 @@ class EnrichFreeOnlyTest extends TestCase
 
         Http::fake([
             'api.yelp.com/*' => Http::response(['businesses' => $venues], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -152,6 +154,7 @@ class EnrichFreeOnlyTest extends TestCase
 
         Http::fake([
             'api.yelp.com/*' => Http::response(['businesses' => [$this->yelpBusiness('yelp-skip', 'Skip Google')]], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -169,6 +172,7 @@ class EnrichFreeOnlyTest extends TestCase
         Config::set('services.google.places_key', null);
 
         Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     [
@@ -211,6 +215,7 @@ class EnrichFreeOnlyTest extends TestCase
             'api.yelp.com/*' => Http::response([
                 'businesses' => [$this->yelpBusiness('yelp-dup', 'Shared Venue')],
             ], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             // OSM returns the SAME venue within 200m — should be dropped.
             'overpass-api.de/*' => Http::response([
                 'elements' => [
@@ -240,6 +245,7 @@ class EnrichFreeOnlyTest extends TestCase
 
         Http::fake([
             'api.yelp.com/*' => Http::response(['businesses' => [$this->yelpBusiness('yelp-google', 'Google Match')]], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
             'maps.googleapis.com/maps/api/place/nearbysearch/*' => Http::response([
@@ -293,6 +299,7 @@ class EnrichFreeOnlyTest extends TestCase
 
         Http::fake([
             'api.yelp.com/*' => Http::response(['businesses' => [$this->yelpBusiness('yelp-promo', 'Promo Venue')]], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -326,6 +333,7 @@ class EnrichFreeOnlyTest extends TestCase
         Config::set('services.google.places_key', null);
 
         Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     [
@@ -361,6 +369,7 @@ class EnrichFreeOnlyTest extends TestCase
             'api.yelp.com/*' => Http::response([
                 'businesses' => [$this->yelpBusiness('yelp-nocoord', 'No Coords Italian', [])],
             ], 200),
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -386,6 +395,7 @@ class EnrichFreeOnlyTest extends TestCase
         Config::set('services.google.places_key', null);
 
         Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     [

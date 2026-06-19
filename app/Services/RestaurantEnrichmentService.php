@@ -29,6 +29,8 @@ class RestaurantEnrichmentService
         private YelpApiService $yelpApi,
         private OutscraperService $outscraper,
         private OverpassService $overpass,
+        private BizDataApiService $bizData,
+        private FoursquareService $foursquareService,
         private WikidataService $wikidata,
         private PopularityScoreService $popularityScore,
     ) {}
@@ -43,16 +45,42 @@ class RestaurantEnrichmentService
         $yelpBusinesses = $this->yelpApi->searchBusinesses($lat, $lng, $cuisine->name);
         $venues = array_map(fn ($b) => $this->normalizeYelpVenue($b), $yelpBusinesses);
 
-        // 2. Overpass backfill + 3. merge (drop OSM venues already covered by Yelp)
         $yelpIndex = $this->buildYelpIndex($yelpBusinesses);
 
+        // 2. BizData (free, no key) — deduped against Yelp
+        foreach ($this->fetchBizData($lat, $lng, $cuisine->name) as $bd) {
+            $bdLat = $bd['lat'] ?? null;
+            $bdLng = $bd['lng'] ?? null;
+
+            if ($bdLat !== null && $bdLng !== null
+                && $this->matchYelpBusiness($bd['name'] ?? null, (float) $bdLat, (float) $bdLng, $yelpIndex) !== null) {
+                continue;
+            }
+
+            $venues[] = $this->normalizeBizDataVenue($bd);
+        }
+
+        // 3. Foursquare (free with key, 500/mo) — deduped against Yelp
+        foreach ($this->fetchFoursquare($lat, $lng, $cuisine->name) as $fs) {
+            $fsLat = $fs['lat'] ?? null;
+            $fsLng = $fs['lng'] ?? null;
+
+            if ($fsLat !== null && $fsLng !== null
+                && $this->matchYelpBusiness($fs['name'] ?? null, (float) $fsLat, (float) $fsLng, $yelpIndex) !== null) {
+                continue;
+            }
+
+            $venues[] = $this->normalizeFoursquareVenue($fs);
+        }
+
+        // 4. Overpass backfill — deduped against Yelp (free, no key)
         foreach ($this->fetchOverpass($lat, $lng, $cuisine->name) as $osm) {
             $osmLat = $osm['lat'] ?? null;
             $osmLng = $osm['lng'] ?? null;
 
             if ($osmLat !== null && $osmLng !== null
                 && $this->matchYelpBusiness($osm['name'] ?? null, (float) $osmLat, (float) $osmLng, $yelpIndex) !== null) {
-                continue; // Yelp already covers this venue
+                continue;
             }
 
             $venues[] = $this->normalizeOverpassVenue($osm);
@@ -67,7 +95,7 @@ class RestaurantEnrichmentService
             return 0;
         }
 
-        // 4. Persist each free venue
+        // 5. Persist each free venue
         $restaurantIds = [];
         foreach ($venues as $venue) {
             try {
@@ -89,13 +117,13 @@ class RestaurantEnrichmentService
 
         $restaurants = Restaurant::whereIn('id', $restaurantIds)->get();
 
-        // 5. Optional paid bonus (Google + Outscraper) — mutates models in place
+        // 6. Optional paid bonus (Google + Outscraper) — mutates models in place
         $this->enrichPaidBonus($restaurants, $lat, $lng, $cuisine);
 
-        // 6. Optional award (Wikidata, free) — one box query, match each row
+        // 7. Optional award (Wikidata, free) — one box query, match each row
         $this->enrichAwards($restaurants, $lat, $lng);
 
-        // 7. Score the persisted set together (uses the now-bonus-enriched models)
+        // 8. Score the persisted set together (uses the now-bonus-enriched models)
         foreach ($restaurants as $restaurant) {
             try {
                 $score = $this->popularityScore->calculateScore($restaurant, $restaurants);
@@ -126,6 +154,26 @@ class RestaurantEnrichmentService
             return $this->overpass->search($lat, $lng, $cuisine);
         } catch (\Throwable $e) {
             Log::warning('Overpass backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    private function fetchBizData(float $lat, float $lng, string $cuisine): array
+    {
+        try {
+            return $this->bizData->search($lat, $lng, $cuisine);
+        } catch (\Throwable $e) {
+            Log::warning('BizData backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    private function fetchFoursquare(float $lat, float $lng, string $cuisine): array
+    {
+        try {
+            return $this->foursquareService->searchNearbyRestaurants($lat, $lng, $cuisine);
+        } catch (\Throwable $e) {
+            Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
             return [];
         }
     }
@@ -180,6 +228,50 @@ class RestaurantEnrichmentService
             'yelp_rating' => null,
             'yelp_review_count' => 0,
             'source' => 'overpass',
+        ];
+    }
+
+    private function normalizeBizDataVenue(array $r): array
+    {
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
+            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
+            'address' => $r['address'] ?? null,
+            'city' => null,
+            'state' => null,
+            'postal_code' => null,
+            'country' => null,
+            'phone' => $r['phone'] ?? null,
+            'price_range' => null,
+            'photo_url' => null,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'source' => 'bizdata',
+        ];
+    }
+
+    private function normalizeFoursquareVenue(array $r): array
+    {
+        $geocodes = $r['geocodes']['main'] ?? [];
+
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($geocodes['latitude']) ? (float) $geocodes['latitude'] : null,
+            'lng' => isset($geocodes['longitude']) ? (float) $geocodes['longitude'] : null,
+            'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
+            'city' => $r['location']['locality'] ?? null,
+            'state' => $r['location']['region'] ?? null,
+            'postal_code' => $r['location']['postcode'] ?? null,
+            'country' => $r['location']['country'] ?? null,
+            'phone' => $r['tel'] ?? null,
+            'price_range' => $r['price'] ?? null,
+            'photo_url' => null,
+            'yelp_rating' => $r['rating'] ?? null,
+            'yelp_review_count' => 0,
+            'source' => 'foursquare',
         ];
     }
 
