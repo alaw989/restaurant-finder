@@ -21,6 +21,10 @@ class LiveSearchService
     {
         $cuisineName = $this->resolveCuisineName($cuisineSlug);
 
+        if ($cuisineSlug !== null && $cuisineName === null) {
+            return [];
+        }
+
         $results = array_merge(
             $this->fetchYelp($lat, $lng, $cuisineName),
             $this->fetchBizData($lat, $lng, $cuisineName),

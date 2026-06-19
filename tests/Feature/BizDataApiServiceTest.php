@@ -41,8 +41,8 @@ class BizDataApiServiceTest extends TestCase
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(
                 $this->fakeBizDataResponse([
-                    $this->makeBusiness('BizData Bistro', 37.7749, -122.4194, '+14155550123', 'https://bistro.example.com', '456 Market St', 'Mo-Sa 11:00-22:00'),
-                    $this->makeBusiness('BizData Cafe', 37.7849, -122.4094),
+                    $this->makeBusiness('Italian Bistro', 37.7749, -122.4194, '+14155550123', 'https://bistro.example.com', '456 Market St', 'Mo-Sa 11:00-22:00'),
+                    $this->makeBusiness('Pasta Palace', 37.7849, -122.4094),
                 ]),
                 200
             ),
@@ -54,7 +54,7 @@ class BizDataApiServiceTest extends TestCase
         $this->assertCount(2, $results);
 
         $first = $results[0];
-        $this->assertSame('BizData Bistro', $first['name']);
+        $this->assertSame('Italian Bistro', $first['name']);
         $this->assertSame('bizdata', $first['source']);
         $this->assertSame(37.7749, $first['lat']);
         $this->assertSame(-122.4194, $first['lng']);
@@ -178,7 +178,8 @@ class BizDataApiServiceTest extends TestCase
             return str_contains($url, 'location=37.7749%2C-122.4194')
                 && str_contains($url, 'category=restaurant')
                 && str_contains($url, 'radius_km=10')
-                && str_contains($url, 'limit=100');
+                && str_contains($url, 'limit=100')
+                && str_contains($url, 'query=japanese');
         });
     }
 }
