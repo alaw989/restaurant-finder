@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import StarRating from '@/Components/StarRating.vue';
@@ -8,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
-defineProps<{
+const props = defineProps<{
     categorySlug: string | null;
     restaurant: {
         id: number;
@@ -45,6 +46,12 @@ defineProps<{
         };
     };
 }>();
+
+const photoSrc = computed(() => {
+    if (props.restaurant.photo_url) return props.restaurant.photo_url
+    const firstCuisine = props.restaurant.cuisines[0]?.slug || 'food'
+    return `https://picsum.photos/seed/${firstCuisine}/800/600`
+})
 
 function callPhone(phone: string) {
     window.location.href = `tel:${phone}`;
@@ -83,14 +90,10 @@ function openWebsite(url: string) {
             <div class="mt-4 grid gap-8 lg:grid-cols-5">
                 <div class="lg:col-span-3">
                     <div class="overflow-hidden rounded-xl">
-                        <div
-                            v-if="restaurant.photo_url"
-                            class="h-72 w-full bg-muted bg-cover bg-center sm:h-96"
-                            :style="{ backgroundImage: `url(${restaurant.photo_url})` }"
-                        />
-                        <div v-else class="flex h-72 w-full items-center justify-center bg-gradient-to-br from-muted to-muted/50 sm:h-96">
-                            <span class="text-8xl text-muted-foreground/50">🍽️</span>
-                        </div>
+                    <div
+                        class="h-72 w-full bg-cover bg-center sm:h-96"
+                        :style="{ backgroundImage: `url(${photoSrc})` }"
+                    />
                     </div>
                 </div>
 

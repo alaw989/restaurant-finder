@@ -74,6 +74,12 @@ const displayRating = computed(() => {
     return null;
 });
 
+const photoSrc = computed(() => {
+    if (props.restaurant.photo_url) return props.restaurant.photo_url
+    const firstCuisine = props.restaurant.cuisines[0]?.slug || 'food'
+    return `https://picsum.photos/seed/${firstCuisine}/400/300`
+})
+
 const mapCoords = computed(() => {
     if (props.restaurant.lat != null && props.restaurant.lng != null) {
         return { lat: props.restaurant.lat, lng: props.restaurant.lng };
@@ -133,16 +139,9 @@ function openWebsite(url: string) {
             <!-- Photo section -->
             <div class="relative h-44 w-full overflow-hidden sm:h-52">
                 <div
-                    v-if="restaurant.photo_url"
                     class="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
-                    :style="{ backgroundImage: `url(${restaurant.photo_url})` }"
+                    :style="{ backgroundImage: `url(${photoSrc})` }"
                 />
-                <div
-                    v-else
-                    class="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/50"
-                >
-                    <span class="text-5xl opacity-40">🍽️</span>
-                </div>
 
                 <!-- Dark gradient overlay at bottom for readability -->
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
