@@ -342,7 +342,9 @@ class RestaurantEnrichmentService
             $restaurant = Restaurant::create($attributes);
         }
 
-        $restaurant->cuisines()->syncWithoutDetaching([$cuisine->id]);
+        if ($venue['source'] === 'yelp') {
+            $restaurant->cuisines()->syncWithoutDetaching([$cuisine->id]);
+        }
 
         return $restaurant;
     }

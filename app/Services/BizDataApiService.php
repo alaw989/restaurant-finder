@@ -11,16 +11,16 @@ class BizDataApiService
     private string $baseUrl = 'https://bizdata-web.vercel.app';
 
     private const CUISINE_KEYWORDS = [
-        'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
-        'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
+        'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'hunan'],
+        'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
         'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'napoli'],
-        'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada'],
-        'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan', 'taj', 'raja'],
-        'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
-        'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
-        'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
-        'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse'],
-        'greek'     => ['greek', 'gyro', 'mediterranean', 'olive'],
+        'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'quesadilla', 'enchilada'],
+        'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan'],
+        'thai'      => ['thai', 'pad.thai', 'tom.yum', 'lemongrass'],
+        'korean'    => ['korean', 'kimchi', 'bulgogi', 'bibimbap'],
+        'vietnamese' => ['vietnamese', 'pho', 'banh.mi'],
+        'american'  => ['american', 'burger', 'diner', 'smokehouse', 'steakhouse'],
+        'greek'     => ['greek', 'gyro', 'mediterranean'],
     ];
 
     public function search(float $lat, float $lng, ?string $cuisine = null, int $radius = 5, int $limit = 50): array
