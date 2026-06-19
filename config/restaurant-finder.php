@@ -45,17 +45,17 @@ return [
     |--------------------------------------------------------------------------
     | Ranking weights + normalization knobs
     |--------------------------------------------------------------------------
-    | Free signals (yelp_*, data_completeness, has_award) sum to 0.95 and are
-    | all that is required for a score. The two google_* signals are pure
-    | bonus (active only with a key + value). popular_times_avg_busyness is
-    | min-max normalized but carries 0.0 weight by default (no free source).
-    | Every weight is env-overridable; weights need not sum to 1 because the
-    | active set is always renormalized.
+    | Free signals (data_completeness, has_award, proximity) are all that is
+    | required for a score. The two google_* signals are pure bonus (active
+    | only with a key + value). popular_times_avg_busyness is min-max normalized
+    | but carries 0.0 weight by default (no free source). yelp_* weights are 0
+    | (removed). Every weight is env-overridable; weights need not sum to 1
+    | because the active set is always renormalized.
     */
     'ranking' => [
         'weights' => [
-            'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0.40),
-            'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0.30),
+            'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0),
+            'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0),
             'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.15),
             'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.10),
             'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.03),

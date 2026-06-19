@@ -10,12 +10,13 @@ class PopularityScoreService
     /**
      * Fallback weight set used when the container/config is unavailable (e.g.
      * pure unit tests). Mirrors config/restaurant-finder.php -> ranking.weights.
-     * Free signals (yelp_*, data_completeness, has_award) sum to 0.95; the two
-     * google_* signals are pure bonus; popular_times is opt-in (weight 0.0).
+     * Free signals (data_completeness, has_award, proximity) are sufficient;
+     * google_* signals are pure bonus; yelp_* signals are removed (weight 0.0);
+     * popular_times is opt-in (weight 0.0).
      */
     private const DEFAULT_WEIGHTS = [
-        'yelp_rating' => 0.40,
-        'yelp_review_count' => 0.30,
+        'yelp_rating' => 0.0,
+        'yelp_review_count' => 0.0,
         'data_completeness' => 0.15,
         'has_award' => 0.10,
         'google_rating' => 0.03,

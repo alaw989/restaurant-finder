@@ -59,11 +59,10 @@ class PopularityScoreServiceTest extends TestCase
         $all = new Collection([$restaurant]);
         $score = $this->service->calculateScore($restaurant, $all);
 
-        // yelp_rating 4.5 -> 0.9 (0.40); review_count 1000 (denom=max(1000,500)=1000)
-        // -> log(1001)/log(1001)=1.0 (0.30); completeness 8/9=0.8889 (0.15);
-        // has_award false -> 0.0 (0.10). Active weight 0.95.
-        // = 0.378947 + 0.315789 + 0.140351 + 0 = 0.835087 -> 0.8351
-        $this->assertEqualsWithDelta(0.8351, $score, 0.001);
+        // Yelp weights are 0 (removed). Only data_completeness (8/9=0.8889, weight 0.15)
+        // and has_award (false=0.0, weight 0.10) contribute. Active weight 0.25.
+        // = (0.15/0.25)*0.8889 = 0.5333
+        $this->assertEqualsWithDelta(0.5333, $score, 0.001);
     }
 
     public function test_no_data_scores_zero(): void
@@ -175,7 +174,8 @@ class PopularityScoreServiceTest extends TestCase
     public function test_log_normalization_contains_outlier(): void
     {
         // A 5000-review outlier must not crush everyone else toward zero the way
-        // min-max would. With log, the 1000-review venue still ranks well.
+        // min-max would. With Yelp removed, both venues score the same based on
+        // data_completeness since review counts no longer contribute.
         $venue = $this->makeRestaurant(array_merge($this->fullFreeFields(), [
             'yelp_review_count' => 1000,
             'yelp_rating' => 4.5,
@@ -191,9 +191,10 @@ class PopularityScoreServiceTest extends TestCase
         $venueScore = $this->service->calculateScore($venue, $all);
         $outlierScore = $this->service->calculateScore($outlier, $all);
 
-        // Outlier still wins, but the 1000-review venue is far from zero (log, not min-max).
-        $this->assertGreaterThan($venueScore, $outlierScore);
-        $this->assertGreaterThan(0.7, $venueScore);
+        // Both venues score identically since they have the same data_completeness
+        // and Yelp signals are removed (weight 0).
+        $this->assertEqualsWithDelta($venueScore, $outlierScore, 0.001);
+        $this->assertEqualsWithDelta(0.5333, $venueScore, 0.001);
     }
 
     public function test_log_floor_prevents_compression(): void
@@ -201,6 +202,9 @@ class PopularityScoreServiceTest extends TestCase
         // In a low-review collection [50, 100], a tiny floor would normalize the
         // 100-review venue to ~1.0 (everyone compressed up). The default floor
         // (500 > collectionMax) keeps it below 1.0.
+        // With Yelp removed (weight 0), log floor behavior is no longer relevant
+        // to the score, so this test verifies that floor parameter doesn't affect
+        // scores when review counts are weighted at 0.
         $venue = $this->makeRestaurant([
             'name' => 'Venue',
             'yelp_review_count' => 100,
@@ -217,7 +221,10 @@ class PopularityScoreServiceTest extends TestCase
         $defaultScore = $withDefaultFloor->calculateScore($venue, $all);
         $noFloorScore = $withNoFloor->calculateScore($venue, $all);
 
-        $this->assertGreaterThan($defaultScore, $noFloorScore);
+        // With Yelp weights at 0, review counts don't contribute to the score,
+        // so both scores should be identical (only data_completeness differs slightly
+        // due to name field).
+        $this->assertEqualsWithDelta($defaultScore, $noFloorScore, 0.001);
         $this->assertLessThan(0.5, $defaultScore); // not compressed toward 1.0
     }
 
