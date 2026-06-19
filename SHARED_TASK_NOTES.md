@@ -34,6 +34,20 @@
 - **Foursquare API**: free tier exhausted (HTTP 429). Returns 0 results until quota resets (~July 1) or credits are added.
 - **No paid keys**: `GOOGLE_PLACES_API_KEY` and `OUTSCRAPER_API_KEY` are empty — Google/Outscraper enrichment auto-skips.
 
+### Ralph Wiggum (2026-06-19)
+
+Installed per https://github.com/fstandhartinger/ralph-wiggum. Uses spec-driven development loop.
+
+**Files added:**
+- `.specify/memory/constitution.md` — single source of truth for agents
+- `AGENTS.md` / `CLAUDE.md` — point to constitution
+- `scripts/ralph-loop*.sh` — Ralph loop scripts (Claude, Codex, Gemini, Copilot)
+- `scripts/lib/RalphLoop.ps1` / `SpecQueue.ps1` — PowerShell helpers
+- `specs/` — feature specifications go here
+- `logs/`, `history/`, `completion_log/` — runtime state
+
+**To start:** `./scripts/ralph-loop.sh`
+
 ### Keys in .env (live staging)
 - `SERPAPI_API_KEY` = `acf3d8e76b570745abff059253dbe6118bc76f39d91277df3dfad9c7bf19c1df`
 - `FOURSQUARE_API_KEY` = `FA5NB5MDKN0AMX2REE2AZ04IRZVBWU1IIYO3UNZJ3O2DYOIQ`
