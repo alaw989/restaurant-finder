@@ -35,7 +35,7 @@ class OverpassService
                 // far more aggressively under load.
                 $response = Http::timeout(30)
                     ->asForm()
-                    ->withHeaders(['User-Agent' => 'FoodRank/1.0 (restaurant-finder)'])
+                    ->withHeaders(['User-Agent' => 'iPop360/1.0'])
                     ->post($mirror, [
                         'data' => $query,
                     ]);

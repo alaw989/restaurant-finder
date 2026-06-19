@@ -227,7 +227,7 @@ async function loadMore() {
                 <!-- Logo -->
                 <Link href="/" class="mb-8 inline-flex items-center gap-2 text-3xl font-bold tracking-tight text-foreground">
                     <span class="text-4xl">🍽️</span>
-                    FoodRank
+                    iPop360
                 </Link>
 
                 <!-- Dynamic sentence -->

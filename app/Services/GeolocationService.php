@@ -114,7 +114,7 @@ class GeolocationService
         return Cache::remember($key, now()->addWeek(), function () use ($query) {
             try {
                 $response = Http::timeout(3)
-                    ->withHeaders(['User-Agent' => 'FoodRank/1.0'])
+                    ->withHeaders(['User-Agent' => 'iPop360/1.0'])
                     ->get('https://nominatim.openstreetmap.org/search', [
                         'q' => $query,
                         'format' => 'json',
@@ -147,7 +147,7 @@ class GeolocationService
         return Cache::remember($key, now()->addWeek(), function () use ($lat, $lng) {
             try {
                 $response = Http::timeout(3)
-                    ->withHeaders(['User-Agent' => 'FoodRank/1.0'])
+                    ->withHeaders(['User-Agent' => 'iPop360/1.0'])
                     ->get('https://nominatim.openstreetmap.org/reverse', [
                         'lat' => $lat,
                         'lon' => $lng,

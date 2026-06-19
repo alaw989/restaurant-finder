@@ -9,7 +9,7 @@ import { Link } from '@inertiajs/vue3';
                 <div class="flex h-16 items-center justify-between">
                     <Link href="/" class="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
                         <span class="text-2xl">🍽️</span>
-                        FoodRank
+                        iPop360
                     </Link>
 
                     <div class="flex items-center gap-4">

@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Log;
 class WikidataService
 {
     private const ENDPOINT = 'https://query.wikidata.org/sparql';
-    private const USER_AGENT = 'FoodRank/1.0 (restaurant-finder; +https://github.com/restaurant-finder)';
+    private const USER_AGENT = 'iPop360/1.0';
     private const RESTAURANT = 'Q11707';        // instance-of: restaurant
     private const MICHELIN_STAR = 'Q20824563';  // received award: Michelin star
     private const DEFAULT_SIMILARITY = 0.7;
