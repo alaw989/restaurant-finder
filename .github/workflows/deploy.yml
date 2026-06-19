@@ -1,0 +1,87 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sqlite3, mbstring, xml, curl, bcmath, gd, zip, fileinfo
+          tools: composer:v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: Install Node dependencies and build
+        run: npm ci && npm run build
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DROPLET_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to droplet
+        run: |
+          rsync -avz --delete \
+            --delay-updates \
+            --chmod=D755,F644 \
+            --exclude '.env' \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'vendor' \
+            --exclude 'storage/framework/cache/data/*' \
+            --exclude 'storage/framework/sessions/*' \
+            --exclude 'storage/framework/views/*' \
+            --exclude 'storage/logs/*' \
+            --exclude 'database/database.sqlite' \
+            --exclude 'public/hot' \
+            --exclude '.phpunit.result.cache' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            ./ \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:${{ secrets.DEPLOY_PATH }}/
+
+      - name: Post-deploy (migrate, cache, queue)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && \
+             php8.4 artisan migrate --force && \
+             php8.4 artisan config:cache && \
+             php8.4 artisan route:cache && \
+             php8.4 artisan view:cache && \
+             php8.4 artisan cache:clear && \
+             supervisorctl restart ipop360-worker:*"
+
+      - name: Verify deployment
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://ipop360.vp-associates.com | grep -q 200 && echo 'DEPLOY OK' || exit 1
+          curl -s 'https://ipop360.vp-associates.com/api/restaurants?cuisine=italian&lat=30.6199783&lng=-88.1967496' | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d['total'] > 0 else 1)" && echo 'API OK' || exit 1
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
