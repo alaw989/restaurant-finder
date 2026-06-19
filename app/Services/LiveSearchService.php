@@ -50,14 +50,37 @@ class LiveSearchService
             if (!empty($results)) {
                 return $results;
             }
-            // Cuisine-tagged search returned nothing — retry without cuisine
-            // filter.  Many OSM restaurants lack a cuisine tag, especially in
-            // smaller cities, so a hard filter produces false negatives.
-            return $this->overpassService->search($lat, $lng, null);
+            // Cuisine-tagged search returned nothing — try name-based
+            // matching.  Many OSM restaurants lack a cuisine tag, so the
+            // hard filter produces false negatives.  Fall back to scanning
+            // names with cuisine-specific keywords.
+            $keywords = $cuisine ? $this->cuisineNameKeywords($cuisine) : [];
+            if (empty($keywords)) {
+                return [];
+            }
+            return $this->overpassService->searchByName($lat, $lng, $keywords);
         } catch (\Throwable $e) {
             Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
             return [];
         }
+    }
+
+    private function cuisineNameKeywords(string $cuisine): array
+    {
+        $map = [
+            'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
+            'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
+            'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan'],
+            'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada'],
+            'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan', 'taj', 'raja'],
+            'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
+            'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
+            'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
+            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse'],
+            'greek'     => ['greek', 'gyro', 'mediterranean', 'athhens', 'santorini', 'olive'],
+        ];
+        $key = strtolower(trim($cuisine));
+        return $map[$key] ?? [strtolower($cuisine)];
     }
 
     private function normalizeYelp(array $b): array

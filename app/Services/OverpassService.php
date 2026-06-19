@@ -72,6 +72,36 @@ class OverpassService
         return [];
     }
 
+    public function searchByName(float $lat, float $lng, array $keywords, int $radius = 25000, int $limit = 50): array
+    {
+        $cacheKey = 'overpass_name:' . md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
+
+        $cached = ExternalApiCache::findByKey($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $results = $this->search($lat, $lng, null, $radius, $limit);
+
+        $results = array_filter($results, function ($r) use ($keywords) {
+            $name = strtolower($r['name'] ?? '');
+            $cuisines = strtolower(implode(' ', array_column($r['cuisines'] ?? [], 'name')));
+            $haystack = $name . ' ' . $cuisines;
+            foreach ($keywords as $keyword) {
+                if (str_contains($haystack, strtolower($keyword))) {
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        $results = array_values($results);
+
+        ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+
+        return $results;
+    }
+
     private function buildQuery(float $lat, float $lng, ?string $cuisine, int $radius, int $limit): string
     {
         $radiusM = $radius;
