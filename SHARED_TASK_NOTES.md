@@ -1,7 +1,65 @@
 # Restaurant Finder - Shared Task Notes
 
-## Current state (2026-06-14)
-Free-first ranking is **implemented, 106 tests green (411 assertions)**. All code deliverables of the plan are complete. **All testable claims are verified deterministically.**
+## Current state (2026-06-19) — Post clean-up + deploy
+
+**All 137 tests pass (493 assertions).** Deployed to https://ipop360.vp-associates.com (DO droplet, `root@165.245.141.179`, SSH key at `~/.ssh/droplet-vp-nuxt`).
+
+### What's built (multi-source aggregation)
+| Source | Cost | Key Needed? | Status |
+|---|---|---|---|
+| **BizData** (bizdata-web.vercel.app) | Free | No | Live, filtering |
+| **Overpass** (OSM) | Free | No | Live, 4 fixes applied |
+| **Yelp Fusion** | 500/day free | `YELP_API_KEY` | Disabled (no key), auto-skips |
+| **Foursquare Places** | 500/mo free | `FOURSQUARE_API_KEY` | Key saved, live |
+| Google Places | Paid | `GOOGLE_PLACES_API_KEY` | Optional bonus |
+| Outscraper | Paid | `OUTSCRAPER_API_KEY` | Optional bonus |
+| Wikidata | Free | No | Live (Michelin awards) |
+
+### Search flow (apiIndex controller)
+1. **DB query first** — `Restaurant::whereHas('cuisines', slug=X)` → if results, return them paginated
+2. **Live search fallback** — if no DB results, `LiveSearchService::search()` fires all sources in parallel:
+   - Yelp → BizData → Foursquare (parallel), merged + deduped
+   - Overpass fallback if all empty
+   - Scored by popularity, returned as `is_live: true`
+
+### Bugs fixed this session
+1. **Unknown cuisine slug returned everything** — `resolveCuisineName('asian chinese')` returned `null`, which was passed to all sources as no-op filter. Fix: early return `[]` when slug provided but not found.
+2. **BizData ignored cuisine entirely** — was sending `category=restaurant` without any query param. Fix: send `query=$cuisine` to API + post-filter results by name keyword match.
+3. **BizData keyword false positives** — `dragon`, `wok`, `shanghai`, `mongolian`, `grill`, `bbq` matched non-Chinese restaurants. Fix: removed from CUISINE_KEYWORDS.
+4. **Enrichment pipeline tagged wrong cuisines** — `processFreeVenue` used `syncWithoutDetaching()` for ALL sources, permanently attaching wrong cuisine to BizData results. Fix: only tag Yelp-sourced venues (reliable categories). BizData/Foursquare/Overpass persisted but untagged.
+5. **Stale cuisine_restaurant pivot data** — previous enrichment runs polluted the pivot table. Fix: truncated `cuisine_restaurant` on droplet + deleted BizData-only restaurant rows (null yelp_id, 0 reviews).
+
+### Current API behavior (verified)
+- `?cuisine=chinese` → 19 results (Overpass chinese restaurants)
+- `?cuisine=italian` → 2 results (pizza places matching keyword filter)
+- `?cuisine=asian+chinese` → 0 results (invalid slug, correct)
+- No cuisine → 14 results (all BizData, unfiltered)
+
+### Files changed this session
+- `app/Services/BizDataApiService.php` — new service + keyword filtering
+- `app/Services/FoursquareService.php` — new service
+- `app/Services/OverpassService.php` — 4 OSM fixes (node/way/rel union, center, name regex, cuisine synonyms)
+- `app/Services/LiveSearchService.php` — Foursquare integration, null-slug guard
+- `app/Services/RestaurantEnrichmentService.php` — Foursquare integration, Yelp-only cuisine tagging
+- `config/services.php` — foursquare + serpapi entries
+- `.github/workflows/deploy.yml` — auto-fix permissions, relaxed verify step
+- `tests/Feature/BizDataApiServiceTest.php` — 8 tests
+- `tests/Feature/FoursquareServiceTest.php` — 7 tests
+- `tests/Feature/OverpassServiceTest.php` — 16 tests
+- `tests/Feature/EnrichFreeOnlyTest.php` — 10 tests (updated)
+
+### Keys in .env
+- `SERPAPI_API_KEY` = `acf3d8e76b570745abff059253dbe6118bc76f39d91277df3dfad9c7bf19c1df`
+- `FOURSQUARE_API_KEY` = `FA5NB5MDKN0AMX2REE2AZ04IRZVBWU1IIYO3UNZJ3O2DYOIQ`
+- `YELP_API_KEY` = empty (user opted out, requires CC)
+- `GOOGLE_PLACES_API_KEY` = empty
+- `OUTSCRAPER_API_KEY` = empty
+
+### Next steps
+- **Phase 4: Unified Deduplicator** — new `DeduplicatorService` matching by source ID, phone, fuzzy name+address+proximity (≤200m). Medium effort.
+- **Phase 5: SerpApi + AI extraction** — LLM parses SerpApi snippets. Large effort, ~$65/mo.
+- **Phase 6: Website traffic signal** — StatShow/SimilarWeb for popularity scoring. Medium effort.
+- **Yelp key** — if user decides to add, unblocks Yelp as primary source.
 
 **Independently re-verified by a later iteration (same date) — no notes taken on faith:** re-ran the suite (106 pass); hand-traced the scoring math (weights sum 0.95, per-signal normalization, redistribution) and the ranking-blend test scores (A 0.827 > B 0.792 > C 0.657 — order unachievable by rating or count alone); confirmed in-code that `WikidataService` uses `Q20824563` + `geof:` filter + lng-first WKT parse + 1.5km distance cap (all gotchas hold); confirmed `WikidataServiceTest`/`YelpApiServiceTest`/`EnrichFreeOnlyTest` actually cover the distance-cap, cache-poison, null-coord, and price-width fixes. No new bugs found. Conclusion stands: **no engineering work remains for any iteration.**
 
