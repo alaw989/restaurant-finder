@@ -15,8 +15,8 @@ The previous weighting gave paid APIs 65% of the score:
 | `google_review_count` | 0.30 | Google (paid) | required a key |
 | `google_rating` | 0.15 | Google (paid) | required a key |
 | `popular_times_avg_busyness` | 0.20 | Outscraper (paid) | required a key |
-| `yelp_review_count` | 0.15 | Yelp (free) | — |
-| `yelp_rating` | 0.10 | Yelp (free) | — |
+| `yelp_review_count` | 0.15 | Yelp (free) | removed from project |
+| `yelp_rating` | 0.10 | Yelp (free) | removed from project |
 | `review_recency_score` | 0.05 | **none** | hardcoded `0.5` placeholder |
 | `has_michelin_star` | 0.05 | **none** | referenced a column that **did not exist** |
 
@@ -31,28 +31,29 @@ scores **0.0**.
 
 | Source | Cost | Provides | Role |
 |---|---|---|---|
-| **Yelp Fusion** | free, 5k/day | rating, review_count, price, categories, location, photo, hours | **primary** quality + popularity |
+| **BizData API** | free | name, address, phone, website, price, categories, location | **primary** data source |
 | **Overpass / OSM** | free, no key | existence, location, cuisine, hours, address | coverage backfill + data-completeness |
 | **Wikidata SPARQL** | free, no key | Michelin/award records (low coverage) | `has_award` |
 | **Nominatim (OSM)** | free | geocoding | already used by `GeolocationService` |
+| **Foursquare Places** | 500/mo free tier | rating, review_count, price, categories | bonus enrichment |
 | Google Places | paid | rating, review_count, photo | optional bonus |
 | Outscraper | paid | popular-times busyness | optional bonus |
-| Foursquare | free tier lacks ratings/reviews | — | **skip** |
-| Popular-times | none free | — | **dropped** (Google-proprietary) |
+| Yelp Fusion | — | — | **removed** |
 
 ## Weight set
 
 | Signal | Weight | Source | Always active? |
 |---|---|---|---|
-| `yelp_rating` | **0.40** | Yelp (free) | only with a value |
-| `yelp_review_count` | **0.30** | Yelp (free) | only with a value |
-| `data_completeness` | **0.15** | OSM × Yelp field coverage | **yes** (always computable) |
-| `has_award` | **0.10** | Wikidata (free) | **yes** (`false` is a legitimate signal) |
+| `proximity` | **0.30** | User coordinates | only with user lat/lng |
+| `data_completeness` | **0.25** | OSM × BizData field coverage | **yes** (always computable) |
+| `has_award` | **0.15** | Wikidata (free) | **yes** (`false` is a legitimate signal) |
 | `google_rating` | 0.03 | Google (optional) | only with key **and** value |
 | `google_review_count` | 0.02 | Google (optional) | only with key **and** value |
 | `popular_times_avg_busyness` | 0.0 | Outscraper (optional) | min-max, opt-in (no free source) |
+| `yelp_rating` | 0.0 | — | removed |
+| `yelp_review_count` | 0.0 | — | removed |
 
-Free signals sum to **0.95**; the two paid signals are pure bonus. Every weight
+Free signals sum to **0.70**; the two paid signals are pure bonus. Every weight
 is env-overridable (`RANK_WEIGHT_*`); they need not sum to 1 because the active
 set is always renormalized (see *Redistribution*).
 
@@ -62,10 +63,10 @@ The old code applied min-max to everything, which distorted heavy-tailed counts
 (one 5000-review outlier dominated) and let a lone low-rated venue drag the whole
 collection's rating scale. Normalization is now **per-method**:
 
-- **Linear ÷ 5** → ratings (`yelp_rating`, `google_rating`). A 1–5 scale, already
-  bounded, so dividing by 5 is stable and collection-independent. A lone 1-star
-  venue no longer lifts everyone else's normalized rating toward 1.0.
-- **Log** → review counts (`yelp_review_count`, `google_review_count`), mirroring
+- **Linear ÷ 5** → ratings (`google_rating`). A 1–5 scale, already bounded,
+  so dividing by 5 is stable and collection-independent. A lone 1-star venue no
+  longer lifts everyone else's normalized rating toward 1.0.
+- **Log** → review counts (`google_review_count`), mirroring
   `LiveSearchService::scoreResults`. Review counts are heavy-tailed; min-max
   would let one outlier dominate. Formula: `log(1 + n) / log(1 + denom)` where
   `denom = max(collectionMax, RANK_LOG_REVIEW_FLOOR=500)`. The floor prevents a
@@ -73,6 +74,9 @@ collection's rating scale. Normalization is now **per-method**:
   the collection is empty or all-zero, `denom` falls back to
   `RANK_LOG_REVIEW_DEFAULT=5000`. The final quotient is clamped to `[0, 1]` and
   guarded against `NaN`/`INF`.
+- **Inverse distance** → `proximity`. Formula: `1 / (1 + distance_km / scale_km)`
+  where `scale_km` defaults to 2.0. Closer venues get higher scores; at 2km
+  distance, score = 0.5; at 0 distance, score = 1.0.
 - **Ratio** → `data_completeness` (see below). Already 0–1; no further scaling.
 - **Boolean** → `has_award` (`1.0` / `0.0`).
 - **Min-max** → retained for `popular_times_avg_busyness` only (opt-in, weight
@@ -83,24 +87,24 @@ collection's rating scale. Normalization is now **per-method**:
 
 A ratio of **populated descriptive fields ÷ 9**, computed inline from each
 restaurant row — no dedicated column. It rewards listings that are
-well-described (address, phone, photo, coordinates, price) independently of their
+well-described (address, phone, website, coordinates, price) independently of their
 quality metrics (ratings). The nine fields and their column mapping:
 
 | Completeness field | Column | Source |
 |---|---|---|
 | name | `name` | any |
-| address | `address` | Yelp / OSM |
-| phone | `phone` | Yelp |
-| lat | `latitude` | Yelp / OSM |
-| lng | `longitude` | Yelp / OSM |
-| price | `price_range` | Yelp (`$`-`$$$$`) |
-| hours | `popular_times_avg_busyness` | Outscraper (bonus) / none on free path |
-| yelp_id | `yelp_business_id` | Yelp |
-| photo | `photo_url` | Yelp |
+| address | `address` | BizData / OSM |
+| phone | `phone` | BizData / OSM |
+| latitude | `latitude` | BizData / OSM |
+| longitude | `longitude` | BizData / OSM |
+| price_range | `price_range` | BizData / Foursquare |
+| website_url | `website` | BizData / OSM |
+| popular_times_avg_busyness | `popular_times_avg_busyness` | Outscraper (bonus) / none on free path |
+| photo_url | `photo_url` | BizData / scraper |
 
-`hours` maps to `popular_times_avg_busyness` — the only hours/operational data we
-persist. On the free-only path that field is null, so a fully Yelp-enriched row
-reaches **8/9 ≈ 0.889**; a row also enriched with Outscraper busyness can reach
+`popular_times_avg_busyness` is a bonus field from the paid Outscraper source.
+On the free-only path that field is null, so a fully enriched row reaches
+**8/9 ≈ 0.889**; a row also enriched with Outscraper busyness can reach
 **9/9 = 1.0**. A field counts as populated when it is non-null and (for strings)
 non-empty.
 
@@ -117,6 +121,10 @@ signal ("no Wikidata award record found") and earns its `0.0` contribution. But
 because the dead `review_recency_score` is gone, a row with **no data at all**
 now scores exactly **0.0**, not ~0.25.
 
+`data_completeness` is **always active** — a 0 ratio is a valid measurement (the
+row simply has no descriptive data), and this ensures every row has some
+contributing signals even when ratings/reviews/awards are absent.
+
 When Google keys are present, `google_*` signals join the active set and add up to
 0.05 on top of the free score (a pure bonus). When they are absent, that 0.05 is
 redistributed proportionally back across the free signals — the free path never
@@ -132,10 +140,8 @@ works in a pure unit-test context (no booted container) — and accepts an optio
 
 ## Limitations / future work
 
-- `has_award` is boolean — 1/2/3 Michelin stars are not distinguished (0.10 weight
+- `has_award` is boolean — 1/2/3 Michelin stars are not distinguished (0.15 weight
   doesn't justify the extra modeling; an `award_type` column could be added later).
 - Wikidata coverage is sparse — most venues correctly return `false`.
 - Review **recency** has no free source and was dropped (the dead placeholder was
   removed, not replaced with another placeholder).
-- Yelp cuisine-slug → category-alias matching is approximate (pre-existing, not
-  worsened here).

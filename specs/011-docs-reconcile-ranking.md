@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `docs/ranking-metrics.md`, `docs/ranking-improvements.md`, and the README "Key Services" section describe scoring signals and weights that no longer match `config/restaurant-finder.php` — e.g. proximity is advertised where it may not yet exist as a real signal, removed Yelp is mentioned, and weight tables are stale. Reconcile the docs to the config once 004–006 have landed.
 
@@ -48,4 +48,4 @@ As a contributor, I want the ranking docs to match the actual config so I can re
 
 ## Assumptions
 - Should be completed after 004–006 so the docs describe the unified, proximity-aware scorer.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

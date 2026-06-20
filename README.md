@@ -1,6 +1,6 @@
 # iPop360
 
-A restaurant discovery app that ranks venues using a free-first scoring blend — real ratings, review counts, proximity, data completeness, and Michelin awards — powered by Yelp, OpenStreetMap, and Wikidata.
+A restaurant discovery app that ranks venues using a free-first scoring blend — real ratings, review counts, proximity, data completeness, and Michelin awards — powered by BizData, OpenStreetMap, Wikidata, and optionally Foursquare.
 
 ## Setup
 
@@ -37,7 +37,9 @@ Returns ranked restaurants for the given cuisine near the given coordinates.
 
 ## Key Services
 
-- **RestaurantEnrichmentService** — free-first orchestration: OSM via Overpass API → Wikidata Michelin awards → paid Yelp bonus
-- **PopularityScoreService** — configurable scoring: rating × log(reviews), data completeness, proximity boost, award flag
-- **YelpApiService** — Yelp Fusion search/details with cache-poison guards
+- **RestaurantEnrichmentService** — free-first orchestration: BizData/Overpass → Wikidata Michelin awards → optional Foursquare bonus
+- **PopularityScoreService** — configurable scoring: proximity (inverse-distance), data completeness, has_award, and optional Google signals
+- **BizDataService** — BizData API restaurant data with caching
+- **OverpassService** — OpenStreetMap data extraction for coverage backfill
 - **WikidataService** — SPARQL Michelin star awards with 1.5 km distance cap
+- **LiveSearchService** — real-time multi-source fetching with parallel concurrent requests

@@ -42,7 +42,7 @@ RANK_WEIGHT_YELP_REVIEW_COUNT=0
 
 ---
 
-### Phase 1 — Proximity as a ranked signal (high impact, $0, ~2-3h)
+### Phase 1 — Proximity as a ranked signal (high impact, $0, ~2-3h) ✅ **DONE**
 
 **What:** Add `proximity` as a top-level scored signal in `PopularityScoreService` with ~0.30 weight.
 
