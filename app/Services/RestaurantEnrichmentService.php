@@ -99,8 +99,11 @@ class RestaurantEnrichmentService
         // 8. Score the persisted set together (uses the now-bonus-enriched models)
         foreach ($restaurants as $restaurant) {
             try {
-                $score = $this->popularityScore->calculateScore($restaurant, $restaurants);
-                $restaurant->update(['popularity_score' => $score]);
+                $breakdown = $this->popularityScore->calculateBreakdown($restaurant, $restaurants);
+                $restaurant->update([
+                    'popularity_score' => $breakdown['total'],
+                    'score_breakdown' => $breakdown,
+                ]);
             } catch (\Throwable $e) {
                 Log::error('Failed to compute popularity score', [
                     'restaurant_id' => $restaurant->id,

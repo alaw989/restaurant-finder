@@ -36,8 +36,11 @@ class ScoreRestaurants extends Command
         $bar = $this->output->createProgressBar($restaurants->count());
 
         foreach ($restaurants as $restaurant) {
-            $score = $scoringService->calculateScore($restaurant, $allRestaurants);
-            $restaurant->update(['popularity_score' => $score]);
+            $breakdown = $scoringService->calculateBreakdown($restaurant, $allRestaurants);
+            $restaurant->update([
+                'popularity_score' => $breakdown['total'],
+                'score_breakdown' => $breakdown,
+            ]);
             $bar->advance();
         }
 

@@ -35,6 +35,7 @@ class Restaurant extends Model
         'popular_times_avg_busyness',
         'has_award',
         'popularity_score',
+        'score_breakdown',
         'is_active',
     ];
 
@@ -45,6 +46,7 @@ class Restaurant extends Model
         'yelp_rating' => 'decimal:1',
         'popular_times_avg_busyness' => 'decimal:2',
         'popularity_score' => 'decimal:4',
+        'score_breakdown' => 'array',
         'has_award' => 'boolean',
         'is_active' => 'boolean',
     ];

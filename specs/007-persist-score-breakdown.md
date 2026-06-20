@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `RestaurantController::formatRestaurantData` recomputes the full score breakdown in PHP 20× per page on every request. Persist the breakdown at score time and read it from the row instead.
 
@@ -47,4 +47,4 @@ As the operator, I want the breakdown cached on the row so list pages are cheape
 
 ## Assumptions
 - Breakdown is a function of stored signals, so persisting it is safe between re-scores.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

@@ -44,8 +44,23 @@ class RestaurantController extends Controller
             'distance' => $r->distance ?? null,
             'cuisines' => $r->cuisines->toArray(),
             'source' => 'ipop360',
-            'score_breakdown' => $this->popularityScoreService->calculateBreakdown($r, $restaurants),
+            'score_breakdown' => $this->getScoreBreakdown($r, $restaurants),
         ]);
+    }
+
+    /**
+     * Get the score breakdown for a restaurant, preferring the stored value
+     * with fallback to computation for rows scored before the column existed.
+     */
+    private function getScoreBreakdown(Restaurant $restaurant, \Illuminate\Support\Collection $all): array
+    {
+        // Prefer the stored breakdown (most efficient)
+        if ($restaurant->score_breakdown !== null) {
+            return $restaurant->score_breakdown;
+        }
+
+        // Fallback: compute on-the-fly for legacy rows
+        return $this->popularityScoreService->calculateBreakdown($restaurant, $all);
     }
 
     public function index(Request $request)
@@ -99,7 +114,7 @@ class RestaurantController extends Controller
         $restaurant->load('cuisines.category');
 
         $collection = collect([$restaurant]);
-        $breakdown = $this->popularityScoreService->calculateBreakdown($restaurant, $collection);
+        $breakdown = $this->getScoreBreakdown($restaurant, $collection);
 
         $categorySlug = $restaurant->cuisines->first()?->category?->slug;
 
