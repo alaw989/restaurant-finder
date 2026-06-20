@@ -51,4 +51,20 @@ return [
         'api_key' => env('FOURSQUARE_API_KEY'),
     ],
 
+    'socrata' => [
+        'app_token' => env('SOCRATA_APP_TOKEN'),
+        'endpoints' => [
+            'nyc' => [
+                'domain' => 'data.cityofnewyork.us',
+                'dataset_id' => env('SOCRATA_NYC_DATASET_ID', 'py6s-7cay'),
+                'fields' => ['dba', 'address', 'boro', 'zip', 'phone', 'latitude', 'longitude', 'grade', 'score', 'inspection_date'],
+            ],
+            'sf' => [
+                'domain' => 'data.sfgov.org',
+                'dataset_id' => env('SOCRATA_SF_DATASET_ID', 'vw6y-z8j6'),
+                'fields' => ['business_name', 'street_address', 'city', 'postal_code', 'phone', 'latitude', 'longitude', 'inspection_score', 'inspection_date'],
+            ],
+        ],
+    ],
+
 ];

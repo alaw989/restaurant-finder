@@ -31,6 +31,7 @@ class RestaurantEnrichmentService
         private BizDataApiService $bizData,
         private FoursquareService $foursquareService,
         private SerpApiService $serpApiService,
+        private SocrataOpenDataService $socrataService,
         private WikidataService $wikidata,
         private PopularityScoreService $popularityScore,
     ) {}
@@ -118,14 +119,16 @@ class RestaurantEnrichmentService
         $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
         $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
         $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
+        $socrataPromise = $this->fetchSocrataConcurrent($lat, $lng, $cuisine);
 
         // Execute all concurrently
         $bizDataVenues = $bizDataPromise();
         $foursquareVenues = $foursquarePromise();
         $overpassVenues = $overpassPromise();
         $serpApiVenues = $serpApiPromise();
+        $socrataVenues = $socrataPromise();
 
-        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues, $serpApiVenues);
+        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues, $serpApiVenues, $socrataVenues);
     }
 
     /**
@@ -240,6 +243,29 @@ class RestaurantEnrichmentService
     }
 
     /**
+     * Wrap Socrata fetch for concurrent execution.
+     */
+    private function fetchSocrataConcurrent(float $lat, float $lng, string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->socrataService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $socrataData = $raw['data'] ?? [];
+                $normalized = $this->socrataService->normalizeRaw($socrataData, $lat, $lng);
+
+                return array_map(fn ($r) => $this->normalizeSocrataVenue($r), $normalized);
+            } catch (\Throwable $e) {
+                Log::warning('Socrata backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
      * Build a common venue shape from an Overpass (OSM) normalized result.
      */
     private function normalizeOverpassVenue(array $r): array
@@ -325,6 +351,27 @@ class RestaurantEnrichmentService
             'yelp_rating' => null,
             'yelp_review_count' => 0,
             'source' => 'serpapi',
+        ];
+    }
+
+    private function normalizeSocrataVenue(array $r): array
+    {
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
+            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
+            'address' => $r['address'] ?? null,
+            'city' => $r['city'] ?? null,
+            'state' => $r['state'] ?? null,
+            'postal_code' => $r['postal_code'] ?? null,
+            'country' => $r['country'] ?? 'US',
+            'phone' => $r['phone'] ?? null,
+            'price_range' => null,
+            'photo_url' => null,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'source' => 'socrata',
         ];
     }
 

@@ -12,6 +12,7 @@ class LiveSearchService
         private BizDataApiService $bizDataService,
         private FoursquareService $foursquareService,
         private SerpApiService $serpApiService,
+        private SocrataOpenDataService $socrataService,
         private PopularityScoreService $scoreService,
     ) {}
 
@@ -47,14 +48,16 @@ class LiveSearchService
         $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
         $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
         $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
+        $socrataPromise = $this->fetchSocrataConcurrent($lat, $lng, $cuisine);
 
         // Wait for all to complete (they run concurrently)
         $bizDataResults = $bizDataPromise();
         $foursquareResults = $foursquarePromise();
         $overpassResults = $overpassPromise();
         $serpApiResults = $serpApiPromise();
+        $socrataResults = $socrataPromise();
 
-        return array_merge($bizDataResults, $foursquareResults, $overpassResults, $serpApiResults);
+        return array_merge($bizDataResults, $foursquareResults, $overpassResults, $serpApiResults, $socrataResults);
     }
 
     /**
@@ -165,6 +168,28 @@ class LiveSearchService
                 return $this->serpApiService->normalizeRaw($localResults, $lat, $lng);
             } catch (\Throwable $e) {
                 Log::warning('LiveSearch SerpApi fetch failed', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Wrap Socrata fetch for concurrent execution.
+     * Returns a thunk that when called executes the fetch.
+     */
+    private function fetchSocrataConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->socrataService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $socrataData = $raw['data'] ?? [];
+                return $this->socrataService->normalizeRaw($socrataData, $lat, $lng);
+            } catch (\Throwable $e) {
+                Log::warning('LiveSearch Socrata fetch failed', ['message' => $e->getMessage()]);
                 return [];
             }
         };

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `config/services.php` already defines `serpapi.api_key` (env `SERPAPI_API_KEY`) but there is no `SerpApiService` and zero callers. Build it: query SerpApi (`https://serpapi.com/search`, engine `google_maps`/`google_local`), normalize results to the venue shape, and **populate `google_rating` / `google_review_count` / `price_range` / `photo_url`** — real rating/review signals without needing a Google Places key. Gate by key, cache via `ExternalApiCache`, wire into the parallel fetch pool and enrichment.
 
@@ -51,4 +51,4 @@ As a user, I want rating/review signals in results even without a Google Places 
 ## Assumptions
 - The SerpApi key is optional; the app must produce good results with zero keys.
 - Drops into the generic source pool introduced by 009.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

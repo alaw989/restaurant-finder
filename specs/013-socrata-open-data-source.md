@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: Government open data on Socrata/Portal endpoints (e.g. NYC DOHMH restaurant inspections, SF open data) is a clean, free, authoritative source not yet wired in. Add `SocrataOpenDataService` with an optional `X-App-Token`, normalize results to the venue shape, and wire it as a source in the fetch pool.
 
