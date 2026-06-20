@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\EnrichRestaurantWithAi;
 use App\Models\Cuisine;
 use App\Models\Restaurant;
 use Illuminate\Support\Collection;
@@ -35,6 +36,7 @@ class RestaurantEnrichmentService
         private WikidataService $wikidata,
         private PopularityScoreService $popularityScore,
         private RestaurantWebsiteScraperService $websiteScraper,
+        private AiEnrichmentService $aiEnrichment,
     ) {}
 
     /**
@@ -87,6 +89,9 @@ class RestaurantEnrichmentService
 
         // Optional website scraper — fetch opening hours/menu from own websites
         $this->enrichWebsiteData($restaurants);
+
+        // Optional AI enrichment — async job dispatch, never runs on request path
+        $this->enrichWithAi($restaurants);
 
         // Score the persisted set together (uses the now-bonus-enriched models)
         foreach ($restaurants as $restaurant) {
@@ -604,6 +609,38 @@ class RestaurantEnrichmentService
                 Log::warning('Website scraping failed for restaurant', [
                     'restaurant_id' => $restaurant->id,
                     'website_url' => $restaurant->website_url ?? null,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Optional AI enrichment (async): dispatch jobs to fill data gaps.
+     * Never runs on the request path (queue only). No-op without AI key.
+     */
+    private function enrichWithAi(Collection $restaurants): void
+    {
+        // No key = no-op (service returns null, no job dispatched)
+        if (empty(config('services.ai.api_key'))) {
+            return;
+        }
+
+        foreach ($restaurants as $restaurant) {
+            try {
+                // Skip if recently enriched (within 7 days)
+                if (!empty($restaurant->ai_metadata['enriched_at'])) {
+                    $enrichedAt = now()->parse($restaurant->ai_metadata['enriched_at']);
+                    if ($enrichedAt->gt(now()->subDays(7))) {
+                        continue;
+                    }
+                }
+
+                // Dispatch async job (never blocks request path)
+                EnrichRestaurantWithAi::dispatch($restaurant->id);
+            } catch (\Throwable $e) {
+                Log::warning('AI enrichment dispatch failed for restaurant', [
+                    'restaurant_id' => $restaurant->id,
                     'message' => $e->getMessage(),
                 ]);
             }

@@ -53,3 +53,13 @@
 [0;35m══════════════════════ LOOP 3 ══════════════════════[0m
 [0;34m[2026-06-20 09:45:08] Starting iteration 3[0m
 
+[0;32m✓ Completion signal detected: <promise>DONE</promise>[0m
+[0;36mGreen-test gate: running `php artisan test`…[0m
+[0;32m✓ Tests green[0m
+[0;32m✓ Task completed successfully![0m
+
+[0;34mWaiting 2s before next iteration…[0m
+
+[0;35m══════════════════════ LOOP 4 ══════════════════════[0m
+[0;34m[2026-06-20 09:50:04] Starting iteration 4[0m
+

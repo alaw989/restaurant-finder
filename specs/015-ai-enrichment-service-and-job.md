@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: A free-tier LLM (OpenAI-compatible; default Groq) can normalize and extract structured fields — cuisines, a normalized address, and gap fields — asynchronously, without affecting search latency and as a no-op when no key is configured. Add `AiEnrichmentService` (key-optional, JSON output, never produces ratings), the first `app/Jobs/EnrichRestaurantWithAi` (async, re-scores, flags `ai_metadata`), and a `restaurants:ai-enrich` backfill command.
 

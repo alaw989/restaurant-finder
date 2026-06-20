@@ -38,6 +38,7 @@ class Restaurant extends Model
         'score_breakdown',
         'is_active',
         'opening_hours',
+        'ai_metadata',
     ];
 
     protected $casts = [
@@ -51,6 +52,7 @@ class Restaurant extends Model
         'has_award' => 'boolean',
         'is_active' => 'boolean',
         'opening_hours' => 'array',
+        'ai_metadata' => 'array',
     ];
 
     protected static function booted(): void
