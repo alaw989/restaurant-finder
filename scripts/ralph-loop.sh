@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ralph Loop for Claude Code
+# Ralph Loop for Claude Code (hardened)
 #
 # Based on Geoffrey Huntley's Ralph Wiggum methodology:
 # https://github.com/ghuntley/how-to-ralph-wiggum
@@ -8,20 +8,37 @@
 # Combined with SpecKit-style specifications.
 #
 # Key principles:
-# - Each iteration picks ONE task/spec to work on
+# - Each iteration picks ONE spec/task to work on
 # - Agent works until acceptance criteria are met
 # - Only outputs <promise>DONE</promise> when truly complete
-# - Bash loop checks for magic phrase before continuing
+# - Bash loop checks for the magic phrase before continuing
 # - Fresh context window each iteration
+#
+# Safety infrastructure (see plan Part B):
+# - Finite max-iterations default (RALPH_MAX_ITERATIONS); --unlimited opts in to no cap
+# - Hard stop on repeated failures (no more warn-and-reset) + total failure cap
+# - Green-test gate: runs `php artisan test` after DONE before counting success
+# - Honors <promise>ALL_DONE</promise> and empty-queue natural completion
+# - Per-iteration wall-clock timeout
+# - flock concurrency lock (one loop at a time)
+# - Push only on a verified-green iteration
+# - Pre-flight checks (branch, remote, clean tree, optional green-start)
+# - --dry-run (one iteration, no push, no git mutation by the loop)
 #
 # Work sources (in priority order):
 # 1. IMPLEMENTATION_PLAN.md (if exists) - pick highest priority task
 # 2. specs/ folder - pick highest priority incomplete spec
 #
 # Usage:
-#   ./scripts/ralph-loop.sh              # Build mode (unlimited)
-#   ./scripts/ralph-loop.sh 20           # Build mode (max 20 iterations)
+#   ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 50)
+#   ./scripts/ralph-loop.sh 20           # Build, max 20 iterations
+#   ./scripts/ralph-loop.sh --unlimited  # Build, no cap (explicit)
+#   ./scripts/ralph-loop.sh --dry-run    # One iteration, no push, no git mutation
 #   ./scripts/ralph-loop.sh plan         # Planning mode (creates IMPLEMENTATION_PLAN.md)
+#
+# NOTE: pushing to the configured branch triggers the GitHub Actions deploy to the
+# live site (https://ipop360.vp-associates.com). The green-test gate prevents red
+# builds from being pushed, but review the queue before running unattended.
 #
 
 set -e
@@ -32,17 +49,33 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_DIR/logs"
 CONSTITUTION="$PROJECT_DIR/.specify/memory/constitution.md"
 
-# Configuration
-MAX_ITERATIONS=0  # 0 = unlimited
+# ── Configuration ─────────────────────────────────────────────────────────────
+MAX_ITERATIONS="${RALPH_MAX_ITERATIONS:-50}"   # finite default; 0 / --unlimited = no cap
 MODE="build"
 CLAUDE_CMD="${CLAUDE_CMD:-claude}"
-CLAUDE_MODEL="${CLAUDE_MODEL:-claude-opus-4-7}"
+# Model: RALPH_MODEL takes precedence, then CLAUDE_MODEL, then a current default.
+CLAUDE_MODEL="${RALPH_MODEL:-${CLAUDE_MODEL:-claude-opus-4-8}}"
 YOLO_FLAG="--dangerously-skip-permissions"
 TAIL_LINES=5
 TAIL_RENDERED_LINES=0
 ROLLING_OUTPUT_LINES=5
 ROLLING_OUTPUT_INTERVAL=10
 ROLLING_RENDERED_LINES=0
+LOCK_FILE="$LOG_DIR/.ralph.lock"
+
+# ── Safety configuration (all env-overridable) ────────────────────────────────
+UNLIMITED=false
+DRY_RUN=false
+CONTINUE_ON_STUCK=false                     # --continue-on-stuck: old soft (warn-and-reset) behavior
+PUSH_ON_FAILURE="${RALPH_PUSH_ON_FAILURE:-false}"
+VERIFY_TESTS="${RALPH_VERIFY_TESTS:-true}"   # green-test gate after DONE
+REQUIRE_GREEN_START="${RALPH_REQUIRE_GREEN_TESTS:-false}"
+AUTO_STASH="${RALPH_AUTO_STASH:-false}"
+ITERATION_TIMEOUT="${RALPH_ITERATION_TIMEOUT:-1800}"        # 30 min per iteration
+TEST_TIMEOUT="${RALPH_TEST_TIMEOUT:-600}"                   # 10 min cap on the test gate
+PUSH_TIMEOUT="${RALPH_PUSH_TIMEOUT:-120}"                   # 2 min cap on git push
+MAX_CONSECUTIVE_FAILURES="${RALPH_MAX_CONSECUTIVE_FAILURES:-3}"
+MAX_TOTAL_FAILURES="${RALPH_MAX_TOTAL_FAILURES:-10}"
 
 # Colors
 RED='\033[0;31m'
@@ -68,15 +101,35 @@ fi
 
 show_help() {
     cat <<EOF
-Ralph Loop for Claude Code
+Ralph Loop for Claude Code (hardened)
 
 Based on Geoffrey Huntley's Ralph Wiggum methodology + SpecKit specs.
 https://github.com/ghuntley/how-to-ralph-wiggum
 
 Usage:
-  ./scripts/ralph-loop.sh              # Build mode, unlimited iterations
-  ./scripts/ralph-loop.sh 20           # Build mode, max 20 iterations  
-  ./scripts/ralph-loop.sh plan         # Planning mode (optional)
+  ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 50)
+  ./scripts/ralph-loop.sh 20           # Build, max 20 iterations
+  ./scripts/ralph-loop.sh --unlimited  # Build, no cap (must be explicit)
+  ./scripts/ralph-loop.sh --dry-run    # One iteration, no push, no git mutation
+  ./scripts/ralph-loop.sh plan         # Planning mode (creates IMPLEMENTATION_PLAN.md)
+
+Safety flags / env:
+  --unlimited              No iteration cap (RALPH_MAX_ITERATIONS=0)
+  --dry-run                One iteration; loop performs NO push and NO git mutation
+  --continue-on-stuck      Old soft behavior: reset the consecutive-failure counter
+                           instead of halting (see --help note on the hard stop)
+  --require-green-tests    Refuse to start unless \`php artisan test\` is green
+  --no-verify-tests        Disable the post-DONE green-test gate
+  --push-on-failure        Push even on a failed/non-DONE iteration (default: off)
+  RALPH_MAX_ITERATIONS     Finite cap (default 50); 0 means unlimited
+  RALPH_ITERATION_TIMEOUT  Per-iteration wall-clock seconds (default 1800)
+  RALPH_TEST_TIMEOUT       Cap on the \`php artisan test\` gate, seconds (default 600)
+  RALPH_PUSH_TIMEOUT       Cap on each \`git push\`, seconds (default 120)
+  RALPH_MAX_CONSECUTIVE_FAILURES  Consecutive failures before hard stop (default 3)
+  RALPH_MAX_TOTAL_FAILURES        Total failures before hard stop (default 10)
+  RALPH_VERIFY_TESTS       Run \`php artisan test\` after DONE before success (default true)
+  RALPH_AUTO_STASH         Auto-stash a dirty tree before starting (default false)
+  RALPH_MODEL / CLAUDE_MODEL      Override the model id (default claude-opus-4-8)
 
 Modes:
   build (default)  Pick spec/task and implement
@@ -86,16 +139,23 @@ Work Sources (checked in order):
   1. IMPLEMENTATION_PLAN.md - If exists, pick highest priority task
   2. specs/ folder - Otherwise, pick highest priority incomplete spec
 
-The plan mode is OPTIONAL. Most projects can work directly from specs.
-
 How it works:
-  1. Each iteration feeds PROMPT.md to Claude via stdin
+  1. Each iteration feeds PROMPT.md to Claude via stdin (under a wall-clock timeout)
   2. Claude picks the HIGHEST PRIORITY incomplete spec/task
   3. Claude implements, tests, and verifies acceptance criteria
   4. Claude outputs <promise>DONE</promise> ONLY if criteria are met
-  5. Bash loop checks for the magic phrase
-  6. If found, loop continues to next iteration (fresh context)
-  7. If not found, loop retries
+  5. The loop runs \`php artisan test\`; only a green run counts as success
+  6. On verified success: push, reset failure counters, check for natural completion
+  7. On failure: increment counters; halt when consecutive or total caps are hit
+
+Interruptions & resume:
+  - Ctrl+C, kill, hangup, or crash: the watcher + in-flight agent are reaped and
+    the lock is released. Just re-run the script to resume — specs are re-read from
+    disk each iteration, so an interrupted spec is retried, never lost.
+  - A hung agent is killed by the per-iteration timeout; a hung test suite / push
+    by their own caps. None of these stall the loop.
+  - A transient failure (one timeout, one red test) does NOT halt — only
+    MAX_CONSECUTIVE_FAILURES in a row, or MAX_TOTAL_FAILURES overall, halts.
 
 EOF
 }
@@ -180,7 +240,7 @@ watch_latest_output() {
     done
 }
 
-# Parse arguments
+# ── Parse arguments ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
         plan)
@@ -192,6 +252,30 @@ while [[ $# -gt 0 ]]; do
                 MAX_ITERATIONS=1
                 shift
             fi
+            ;;
+        --unlimited)
+            UNLIMITED=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --continue-on-stuck)
+            CONTINUE_ON_STUCK=true
+            shift
+            ;;
+        --require-green-tests)
+            REQUIRE_GREEN_START=true
+            shift
+            ;;
+        --no-verify-tests)
+            VERIFY_TESTS=false
+            shift
+            ;;
+        --push-on-failure)
+            PUSH_ON_FAILURE=true
+            shift
             ;;
         -h|--help)
             show_help
@@ -209,6 +293,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Resolve overrides
+if [ "$UNLIMITED" = true ]; then
+    MAX_ITERATIONS=0
+fi
+if [ "$DRY_RUN" = true ]; then
+    MODE="build"
+    MAX_ITERATIONS=1
+fi
 
 cd "$PROJECT_DIR"
 
@@ -271,8 +364,46 @@ if [ "$YOLO_ENABLED" = true ]; then
     CLAUDE_FLAGS="$CLAUDE_FLAGS $YOLO_FLAG"
 fi
 
-# Get current branch
-CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+# ── Pre-flight checks (fail fast, before acquiring the lock / banner) ─────────
+echo -e "${CYAN}── Pre-flight checks ──${NC}"
+
+# Real branch (not detached HEAD) — needed to push
+if ! CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null); then
+    echo -e "${RED}✗ Detached HEAD — ralph-loop needs a real branch to push.${NC}"
+    echo -e "${RED}  Check out a branch first (e.g. \`git checkout -b ralph\`).${NC}"
+    exit 1
+fi
+
+# Remote configured
+if ! git remote get-url origin >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ No 'origin' remote configured — pushes will fail silently.${NC}"
+fi
+
+# Clean working tree (tracked changes only; untracked PROMPT_*.md are loop artifacts)
+if ! git diff --quiet HEAD 2>/dev/null; then
+    if [ "$AUTO_STASH" = true ] && [ "$DRY_RUN" = false ]; then
+        echo -e "${YELLOW}⚠ Dirty working tree — auto-stashing (RALPH_AUTO_STASH=true).${NC}"
+        git stash push -u -m "ralph-loop auto-stash $(date '+%Y%m%d_%H%M%S')" >/dev/null 2>&1 || true
+    else
+        echo -e "${YELLOW}⚠ Dirty working tree (uncommitted tracked changes).${NC}"
+        echo -e "${YELLOW}  Claude will commit on top of them. Set RALPH_AUTO_STASH=true to auto-stash.${NC}"
+    fi
+fi
+
+# Optionally require tests green before starting
+if [ "$REQUIRE_GREEN_START" = true ] && [ "$DRY_RUN" = false ]; then
+    echo -e "${CYAN}Running \`php artisan test\` (require-green-tests)…${NC}"
+    if ! php artisan test >/dev/null 2>&1; then
+        echo -e "${RED}✗ Tests are red at start — refusing to begin (RALPH_REQUIRE_GREEN_TESTS=true).${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Start-state tests green${NC}"
+fi
+echo -e "${GREEN}✓ Pre-flight OK${NC}"
+echo ""
+
+# Get current branch (authoritative value from pre-flight)
+# CURRENT_BRANCH already set above.
 
 # Check for work sources
 HAS_PLAN=false
@@ -290,6 +421,7 @@ if [ -d "specs" ]; then
     fi
 fi
 
+# ── Startup banner ────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}              RALPH LOOP (Claude Code) STARTING              ${NC}"
@@ -300,8 +432,18 @@ echo -e "${BLUE}Model:${NC}    $CLAUDE_MODEL"
 echo -e "${BLUE}Prompt:${NC}   $PROMPT_FILE"
 echo -e "${BLUE}Branch:${NC}   $CURRENT_BRANCH"
 echo -e "${YELLOW}YOLO:${NC}     $([ "$YOLO_ENABLED" = true ] && echo "ENABLED" || echo "DISABLED")"
+if [ "$MAX_ITERATIONS" -gt 0 ]; then
+    echo -e "${BLUE}Max:${NC}      $MAX_ITERATIONS iterations"
+else
+    echo -e "${BLUE}Max:${NC}      unlimited"
+fi
+echo -e "${BLUE}Test gate:${NC} $([ "$VERIFY_TESTS" = true ] && echo "ON (\`php artisan test\` after DONE)" || echo "OFF")"
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${YELLOW}Dry-run:${NC}  ON (no push, no git mutation by the loop)"
+fi
+[ "$CONTINUE_ON_STUCK" = true ] && echo -e "${YELLOW}Stuck policy:${NC} --continue-on-stuck (soft)"
+[ "$PUSH_ON_FAILURE" = true ] && echo -e "${YELLOW}Push-on-failure:${NC} ON"
 [ -n "$SESSION_LOG" ] && echo -e "${BLUE}Log:${NC}      $SESSION_LOG"
-[ $MAX_ITERATIONS -gt 0 ] && echo -e "${BLUE}Max:${NC}      $MAX_ITERATIONS iterations"
 echo ""
 echo -e "${BLUE}Work source:${NC}"
 if [ "$HAS_PLAN" = true ]; then
@@ -327,18 +469,91 @@ if [ "$MODE" = "build" ] && [ "$HAS_PLAN" = false ] && [ "$HAS_SPECS" = true ] &
 fi
 
 echo -e "${CYAN}The loop checks for <promise>DONE</promise> in each iteration.${NC}"
-echo -e "${CYAN}Agent must verify acceptance criteria before outputting it.${NC}"
+echo -e "${CYAN}A green \`php artisan test\` run is required before counting success.${NC}"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop the loop${NC}"
 echo ""
 
+# ── Concurrency lock (one loop at a time) ─────────────────────────────────────
+if command -v flock >/dev/null 2>&1; then
+    exec {LOCK_FD}>"$LOCK_FILE"
+    if ! flock -n "$LOCK_FD"; then
+        echo -e "${RED}✗ Another ralph-loop is already running (lock held: $LOCK_FILE).${NC}"
+        echo -e "${RED}  If you are certain it is stale, remove the lock file, otherwise wait.${NC}"
+        exit 1
+    fi
+    echo -e "${BLUE}Lock acquired:${NC} $LOCK_FILE"
+else
+    echo -e "${YELLOW}⚠ flock not found — running WITHOUT a concurrency lock.${NC}"
+fi
+echo ""
+
+# ── Signal / interruption handling ────────────────────────────────────────────
+# Get through any interruption by itself: on Ctrl+C, `kill`, terminal hangup, or
+# normal exit, reap the background output-watcher and any in-flight iteration
+# children (timeout/claude/tee), and release the lock. flock auto-releases when
+# the fd closes; we unlock explicitly too. We deliberately do NOT delete the lock
+# file — removing it can race with a freshly-started run and break flock's
+# inode-based serialization (a new file = a new inode = no mutual exclusion).
+#
+# Re-entry: re-running the loop resumes from disk — specs are re-read each
+# iteration (status COMPLETE check), so an interrupted spec is simply retried.
+# A half-finished tree surfaces as the pre-flight dirty-tree warning (or is
+# auto-stashed with RALPH_AUTO_STASH=true). The green-test gate guarantees a red
+# tree from a killed iteration is never pushed.
+cleanup_watch() {
+    if [ -n "${WATCH_PID:-}" ]; then
+        kill "$WATCH_PID" 2>/dev/null || true
+        wait "$WATCH_PID" 2>/dev/null || true
+        WATCH_PID=""
+    fi
+}
+
+# Recursively kill all descendants of a pid (deepest first), never the pid itself.
+# Reaps the full iteration subtree (timeout -> bash -c -> claude -> …) so a bare
+# `kill`/SIGHUP to the loop reaches the agent even though it runs as a grandchild.
+_kill_descendants() {
+    local parent=$1 child
+    for child in $(pgrep -P "$parent" 2>/dev/null); do
+        _kill_descendants "$child"
+        kill "$child" 2>/dev/null || true
+    done
+}
+
+ralph_cleanup() {
+    cleanup_watch
+    _kill_descendants "$$"
+    if [ -n "${LOCK_FD:-}" ]; then
+        flock -u "$LOCK_FD" 2>/dev/null || true
+    fi
+    return 0
+}
+trap ralph_cleanup EXIT
+trap 'trap - INT; ralph_cleanup; exit 130' INT
+trap 'trap - TERM; ralph_cleanup; exit 143' TERM
+trap 'trap - HUP;  ralph_cleanup; exit 129' HUP
+
+# ── Iteration loop ────────────────────────────────────────────────────────────
+# Errors inside an iteration are handled explicitly (failure accounting). Disable
+# set -e so one bad command aborts only that iteration, not the whole session.
+set +e
+
 ITERATION=0
 CONSECUTIVE_FAILURES=0
-MAX_CONSECUTIVE_FAILURES=3
+TOTAL_FAILURES=0
+ALL_DONE=false
 
 while true; do
-    # Check max iterations
-    if [ $MAX_ITERATIONS -gt 0 ] && [ $ITERATION -ge $MAX_ITERATIONS ]; then
+    # Natural completion: recount incomplete specs before starting work
+    REMAINING=$(count_incomplete_root_specs "specs")
+    if [ "$MODE" = "build" ] && [ "$HAS_PLAN" = false ] && [ "${REMAINING:-0}" -eq 0 ] && [ "$HAS_SPECS" = true ]; then
+        echo -e "${GREEN}All specs are COMPLETE — nothing left to do.${NC}"
+        ALL_DONE=true
+        break
+    fi
+
+    # Max iterations cap
+    if [ "$MAX_ITERATIONS" -gt 0 ] && [ "$ITERATION" -ge "$MAX_ITERATIONS" ]; then
         echo -e "${GREEN}Reached max iterations: $MAX_ITERATIONS${NC}"
         break
     fi
@@ -347,8 +562,11 @@ while true; do
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
     echo ""
-    echo -e "${PURPLE}════════════════════ LOOP $ITERATION ════════════════════${NC}"
-    echo -e "${BLUE}[$TIMESTAMP]${NC} Starting iteration $ITERATION"
+    echo -e "${PURPLE}══════════════════════ LOOP $ITERATION ══════════════════════${NC}"
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${YELLOW}(DRY-RUN: no push, loop performs no git mutation)${NC}"
+    fi
+    echo -e "${BLUE}[$TIMESTAMP] Starting iteration $ITERATION${NC}"
     echo ""
 
     # Log file for this iteration
@@ -361,76 +579,157 @@ while true; do
         WATCH_PID=$!
     fi
 
-    # Run Claude with prompt via stdin, capture output
+    # Run Claude under a wall-clock timeout. `timeout` execs its argument, so wrap
+    # the stdin-feed + claude call in `bash -c`; positional args avoid quoting hell.
+    # --kill-after force-SIGKILLs a process that ignores the initial SIGTERM.
+    #
+    # Run it in the BACKGROUND and `wait` on it (rather than a foreground pipeline)
+    # because `wait` is interruptible by signal traps — a foreground pipeline would
+    # block traps until it finishes, making the loop unresponsive to Ctrl+C while
+    # the agent runs. Output streams to LOG_FILE; the watcher tails it live.
     CLAUDE_OUTPUT=""
-    if CLAUDE_OUTPUT=$(cat "$PROMPT_FILE" | "$CLAUDE_CMD" $CLAUDE_FLAGS 2>&1 | tee "$LOG_FILE"); then
-        if [ -n "$WATCH_PID" ]; then
-            kill "$WATCH_PID" 2>/dev/null || true
-            wait "$WATCH_PID" 2>/dev/null || true
-        fi
-        echo ""
-        echo -e "${GREEN}✓ Claude execution completed${NC}"
-        
-        # Check if DONE promise was output (accept both DONE and ALL_DONE variants)
-        if echo "$CLAUDE_OUTPUT" | grep -qE "<promise>(ALL_)?DONE</promise>"; then
-            DETECTED_SIGNAL=$(echo "$CLAUDE_OUTPUT" | grep -oE "<promise>(ALL_)?DONE</promise>" | tail -1)
-            echo -e "${GREEN}✓ Completion signal detected: ${DETECTED_SIGNAL}${NC}"
-            echo -e "${GREEN}✓ Task completed successfully!${NC}"
-            CONSECUTIVE_FAILURES=0
-            
-            # For planning mode, stop after one successful plan
-            if [ "$MODE" = "plan" ]; then
-                echo ""
-                echo -e "${GREEN}Planning complete!${NC}"
-                echo -e "${CYAN}Run './scripts/ralph-loop.sh' to start building.${NC}"
-                echo -e "${CYAN}Or delete IMPLEMENTATION_PLAN.md to work directly from specs.${NC}"
-                break
-            fi
-        else
-            echo -e "${YELLOW}⚠ No completion signal found${NC}"
-            echo -e "${YELLOW}  Agent did not output <promise>DONE</promise> or <promise>ALL_DONE</promise>${NC}"
-            echo -e "${YELLOW}  This means acceptance criteria were not met.${NC}"
-            echo -e "${YELLOW}  Retrying in next iteration...${NC}"
-            CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
-            print_latest_output "$LOG_FILE" "Claude"
-            
-            if [ $CONSECUTIVE_FAILURES -ge $MAX_CONSECUTIVE_FAILURES ]; then
-                echo ""
-                echo -e "${RED}⚠ $MAX_CONSECUTIVE_FAILURES consecutive iterations without completion.${NC}"
-                echo -e "${RED}  The agent may be stuck. Consider:${NC}"
-                echo -e "${RED}  - Checking the logs in $LOG_DIR${NC}"
-                echo -e "${RED}  - Simplifying the current spec${NC}"
-                echo -e "${RED}  - Manually fixing blocking issues${NC}"
-                echo ""
-                CONSECUTIVE_FAILURES=0
-            fi
-        fi
-    else
-        if [ -n "$WATCH_PID" ]; then
-            kill "$WATCH_PID" 2>/dev/null || true
-            wait "$WATCH_PID" 2>/dev/null || true
-        fi
-        echo -e "${RED}✗ Claude execution failed${NC}"
-        echo -e "${YELLOW}Check log: $LOG_FILE${NC}"
-        CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+    CLAUDE_RC=0
+    timeout --kill-after=10 "$ITERATION_TIMEOUT" bash -c 'cat "$1" | "$2" $3' _ "$PROMPT_FILE" "$CLAUDE_CMD" "$CLAUDE_FLAGS" > "$LOG_FILE" 2>&1 &
+    wait $! || CLAUDE_RC=$?
+    cleanup_watch
+    CLAUDE_OUTPUT=$(cat "$LOG_FILE" 2>/dev/null || true)
+
+    ITER_RESULT="failure"
+
+    if [ "$CLAUDE_RC" -eq 124 ]; then
+        echo -e "${RED}✗ Iteration timed out after ${ITERATION_TIMEOUT}s (killed).${NC}"
+        echo -e "${YELLOW}  Log: $LOG_FILE${NC}"
+    elif [ "$CLAUDE_RC" -ne 0 ]; then
+        echo -e "${RED}✗ Claude execution failed (exit $CLAUDE_RC).${NC}"
+        echo -e "${YELLOW}  Log: $LOG_FILE${NC}"
         print_latest_output "$LOG_FILE" "Claude"
+    else
+        # Detect completion signal (ALL_DONE takes precedence over DONE)
+        if echo "$CLAUDE_OUTPUT" | grep -qE "<promise>ALL_DONE</promise>"; then
+            SIGNAL="ALL_DONE"
+        elif echo "$CLAUDE_OUTPUT" | grep -qE "<promise>DONE</promise>"; then
+            SIGNAL="DONE"
+        else
+            SIGNAL=""
+        fi
+
+        if [ -z "$SIGNAL" ]; then
+            echo -e "${YELLOW}⚠ No completion signal found (no <promise>DONE</promise>).${NC}"
+            echo -e "${YELLOW}  Acceptance criteria were not met; retrying next iteration.${NC}"
+            print_latest_output "$LOG_FILE" "Claude"
+        elif [ "$MODE" = "plan" ]; then
+            echo -e "${GREEN}✓ Completion signal detected: <promise>${SIGNAL}</promise>${NC}"
+            echo ""
+            echo -e "${GREEN}Planning complete!${NC}"
+            echo -e "${CYAN}Run './scripts/ralph-loop.sh' to start building.${NC}"
+            echo -e "${CYAN}Or delete IMPLEMENTATION_PLAN.md to work directly from specs.${NC}"
+            break
+        else
+            echo -e "${GREEN}✓ Completion signal detected: <promise>${SIGNAL}</promise>${NC}"
+
+            # Green-test gate: a DONE claim must be backed by green tests.
+            # The test run itself is time-bounded so a hung suite can't stall the loop.
+            TESTS_GREEN=true
+            if [ "$VERIFY_TESTS" = true ] && [ "$DRY_RUN" = false ]; then
+                echo -e "${CYAN}Green-test gate: running \`php artisan test\`…${NC}"
+                if timeout "$TEST_TIMEOUT" php artisan test 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    echo -e "${GREEN}✓ Tests green${NC}"
+                else
+                    TESTS_GREEN=false
+                    echo -e "${RED}✗ Tests RED (or timed out) — NOT counting this as success and NOT pushing.${NC}"
+                    echo -e "${RED}  The DONE promise was not backed by a green test run.${NC}"
+                    print_latest_output "$LOG_FILE" "Test output"
+                fi
+            fi
+
+            if [ "$TESTS_GREEN" = true ]; then
+                ITER_RESULT="success"
+                CONSECUTIVE_FAILURES=0
+                echo -e "${GREEN}✓ Task completed successfully!${NC}"
+
+                # Push ONLY on verified success. A push failure (e.g. transient
+                # network blip) does NOT fail the iteration — commits stay local
+                # and retry on the next verified success. The push is time-bounded.
+                if [ "$DRY_RUN" = true ]; then
+                    echo -e "${YELLOW}(DRY-RUN: skipping push)${NC}"
+                else
+                    timeout "$PUSH_TIMEOUT" git push origin "$CURRENT_BRANCH" 2>/dev/null || {
+                        if git log "origin/$CURRENT_BRANCH..HEAD" --oneline 2>/dev/null | grep -q .; then
+                            echo -e "${YELLOW}Push failed or timed out — retrying with -u to set upstream…${NC}"
+                            timeout "$PUSH_TIMEOUT" git push -u origin "$CURRENT_BRANCH" 2>/dev/null || \
+                                echo -e "${YELLOW}  Push still failing; commits stay local, retry next success.${NC}"
+                        fi
+                    }
+                fi
+
+                # Natural completion after a verified success
+                if [ "$SIGNAL" = "ALL_DONE" ]; then
+                    ALL_DONE=true
+                    break
+                fi
+                REMAINING=$(count_incomplete_root_specs "specs")
+                if [ "${REMAINING:-0}" -eq 0 ]; then
+                    echo -e "${GREEN}No incomplete specs remain — queue empty.${NC}"
+                    ALL_DONE=true
+                    break
+                fi
+            fi
+        fi
     fi
 
-    # Push changes after each iteration (if any)
-    git push origin "$CURRENT_BRANCH" 2>/dev/null || {
-        if git log origin/$CURRENT_BRANCH..HEAD --oneline 2>/dev/null | grep -q .; then
-            echo -e "${YELLOW}Push failed, creating remote branch...${NC}"
-            git push -u origin "$CURRENT_BRANCH" 2>/dev/null || true
+    # ── Failure accounting ────────────────────────────────────────────────────
+    if [ "$ITER_RESULT" = "failure" ]; then
+        CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+        TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+        echo -e "${YELLOW}Failures: ${CONSECUTIVE_FAILURES} consecutive / ${TOTAL_FAILURES} total${NC}"
+
+        # Push on failure only when explicitly enabled (default off; never in dry-run)
+        if [ "$PUSH_ON_FAILURE" = true ] && [ "$DRY_RUN" = false ]; then
+            timeout "$PUSH_TIMEOUT" git push origin "$CURRENT_BRANCH" 2>/dev/null || true
         fi
-    }
+
+        NEXT_SPEC=$(get_first_incomplete_root_spec "specs")
+
+        # Total failure cap (never resets)
+        if [ "$TOTAL_FAILURES" -ge "$MAX_TOTAL_FAILURES" ]; then
+            echo ""
+            echo -e "${RED}⛔ Reached MAX_TOTAL_FAILURES ($MAX_TOTAL_FAILURES) — halting.${NC}"
+            echo -e "${RED}  Too many failed iterations this session. Likely on: ${NEXT_SPEC:-?}${NC}"
+            echo -e "${RED}  Last log: $LOG_FILE${NC}"
+            exit 1
+        fi
+
+        # Consecutive-failure hard stop (the old script warned-then-reset and looped forever)
+        if [ "$CONSECUTIVE_FAILURES" -ge "$MAX_CONSECUTIVE_FAILURES" ]; then
+            if [ "$CONTINUE_ON_STUCK" = true ]; then
+                echo -e "${YELLOW}⚠ $CONSECUTIVE_FAILURES consecutive failures — --continue-on-stuck set, resetting counter.${NC}"
+                CONSECUTIVE_FAILURES=0
+            else
+                echo ""
+                echo -e "${RED}⛔ Stuck on a spec: $MAX_CONSECUTIVE_FAILURES consecutive failures — halting.${NC}"
+                echo -e "${RED}  Likely stuck on: ${NEXT_SPEC:-?}${NC}"
+                echo -e "${RED}  Consider simplifying that spec (constitution: split at NR_OF_TRIES ≥ 10).${NC}"
+                echo -e "${RED}  Last log: $LOG_FILE${NC}"
+                echo -e "${RED}  Re-run with --continue-on-stuck for the old soft (warn-and-reset) behavior.${NC}"
+                exit 1
+            fi
+        fi
+    fi
 
     # Brief pause between iterations
     echo ""
-    echo -e "${BLUE}Waiting 2s before next iteration...${NC}"
+    echo -e "${BLUE}Waiting 2s before next iteration…${NC}"
     sleep 2
 done
 
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}         RALPH LOOP FINISHED ($ITERATION iterations)         ${NC}"
+if [ "$ALL_DONE" = true ]; then
+    echo -e "${GREEN}     RALPH LOOP FINISHED — ALL SPECS COMPLETE ($ITERATION iterations)     ${NC}"
+elif [ "$DRY_RUN" = true ]; then
+    echo -e "${GREEN}      RALPH LOOP FINISHED — DRY RUN COMPLETE ($ITERATION iteration)       ${NC}"
+else
+    echo -e "${GREEN}         RALPH LOOP FINISHED ($ITERATION iterations)         ${NC}"
+fi
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
