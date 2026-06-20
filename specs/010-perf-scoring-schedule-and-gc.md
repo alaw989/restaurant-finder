@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `restaurants:score` loads every active row into memory (`Restaurant::active()->get()`) and issues N individual `update()`s; `RestaurantEnrichmentService::enrichByCuisine` scores the same per-row way and only runs manually for SF; expired rows in `external_api_cache` are never garbage-collected. Chunk scoring transactionally, schedule a daily re-score, expand enrichment to the configured city list, and add a nightly cache-GC command.
 
@@ -54,4 +54,4 @@ As the operator, I want scoring to scale without a memory spike, run on a schedu
 ## Assumptions
 - `PopularityScoreService` exposes (or gains) an aggregate-aware scoring entry point after 006/007.
 - The scheduler is wired under the worker (`routes/console.php` + `schedule:work`/cron).
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

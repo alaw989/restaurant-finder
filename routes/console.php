@@ -8,7 +8,16 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('restaurants:enrich', ['san francisco'])
+// Schedule daily re-scoring of all restaurants (runs at 2 AM UTC)
+Schedule::command('restaurants:score')
+    ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->description('Recompute popularity scores for all restaurants');
+
+// Schedule nightly API cache garbage collection (runs at 3 AM UTC)
+Schedule::command('apicache:gc')
     ->dailyAt('03:00')
     ->withoutOverlapping()
-    ->onOneServer();
+    ->onOneServer()
+    ->description('Garbage collect expired API cache entries');

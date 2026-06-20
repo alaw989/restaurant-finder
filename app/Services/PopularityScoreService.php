@@ -98,19 +98,58 @@ class PopularityScoreService
     }
 
     /**
+     * Calculate breakdown for an Eloquent model using precomputed aggregates.
+     */
+    public function calculateBreakdownWithAggregatesFromEloquent(Restaurant $restaurant, array $logDenoms, array $minmax): array
+    {
+        return $this->calculateBreakdownWithAggregates(
+            $this->restaurantToArray($restaurant),
+            $logDenoms,
+            $minmax
+        );
+    }
+
+    /**
+     * Collection-level aggregates needed for normalization. Computed once for
+     * the full dataset and reused across chunks or restaurants.
+     */
+    public function computeAggregates(Collection $allRestaurants): array
+    {
+        return [
+            'log_denoms' => [
+                'yelp_review_count' => $this->logDenominator($allRestaurants, 'yelp_review_count'),
+                'google_review_count' => $this->logDenominator($allRestaurants, 'google_review_count'),
+            ],
+            'minmax' => [
+                'popular_times_avg_busyness' => $this->minmaxStats($allRestaurants, 'popular_times_avg_busyness'),
+            ],
+        ];
+    }
+
+    /**
      * Calculate a detailed per-signal breakdown for an array-based restaurant
      * (from live search). Shares normalization logic with the Eloquent path.
      * Returns the same breakdown structure.
      */
     public function calculateBreakdownForArray(array $restaurant, Collection $allRestaurants): array
     {
-        // Precompute collection-level stats needed by log + min-max normalization.
-        $logDenoms = [
-            'yelp_review_count' => $this->logDenominator($allRestaurants, 'yelp_review_count'),
-            'google_review_count' => $this->logDenominator($allRestaurants, 'google_review_count'),
-        ];
-        $minmax = [
-            'popular_times_avg_busyness' => $this->minmaxStats($allRestaurants, 'popular_times_avg_busyness'),
+        $aggregates = $this->computeAggregates($allRestaurants);
+        return $this->calculateBreakdownWithAggregates(
+            $restaurant,
+            $aggregates['log_denoms'],
+            $aggregates['minmax']
+        );
+    }
+
+    /**
+     * Calculate breakdown using precomputed aggregates. Used by chunked
+     * scoring where collection-level stats are computed once upfront.
+     */
+    public function calculateBreakdownWithAggregates(array $restaurant, array $logDenoms, array $minmax): array
+    {
+        $logDenoms = $logDenoms + [
+            'yelp_review_count' => (float) $this->logReviewDefault,
+            'google_review_count' => (float) $this->logReviewDefault,
         ];
 
         $signalLabels = [
