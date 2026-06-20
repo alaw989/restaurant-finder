@@ -9,7 +9,7 @@
 ## Context Detection
 
 **Ralph Loop Mode** (started by `ralph-loop*.sh`):
-- Pick highest priority incomplete spec from `specs/`
+- Pick the ONE highest-priority incomplete spec from `specs/` (lowest number whose Status is not COMPLETE) — **exactly one spec per iteration; never batch** (multiple specs overflow the context window and the loop fails the iteration before DONE)
 - Implement, test, commit, push
 - Output `<promise>DONE</promise>` only when 100% complete
 - Output `<promise>ALL_DONE</promise>` when no work remains
