@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `Restaurant::scopeNearby` computes the haversine `distance` for every row and filters with a `whereRaw` haversine comparison — a full-table scan with no bounding box. The columns used to ORDER BY and filter the popular list (`popularity_score`, `is_active`) and the coordinate columns used for proximity have no indexes. Add database indexes and a bounding-box prefilter so the nearby query stops scanning the whole table.
 
@@ -48,4 +48,4 @@ As a user, I want nearby results to stay fast as the `restaurants` table grows, 
 ## Assumptions
 - Dev runs on SQLite; production may run MySQL — keep the migration portable.
 - Builds on 007's stored `popularity_score`/breakdown being the ORDER BY key.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

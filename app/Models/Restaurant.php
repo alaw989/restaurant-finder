@@ -82,10 +82,23 @@ class Restaurant extends Model
             )
         )';
 
+        // Bounding box prefilter to narrow candidates before the haversine calculation.
+        // Uses ~111 km per degree latitude; longitude varies by cosine of latitude.
+        // Pad by 10% to avoid excluding valid results at the radius edge.
+        $latDelta = ($radiusKm * 1.1) / 111.0;
+        $lngDelta = ($radiusKm * 1.1) / (111.0 * cos(deg2rad($lat)));
+
+        $minLat = $lat - $latDelta;
+        $maxLat = $lat + $latDelta;
+        $minLng = $lng - $lngDelta;
+        $maxLng = $lng + $lngDelta;
+
         return $query
             ->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
+            ->whereBetween('latitude', [$minLat, $maxLat])
+            ->whereBetween('longitude', [$minLng, $maxLng])
             ->whereRaw("{$haversine} <= CAST(? AS REAL)", [$lat, $lng, $lat, $radiusKm]);
     }
 
