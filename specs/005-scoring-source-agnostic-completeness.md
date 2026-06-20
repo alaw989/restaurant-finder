@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `data_completeness` includes a truly-dead field (`yelp_business_id`) that no source populates, capping free rows and understating their quality. Make completeness source-agnostic so free-enriched rows score fairly.
 
@@ -44,4 +44,4 @@ As the operator, I want completeness to reflect fields a free source can actuall
 
 ## Assumptions
 - Bonus fields (Outscraper busyness, Google/scraper photo) remain valid completeness contributors when populated.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

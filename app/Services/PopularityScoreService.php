@@ -46,19 +46,21 @@ class PopularityScoreService
     private const ALWAYS_ACTIVE = ['data_completeness', 'has_award'];
 
     /**
-     * The nine row fields that feed data_completeness. popular_times_avg_busyness
-     * stands in for "hours" — the only operational/hours data we persist.
+     * Source-agnostic fields that feed data_completeness. All are populate-able
+     * by free sources (BizData, Overpass) or scrapers. popular_times_avg_busyness
+     * (from Outscraper) and photo_url are bonus fields. has_award is a separate
+     * signal with its own weight, not part of completeness.
      */
     private const COMPLETENESS_FIELDS = [
-        'name',
-        'address',
-        'phone',
-        'latitude',
-        'longitude',
-        'price_range',
-        'popular_times_avg_busyness',
-        'yelp_business_id',
-        'photo_url',
+        'name',           // Always present (required field)
+        'address',         // BizData, Overpass
+        'phone',           // BizData, Overpass
+        'latitude',        // BizData, Overpass
+        'longitude',       // BizData, Overpass
+        'price_range',     // Overpass
+        'website_url',     // BizData, Overpass
+        'popular_times_avg_busyness', // Bonus: Outscraper
+        'photo_url',       // Bonus: scraper/BizData
     ];
 
     private array $weights;

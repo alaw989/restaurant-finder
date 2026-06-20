@@ -44,7 +44,7 @@ class PopularityScoreServiceTest extends TestCase
             'latitude' => '37.77490000',
             'longitude' => '-122.41940000',
             'price_range' => '$$',
-            'yelp_business_id' => 'abc123',
+            'website_url' => 'https://example.com',
             'photo_url' => 'https://example.com/photo.jpg',
         ];
     }
@@ -94,7 +94,7 @@ class PopularityScoreServiceTest extends TestCase
         $restaurant = $this->makeRestaurant([
             'latitude' => '0.00000000',
             'longitude' => '0.00000000',
-            'yelp_business_id' => 'x', // the only genuinely filled field
+            'name' => 'Zero Place', // the only genuinely filled field (lat/lng are 0 sentinel)
         ]);
         $all = new Collection([$restaurant]);
 
@@ -298,5 +298,22 @@ class PopularityScoreServiceTest extends TestCase
         $score2 = $this->service->calculateScore($r2, $all);
 
         $this->assertSame($score1, $score2);
+    }
+
+    public function test_free_enriched_row_achieves_minimum_completeness(): void
+    {
+        // A free-enriched row (all free-source fields except bonus fields)
+        // should achieve completeness ≥ 0.6 (6/9 = 0.667).
+        $restaurant = $this->makeRestaurant($this->fullFreeFields());
+        $all = new Collection([$restaurant]);
+
+        $breakdown = $this->service->calculateBreakdown($restaurant, $all);
+
+        // Find the completeness signal contribution
+        $completenessSignal = collect($breakdown['signals'])
+            ->first(fn ($s) => $s['label'] === 'Profile Completeness');
+
+        $this->assertNotNull($completenessSignal, 'Completeness signal should be present');
+        $this->assertGreaterThanOrEqual(0.6, $completenessSignal['normalized']);
     }
 }
