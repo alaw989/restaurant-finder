@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: A restaurant's own website is a clean, allowed source for hours/menu/photo data not available from the feed sources. Add `RestaurantWebsiteScraperService` that scrapes **only the venue's own site**, honors robots.txt, uses a per-domain `Cache::lock`, caches for 7 days, and stores `opening_hours` as JSON on the row.
 
@@ -52,4 +52,4 @@ As a user, I want hours (and where available menu/photo) for venues that have a 
 
 ## Assumptions
 - Own-site scraping only (mandate); never direct scraping of Google/Yelp/TripAdvisor.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

@@ -34,6 +34,7 @@ class RestaurantEnrichmentService
         private SocrataOpenDataService $socrataService,
         private WikidataService $wikidata,
         private PopularityScoreService $popularityScore,
+        private RestaurantWebsiteScraperService $websiteScraper,
     ) {}
 
     /**
@@ -83,6 +84,9 @@ class RestaurantEnrichmentService
 
         // Optional award (Wikidata, free) — one box query, match each row
         $this->enrichAwards($restaurants, $lat, $lng);
+
+        // Optional website scraper — fetch opening hours/menu from own websites
+        $this->enrichWebsiteData($restaurants);
 
         // Score the persisted set together (uses the now-bonus-enriched models)
         foreach ($restaurants as $restaurant) {
@@ -567,6 +571,42 @@ class RestaurantEnrichmentService
             }
         } catch (\Throwable $e) {
             Log::debug('Award enrichment skipped', ['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Optional website scraper enrichment (free): scrape restaurant's own website
+     * for opening hours and menu data. Runs only for restaurants with a website_url.
+     * Mutates the passed models in place.
+     */
+    private function enrichWebsiteData(Collection $restaurants): void
+    {
+        foreach ($restaurants as $restaurant) {
+            try {
+                // Skip if no website URL
+                if (empty($restaurant->website_url)) {
+                    continue;
+                }
+
+                // Skip if we already have opening_hours data (cached)
+                if (!empty($restaurant->opening_hours)) {
+                    continue;
+                }
+
+                $scrapedData = $this->websiteScraper->scrape($restaurant->website_url);
+
+                if ($scrapedData !== null && !empty($scrapedData['opening_hours'])) {
+                    $restaurant->update([
+                        'opening_hours' => $scrapedData['opening_hours'],
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Website scraping failed for restaurant', [
+                    'restaurant_id' => $restaurant->id,
+                    'website_url' => $restaurant->website_url ?? null,
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
     }
 
