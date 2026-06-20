@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: Keys are fine where they earn their place (Foursquare active, SerpApi to be wired, Google Places + Outscraper dormant). The app must still work and produce good results with ZERO keys — every key optional, never a hard requirement, no half-wired/broken key touchpoints. Sync `.env.example` to reality; do NOT delete key-based services.
 
@@ -52,4 +52,4 @@ As a developer, I want `.env.example` and `config/services.php` to match so a fr
 ## Assumptions
 - Google Places + Outscraper stay dormant (no key today) but are retained for future opt-in.
 - Wiring SerpApi itself is a separate spec (012); this spec only ensures its config slot is sane and graceful.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->
