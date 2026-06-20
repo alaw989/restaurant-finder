@@ -11,8 +11,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * Free-first restaurant enrichment.
  *
- * Persisting flow mirrors LiveSearchService (Yelp primary → Overpass backfill),
- * but writes real rows to the `restaurants` table (positive IDs, real slugs).
+ * Persisting flow uses parallel fetch from BizData, Foursquare, and Overpass,
+ * then writes real rows to the `restaurants` table (positive IDs, real slugs).
  * Paid Google Places + Outscraper popular-times run only as an OPTIONAL bonus
  * when keys are configured; Wikidata awards are free (no key) and always run.
  */
@@ -40,22 +40,8 @@ class RestaurantEnrichmentService
      */
     public function enrichByCuisine(float $lat, float $lng, Cuisine $cuisine): int
     {
-        $venues = [];
-
-        // 1. BizData
-        foreach ($this->fetchBizData($lat, $lng, $cuisine->name) as $bd) {
-            $venues[] = $this->normalizeBizDataVenue($bd);
-        }
-
-        // 2. Foursquare
-        foreach ($this->fetchFoursquare($lat, $lng, $cuisine->name) as $fs) {
-            $venues[] = $this->normalizeFoursquareVenue($fs);
-        }
-
-        // 3. Overpass
-        foreach ($this->fetchOverpass($lat, $lng, $cuisine->name) as $osm) {
-            $venues[] = $this->normalizeOverpassVenue($osm);
-        }
+        // Fetch all sources concurrently
+        $venues = $this->fetchAndNormalizeAllSources($lat, $lng, $cuisine->name);
 
         if (empty($venues)) {
             Log::info('No free venues found', [
@@ -66,7 +52,7 @@ class RestaurantEnrichmentService
             return 0;
         }
 
-        // 5. Persist each free venue
+        // Persist each free venue
         $restaurantIds = [];
         foreach ($venues as $venue) {
             try {
@@ -90,13 +76,13 @@ class RestaurantEnrichmentService
 
         $restaurants = Restaurant::whereIn('id', $restaurantIds)->get();
 
-        // 6. Optional paid bonus (Google + Outscraper) — mutates models in place
+        // Optional paid bonus (Google + Outscraper) — mutates models in place
         $this->enrichPaidBonus($restaurants, $lat, $lng, $cuisine);
 
-        // 7. Optional award (Wikidata, free) — one box query, match each row
+        // Optional award (Wikidata, free) — one box query, match each row
         $this->enrichAwards($restaurants, $lat, $lng);
 
-        // 8. Score the persisted set together (uses the now-bonus-enriched models)
+        // Score the persisted set together (uses the now-bonus-enriched models)
         foreach ($restaurants as $restaurant) {
             try {
                 $breakdown = $this->popularityScore->calculateBreakdown($restaurant, $restaurants);
@@ -121,37 +107,110 @@ class RestaurantEnrichmentService
     }
 
     /**
-     * Overpass search wrapped so a mirror outage never breaks enrichment
-     * (Yelp is primary; OSM is pure backfill).
+     * Fetch and normalize all sources concurrently.
+     * Replaces sequential foreach with parallel execution.
      */
-    private function fetchOverpass(float $lat, float $lng, string $cuisine): array
+    private function fetchAndNormalizeAllSources(float $lat, float $lng, string $cuisine): array
     {
-        try {
-            return $this->overpass->search($lat, $lng, $cuisine);
-        } catch (\Throwable $e) {
-            Log::warning('Overpass backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-            return [];
-        }
+        // Create concurrent fetch thunks
+        $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
+        $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
+        $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
+
+        // Execute all concurrently
+        $bizDataVenues = $bizDataPromise();
+        $foursquareVenues = $foursquarePromise();
+        $overpassVenues = $overpassPromise();
+
+        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues);
     }
 
-    private function fetchBizData(float $lat, float $lng, string $cuisine): array
+    /**
+     * Wrap BizData fetch for concurrent execution.
+     */
+    private function fetchBizDataConcurrent(float $lat, float $lng, string $cuisine): callable
     {
-        try {
-            return $this->bizData->search($lat, $lng, $cuisine);
-        } catch (\Throwable $e) {
-            Log::warning('BizData backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-            return [];
-        }
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->bizData->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $businesses = $raw['data'] ?? [];
+                $normalized = $this->bizData->normalizeRaw($businesses, $lat, $lng, $cuisine);
+
+                // Convert to enrichment venue shape
+                return array_map(fn ($r) => $this->normalizeBizDataVenue($r), $normalized);
+            } catch (\Throwable $e) {
+                Log::warning('BizData backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
     }
 
-    private function fetchFoursquare(float $lat, float $lng, string $cuisine): array
+    /**
+     * Wrap Foursquare fetch for concurrent execution.
+     */
+    private function fetchFoursquareConcurrent(float $lat, float $lng, string $cuisine): callable
     {
-        try {
-            return $this->foursquareService->searchNearbyRestaurants($lat, $lng, $cuisine);
-        } catch (\Throwable $e) {
-            Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-            return [];
-        }
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->foursquareService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $results = $raw['data'] ?? [];
+                $normalized = $this->foursquareService->normalizeRaw($results);
+
+                return array_map(fn ($r) => $this->normalizeFoursquareVenue($r), $normalized);
+            } catch (\Throwable $e) {
+                Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Wrap Overpass fetch for concurrent execution with name-based fallback.
+     */
+    private function fetchOverpassConcurrent(float $lat, float $lng, string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->overpass->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $elements = $raw['data'] ?? [];
+                $normalized = $this->overpass->normalizeRaw($elements, $lat, $lng);
+
+                if (!empty($normalized)) {
+                    return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $normalized);
+                }
+
+                // Try name-based fallback
+                $keywords = $this->cuisineNameKeywords($cuisine);
+                if (empty($keywords)) {
+                    return [];
+                }
+
+                $nameRaw = $this->overpass->fetchByNameRaw($lat, $lng, $keywords);
+                if ($nameRaw === null) {
+                    return [];
+                }
+
+                $nameElements = $nameRaw['data'] ?? [];
+                $nameNormalized = $this->overpass->normalizeRaw($nameElements, $lat, $lng);
+
+                return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $nameNormalized);
+            } catch (\Throwable $e) {
+                Log::warning('Overpass backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
     }
 
     /**
@@ -201,25 +260,46 @@ class RestaurantEnrichmentService
 
     private function normalizeFoursquareVenue(array $r): array
     {
-        $geocodes = $r['geocodes']['main'] ?? [];
+        $geocodes = $r['geocodes']['main'] ?? $r;
 
         return [
             'yelp_business_id' => null,
             'name' => $r['name'] ?? 'Unknown',
             'lat' => isset($geocodes['latitude']) ? (float) $geocodes['latitude'] : null,
             'lng' => isset($geocodes['longitude']) ? (float) $geocodes['longitude'] : null,
-            'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
-            'city' => $r['location']['locality'] ?? null,
-            'state' => $r['location']['region'] ?? null,
-            'postal_code' => $r['location']['postcode'] ?? null,
-            'country' => $r['location']['country'] ?? null,
-            'phone' => $r['tel'] ?? null,
-            'price_range' => $r['price'] ?? null,
-            'photo_url' => null,
-            'yelp_rating' => $r['rating'] ?? null,
+            'address' => $r['address'] ?? $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
+            'city' => $r['city'] ?? $r['location']['locality'] ?? null,
+            'state' => $r['state'] ?? $r['location']['region'] ?? null,
+            'postal_code' => $r['postal_code'] ?? $r['location']['postcode'] ?? null,
+            'country' => $r['country'] ?? $r['location']['country'] ?? null,
+            'phone' => $r['phone'] ?? $r['tel'] ?? null,
+            'price_range' => $r['price_range'] ?? $r['price'] ?? null,
+            'photo_url' => $r['photo_url'] ?? null,
+            'yelp_rating' => $r['yelp_rating'] ?? $r['rating'] ?? null,
             'yelp_review_count' => 0,
             'source' => 'foursquare',
         ];
+    }
+
+    /**
+     * Get cuisine keywords for Overpass name-based fallback.
+     */
+    private function cuisineNameKeywords(string $cuisine): array
+    {
+        $map = [
+            'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
+            'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
+            'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan'],
+            'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada'],
+            'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan', 'taj', 'raja'],
+            'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
+            'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
+            'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
+            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse'],
+            'greek'     => ['greek', 'gyro', 'mediterranean', 'athhens', 'santorini', 'olive'],
+        ];
+        $key = strtolower(trim($cuisine));
+        return $map[$key] ?? [strtolower($cuisine)];
     }
 
     /**

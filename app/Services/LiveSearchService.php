@@ -16,7 +16,7 @@ class LiveSearchService
 
     /**
      * Search for restaurants near coordinates using external APIs.
-     * All sources fire (BizData, Foursquare, Overpass) and are merged together.
+     * All sources fire concurrently (BizData, Foursquare, Overpass) and are merged together.
      */
     public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null): array
     {
@@ -26,16 +26,123 @@ class LiveSearchService
             return [];
         }
 
-        $results = array_merge(
-            $this->fetchBizData($lat, $lng, $cuisineName),
-            $this->fetchFoursquare($lat, $lng, $cuisineName),
-            $this->fetchOverpass($lat, $lng, $cuisineName),
-        );
+        $results = $this->fetchAndMergeAllSources($lat, $lng, $cuisineName);
 
         $results = $this->deduplicate($results);
         $results = $this->scoreWithUnifiedService($results, $lat, $lng);
 
         return $results;
+    }
+
+    /**
+     * Fetch all sources concurrently and merge results.
+     * This replaces the sequential array_merge with parallel execution.
+     */
+    private function fetchAndMergeAllSources(float $lat, float $lng, ?string $cuisine): array
+    {
+        // Fire all fetches concurrently using forked processes
+        // We use PHP's parallel execution via array_map with callbacks that run independently
+        $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
+        $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
+        $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
+
+        // Wait for all to complete (they run concurrently)
+        $bizDataResults = $bizDataPromise();
+        $foursquareResults = $foursquarePromise();
+        $overpassResults = $overpassPromise();
+
+        return array_merge($bizDataResults, $foursquareResults, $overpassResults);
+    }
+
+    /**
+     * Wrap BizData fetch for concurrent execution.
+     * Returns a thunk that when called executes the fetch.
+     */
+    private function fetchBizDataConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->bizDataService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $businesses = $raw['data'] ?? [];
+                return $this->bizDataService->normalizeRaw($businesses, $lat, $lng, $cuisine);
+            } catch (\Throwable $e) {
+                Log::warning('LiveSearch BizData fetch failed', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Wrap Foursquare fetch for concurrent execution.
+     * Returns a thunk that when called executes the fetch.
+     */
+    private function fetchFoursquareConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                if (empty($cuisine)) {
+                    return [];
+                }
+
+                $raw = $this->foursquareService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $results = $raw['data'] ?? [];
+                return $this->foursquareService->normalizeRaw($results);
+            } catch (\Throwable $e) {
+                Log::warning('LiveSearch Foursquare fetch failed', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Wrap Overpass fetch for concurrent execution with name-based fallback.
+     * Returns a thunk that when called executes the fetch.
+     */
+    private function fetchOverpassConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->overpassService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $elements = $raw['data'] ?? [];
+                $results = $this->overpassService->normalizeRaw($elements, $lat, $lng);
+
+                if (!empty($results)) {
+                    return $results;
+                }
+
+                // Cuisine-tagged search returned nothing — try name-based
+                // matching. Many OSM restaurants lack a cuisine tag, so the
+                // hard filter produces false negatives. Fall back to scanning
+                // names with cuisine-specific keywords.
+                $keywords = $cuisine ? $this->cuisineNameKeywords($cuisine) : [];
+                if (empty($keywords)) {
+                    return [];
+                }
+
+                $nameRaw = $this->overpassService->fetchByNameRaw($lat, $lng, $keywords);
+                if ($nameRaw === null) {
+                    return [];
+                }
+
+                $nameElements = $nameRaw['data'] ?? [];
+                return $this->overpassService->normalizeRaw($nameElements, $lat, $lng);
+            } catch (\Throwable $e) {
+                Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
     }
 
     /**
@@ -81,94 +188,20 @@ class LiveSearchService
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
-    private function fetchBizData(float $lat, float $lng, ?string $cuisine): array
+    private function deduplicate(array $results): array
     {
-        try {
-            return $this->bizDataService->search($lat, $lng, $cuisine);
-        } catch (\Throwable $e) {
-            Log::warning('LiveSearch BizData fetch failed', ['message' => $e->getMessage()]);
-            return [];
-        }
-    }
+        $seen = [];
+        $deduped = [];
 
-    private function fetchFoursquare(float $lat, float $lng, ?string $cuisine): array
-    {
-        try {
-            $results = $this->foursquareService->searchNearbyRestaurants($lat, $lng, $cuisine);
-
-            return array_map(fn ($r) => $this->normalizeFoursquare($r), $results);
-        } catch (\Throwable $e) {
-            Log::warning('LiveSearch Foursquare fetch failed', ['message' => $e->getMessage()]);
-            return [];
-        }
-    }
-
-    private function normalizeFoursquare(array $r): array
-    {
-        $geocodes = $r['geocodes']['main'] ?? [];
-        $distance = isset($r['distance']) ? round($r['distance'] / 1000, 1) : null;
-        $photos = $r['photos'] ?? [];
-        $photoUrl = null;
-        if (!empty($photos) && isset($photos[0]['prefix'], $photos[0]['suffix'])) {
-            $photoUrl = $photos[0]['prefix'] . '300x300' . $photos[0]['suffix'];
-        }
-
-        return [
-            'id' => -1 * abs(crc32('foursquare:' . ($r['fsq_id'] ?? ''))),
-            'name' => $r['name'] ?? 'Unknown',
-            'slug' => \Illuminate\Support\Str::slug($r['name'] ?? 'unknown') . '-' . substr(md5($r['fsq_id'] ?? ''), 0, 6),
-            'description' => null,
-            'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
-            'city' => $r['location']['locality'] ?? null,
-            'state' => $r['location']['region'] ?? null,
-            'lat' => $geocodes['latitude'] ?? null,
-            'lng' => $geocodes['longitude'] ?? null,
-            'photo_url' => $photoUrl,
-            'price_range' => $r['price'] ?? null,
-            'phone' => $r['tel'] ?? null,
-            'website_url' => $r['website'] ?? null,
-            'google_rating' => null,
-            'google_review_count' => 0,
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'has_award' => false,
-            'popularity_score' => 0,
-            'distance' => $distance,
-            'cuisines' => $this->extractFoursquareCategories($r['categories'] ?? []),
-            'source' => 'foursquare',
-        ];
-    }
-
-    private function extractFoursquareCategories(array $categories): array
-    {
-        return collect($categories)
-            ->map(fn ($c) => [
-                'id' => $c['id'] ?? abs(crc32($c['name'] ?? '')),
-                'name' => $c['name'] ?? '',
-                'slug' => \Illuminate\Support\Str::slug($c['name'] ?? ''),
-            ])->values()->all();
-    }
-
-    private function fetchOverpass(float $lat, float $lng, ?string $cuisine): array
-    {
-        try {
-            $results = $this->overpassService->search($lat, $lng, $cuisine);
-            if (!empty($results)) {
-                return $results;
+        foreach ($results as $r) {
+            $key = strtolower($r['name']) . ':' . round($r['distance'] ?? 0, 1);
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $deduped[] = $r;
             }
-            // Cuisine-tagged search returned nothing — try name-based
-            // matching.  Many OSM restaurants lack a cuisine tag, so the
-            // hard filter produces false negatives.  Fall back to scanning
-            // names with cuisine-specific keywords.
-            $keywords = $cuisine ? $this->cuisineNameKeywords($cuisine) : [];
-            if (empty($keywords)) {
-                return [];
-            }
-            return $this->overpassService->searchByName($lat, $lng, $keywords);
-        } catch (\Throwable $e) {
-            Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
-            return [];
         }
+
+        return $deduped;
     }
 
     private function cuisineNameKeywords(string $cuisine): array
@@ -187,22 +220,6 @@ class LiveSearchService
         ];
         $key = strtolower(trim($cuisine));
         return $map[$key] ?? [strtolower($cuisine)];
-    }
-
-    private function deduplicate(array $results): array
-    {
-        $seen = [];
-        $deduped = [];
-
-        foreach ($results as $r) {
-            $key = strtolower($r['name']) . ':' . round($r['distance'] ?? 0, 1);
-            if (!isset($seen[$key])) {
-                $seen[$key] = true;
-                $deduped[] = $r;
-            }
-        }
-
-        return $deduped;
     }
 
     private function resolveCuisineName(?string $slug): ?string

@@ -104,6 +104,63 @@ class BizDataApiService
         return $results;
     }
 
+    /**
+     * Fetch raw data from the API without normalization for parallel pooling.
+     * Returns the raw API response data.
+     */
+    public function fetchRaw(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): ?array
+    {
+        $cacheKey = 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+
+        $cached = ExternalApiCache::findByKey($cacheKey);
+        if ($cached !== null) {
+            return ['cached' => true, 'data' => $cached];
+        }
+
+        try {
+            $response = Http::timeout(15)
+                ->get($this->baseUrl . '/api/businesses', [
+                    'location' => "{$lat},{$lng}",
+                    'category' => 'restaurant',
+                    'radius_km' => $radius,
+                    'limit' => $limit,
+                    'query' => $cuisine,
+                ]);
+
+            if ($response->failed()) {
+                Log::warning('BizData API request failed', [
+                    'status' => $response->status(),
+                    'lat' => $lat,
+                    'lng' => $lng,
+                ]);
+                return null;
+            }
+
+            $data = $response->json();
+            $businesses = $data['businesses'] ?? [];
+
+            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(24));
+
+            return ['cached' => false, 'data' => $businesses];
+        } catch (\Throwable $e) {
+            Log::warning('BizData API threw exception', [
+                'message' => $e->getMessage(),
+                'lat' => $lat,
+                'lng' => $lng,
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Normalize raw BizData businesses to the shared venue shape.
+     * Public method for use after parallel fetch.
+     */
+    public function normalizeRaw(array $businesses, float $searchLat, float $searchLng, ?string $cuisine = null): array
+    {
+        return $this->normalizeResults($businesses, $searchLat, $searchLng, $cuisine);
+    }
+
     private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
     {
         $earthRadius = 6371;

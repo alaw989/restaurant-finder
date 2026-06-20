@@ -69,8 +69,125 @@ class FoursquareService
         }
     }
 
+    /**
+     * Fetch raw data from the API without normalization for parallel pooling.
+     * Returns the raw API response data or null on failure.
+     */
+    public function fetchRaw(float $lat, float $lng, string $cuisine, int $radius = 25000): ?array
+    {
+        if (empty($this->apiKey)) {
+            Log::debug('Foursquare search skipped — no API key configured', [
+                'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
+            ]);
+            return null;
+        }
+
+        $cacheKey = $this->buildCacheKey('foursquare_search_v2', compact('lat', 'lng', 'cuisine', 'radius'));
+
+        $cached = ExternalApiCache::findByKey($cacheKey);
+        if ($cached !== null) {
+            return ['cached' => true, 'data' => $cached];
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'X-Places-Api-Version' => $this->version,
+            ])->get("{$this->baseUrl}/places/search", [
+                'll' => "{$lat},{$lng}",
+                'radius' => min($radius, 100000),
+                'query' => $cuisine,
+                'categories' => '13065',
+                'limit' => 50,
+                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
+            ]);
+
+            if ($response->failed()) {
+                Log::error('Foursquare search request failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return null;
+            }
+
+            $data = $response->json();
+            $results = $data['results'] ?? [];
+
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+
+            return ['cached' => false, 'data' => $results];
+        } catch (\Throwable $e) {
+            Log::error('Foursquare search exception', [
+                'message' => $e->getMessage(),
+                'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
+            ]);
+            return null;
+        }
+    }
+
     private function buildCacheKey(string $source, array $params): string
     {
         return $source . ':' . md5(serialize($params));
+    }
+
+    /**
+     * Normalize raw Foursquare results to the shared venue shape.
+     * Public method for use after parallel fetch.
+     */
+    public function normalizeRaw(array $results): array
+    {
+        return array_map(fn ($r) => $this->normalizeOne($r), $results);
+    }
+
+    /**
+     * Normalize a single Foursquare result to the shared venue shape.
+     */
+    private function normalizeOne(array $r): array
+    {
+        $geocodes = $r['geocodes']['main'] ?? [];
+        $distance = isset($r['distance']) ? round($r['distance'] / 1000, 1) : null;
+        $photos = $r['photos'] ?? [];
+        $photoUrl = null;
+        if (!empty($photos) && isset($photos[0]['prefix'], $photos[0]['suffix'])) {
+            $photoUrl = $photos[0]['prefix'] . '300x300' . $photos[0]['suffix'];
+        }
+
+        return [
+            'id' => -1 * abs(crc32('foursquare:' . ($r['fsq_id'] ?? ''))),
+            'name' => $r['name'] ?? 'Unknown',
+            'slug' => \Illuminate\Support\Str::slug($r['name'] ?? 'unknown') . '-' . substr(md5($r['fsq_id'] ?? ''), 0, 6),
+            'description' => null,
+            'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
+            'city' => $r['location']['locality'] ?? null,
+            'state' => $r['location']['region'] ?? null,
+            'lat' => $geocodes['latitude'] ?? null,
+            'lng' => $geocodes['longitude'] ?? null,
+            'photo_url' => $photoUrl,
+            'price_range' => $r['price'] ?? null,
+            'phone' => $r['tel'] ?? null,
+            'website_url' => $r['website'] ?? null,
+            'google_rating' => null,
+            'google_review_count' => 0,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'has_award' => false,
+            'popularity_score' => 0,
+            'distance' => $distance,
+            'cuisines' => $this->extractCategories($r['categories'] ?? []),
+            'source' => 'foursquare',
+        ];
+    }
+
+    /**
+     * Extract categories from Foursquare response.
+     */
+    private function extractCategories(array $categories): array
+    {
+        return collect($categories)
+            ->map(fn ($c) => [
+                'id' => $c['id'] ?? abs(crc32($c['name'] ?? '')),
+                'name' => $c['name'] ?? '',
+                'slug' => \Illuminate\Support\Str::slug($c['name'] ?? ''),
+            ])->values()->all();
     }
 }

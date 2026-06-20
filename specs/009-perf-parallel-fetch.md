@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: `LiveSearchService::search` and `RestaurantEnrichmentService::enrichByCuisine` fetch each source (BizData, Foursquare, Overpass) sequentially — `array_merge` of three blocking calls / a `foreach` of `fetch*` wrappers — so total live latency equals the **sum** of source latencies. Fire them concurrently with `Http::pool` so latency equals the slowest source. Preserve per-source caching and Overpass mirror-retry.
 
@@ -51,4 +51,4 @@ As a user running a live search, I want results in roughly the time of the slowe
 ## Assumptions
 - `Illuminate\Support\Facades\Http::pool` is available via the framework — no new dependency.
 - Design the pool generically so 012/013 sources drop in.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

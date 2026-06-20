@@ -72,6 +72,128 @@ class OverpassService
         return $results;
     }
 
+    /**
+     * Fetch raw OSM elements for a cuisine search, without normalization.
+     * Returns ['cached' => bool, 'data' => array] or null on failure.
+     */
+    public function fetchRaw(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): ?array
+    {
+        $cacheKey = 'overpass_search:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+
+        $cached = ExternalApiCache::findByKey($cacheKey);
+        if ($cached !== null) {
+            return ['cached' => true, 'data' => $cached];
+        }
+
+        $resolved = $cuisine ? $this->resolveCuisine($cuisine) : null;
+
+        foreach (static::RADII as $r) {
+            if ($r < $radius) {
+                continue;
+            }
+
+            $query = $this->buildQuery($lat, $lng, $resolved, $r, $limit);
+
+            foreach ($this->mirrors as $mirror) {
+                try {
+                    $response = Http::timeout(30)
+                        ->asForm()
+                        ->withHeaders(['User-Agent' => 'iPop360/1.0'])
+                        ->post($mirror, [
+                            'data' => $query,
+                        ]);
+
+                    if ($response->failed()) {
+                        Log::warning('Overpass mirror returned error, trying next', [
+                            'mirror' => $mirror,
+                            'status' => $response->status(),
+                        ]);
+                        continue;
+                    }
+
+                    $data = $response->json();
+                    $elements = $data['elements'] ?? [];
+
+                    // Cache the raw elements for reuse
+                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+
+                    return ['cached' => false, 'data' => $elements];
+                } catch (\Throwable $e) {
+                    Log::warning('Overpass mirror threw exception, trying next', [
+                        'mirror' => $mirror,
+                        'message' => $e->getMessage(),
+                    ]);
+                    continue;
+                }
+            }
+        }
+
+        Log::error('All Overpass mirrors failed', [
+            'lat' => $lat,
+            'lng' => $lng,
+            'cuisine' => $cuisine,
+        ]);
+        return null;
+    }
+
+    /**
+     * Fetch raw OSM elements for a name search, without normalization.
+     * Returns ['cached' => bool, 'data' => array] or null on failure.
+     */
+    public function fetchByNameRaw(float $lat, float $lng, array $keywords, int $radius = 25000, int $limit = 50): ?array
+    {
+        $cacheKey = 'overpass_name:' . md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
+
+        $cached = ExternalApiCache::findByKey($cacheKey);
+        if ($cached !== null) {
+            return ['cached' => true, 'data' => $cached];
+        }
+
+        $pattern = implode('|', array_map(fn ($k) => preg_quote($k, '/'), $keywords));
+
+        foreach (static::RADII as $r) {
+            if ($r < $radius) {
+                continue;
+            }
+
+            $query = "[out:json][timeout:25];\n"
+                . "(\n"
+                . "  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                . "  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                . "  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                . ");\n"
+                . "out body center {$limit};";
+
+            foreach ($this->mirrors as $mirror) {
+                try {
+                    $response = Http::timeout(30)
+                        ->asForm()
+                        ->withHeaders(['User-Agent' => 'iPop360/1.0'])
+                        ->post($mirror, ['data' => $query]);
+
+                    if ($response->failed()) {
+                        continue;
+                    }
+
+                    $data = $response->json();
+                    $elements = $data['elements'] ?? [];
+
+                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+
+                    return ['cached' => false, 'data' => $elements];
+                } catch (\Throwable $e) {
+                    Log::warning('Overpass name-regex mirror failed, trying next', [
+                        'mirror' => $mirror,
+                        'message' => $e->getMessage(),
+                    ]);
+                    continue;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function executeSearch(float $lat, float $lng, ?string $cuisine, int $radius, int $limit): array
     {
         $resolved = $cuisine ? $this->resolveCuisine($cuisine) : null;
@@ -332,5 +454,14 @@ class OverpassService
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
+     * Normalize raw OSM elements to the shared venue shape.
+     * Public method for use after parallel fetch.
+     */
+    public function normalizeRaw(array $elements, float $searchLat, float $searchLng): array
+    {
+        return $this->normalizeResults($elements, $searchLat, $searchLng);
     }
 }
