@@ -11,6 +11,7 @@ class LiveSearchService
         private OverpassService $overpassService,
         private BizDataApiService $bizDataService,
         private FoursquareService $foursquareService,
+        private SerpApiService $serpApiService,
         private PopularityScoreService $scoreService,
     ) {}
 
@@ -45,13 +46,15 @@ class LiveSearchService
         $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
         $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
         $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
+        $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
 
         // Wait for all to complete (they run concurrently)
         $bizDataResults = $bizDataPromise();
         $foursquareResults = $foursquarePromise();
         $overpassResults = $overpassPromise();
+        $serpApiResults = $serpApiPromise();
 
-        return array_merge($bizDataResults, $foursquareResults, $overpassResults);
+        return array_merge($bizDataResults, $foursquareResults, $overpassResults, $serpApiResults);
     }
 
     /**
@@ -140,6 +143,28 @@ class LiveSearchService
                 return $this->overpassService->normalizeRaw($nameElements, $lat, $lng);
             } catch (\Throwable $e) {
                 Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Wrap SerpApi fetch for concurrent execution.
+     * Returns a thunk that when called executes the fetch.
+     */
+    private function fetchSerpApiConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->serpApiService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $localResults = $raw['data'] ?? [];
+                return $this->serpApiService->normalizeRaw($localResults, $lat, $lng);
+            } catch (\Throwable $e) {
+                Log::warning('LiveSearch SerpApi fetch failed', ['message' => $e->getMessage()]);
                 return [];
             }
         };

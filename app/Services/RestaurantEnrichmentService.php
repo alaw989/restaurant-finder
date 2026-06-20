@@ -30,6 +30,7 @@ class RestaurantEnrichmentService
         private OverpassService $overpass,
         private BizDataApiService $bizData,
         private FoursquareService $foursquareService,
+        private SerpApiService $serpApiService,
         private WikidataService $wikidata,
         private PopularityScoreService $popularityScore,
     ) {}
@@ -116,13 +117,15 @@ class RestaurantEnrichmentService
         $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
         $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
         $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
+        $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
 
         // Execute all concurrently
         $bizDataVenues = $bizDataPromise();
         $foursquareVenues = $foursquarePromise();
         $overpassVenues = $overpassPromise();
+        $serpApiVenues = $serpApiPromise();
 
-        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues);
+        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues, $serpApiVenues);
     }
 
     /**
@@ -214,6 +217,29 @@ class RestaurantEnrichmentService
     }
 
     /**
+     * Wrap SerpApi fetch for concurrent execution.
+     */
+    private function fetchSerpApiConcurrent(float $lat, float $lng, string $cuisine): callable
+    {
+        return function () use ($lat, $lng, $cuisine) {
+            try {
+                $raw = $this->serpApiService->fetchRaw($lat, $lng, $cuisine);
+                if ($raw === null) {
+                    return [];
+                }
+
+                $localResults = $raw['data'] ?? [];
+                $normalized = $this->serpApiService->normalizeRaw($localResults, $lat, $lng);
+
+                return array_map(fn ($r) => $this->normalizeSerpApiVenue($r), $normalized);
+            } catch (\Throwable $e) {
+                Log::warning('SerpApi backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+                return [];
+            }
+        };
+    }
+
+    /**
      * Build a common venue shape from an Overpass (OSM) normalized result.
      */
     private function normalizeOverpassVenue(array $r): array
@@ -278,6 +304,27 @@ class RestaurantEnrichmentService
             'yelp_rating' => $r['yelp_rating'] ?? $r['rating'] ?? null,
             'yelp_review_count' => 0,
             'source' => 'foursquare',
+        ];
+    }
+
+    private function normalizeSerpApiVenue(array $r): array
+    {
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
+            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
+            'address' => $r['address'] ?? null,
+            'city' => $r['city'] ?? null,
+            'state' => $r['state'] ?? null,
+            'postal_code' => $r['postal_code'] ?? null,
+            'country' => $r['country'] ?? null,
+            'phone' => $r['phone'] ?? null,
+            'price_range' => $r['price_range'] ?? null,
+            'photo_url' => $r['photo_url'] ?? null,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'source' => 'serpapi',
         ];
     }
 
