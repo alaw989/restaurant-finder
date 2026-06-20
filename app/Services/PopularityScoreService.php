@@ -91,6 +91,19 @@ class PopularityScoreService
      */
     public function calculateBreakdown(Restaurant $restaurant, Collection $allRestaurants): array
     {
+        return $this->calculateBreakdownForArray(
+            $this->restaurantToArray($restaurant),
+            $allRestaurants
+        );
+    }
+
+    /**
+     * Calculate a detailed per-signal breakdown for an array-based restaurant
+     * (from live search). Shares normalization logic with the Eloquent path.
+     * Returns the same breakdown structure.
+     */
+    public function calculateBreakdownForArray(array $restaurant, Collection $allRestaurants): array
+    {
         // Precompute collection-level stats needed by log + min-max normalization.
         $logDenoms = [
             'yelp_review_count' => $this->logDenominator($allRestaurants, 'yelp_review_count'),
@@ -120,7 +133,7 @@ class PopularityScoreService
                 continue;
             }
 
-            $raw = $this->rawValue($restaurant, $signal);
+            $raw = $this->rawValueFromArray($restaurant, $signal);
 
             if (!$this->isPresent($signal, $method, $raw)) {
                 continue;
@@ -175,6 +188,34 @@ class PopularityScoreService
         }
 
         return $restaurant->{$signal} ?? null;
+    }
+
+    /**
+     * Extract raw signal value from an array-based restaurant (live search).
+     * Shares logic with rawValue for Eloquent models.
+     */
+    private function rawValueFromArray(array $restaurant, string $signal): mixed
+    {
+        if ($signal === 'data_completeness') {
+            return $this->computeCompletenessFromArray($restaurant);
+        }
+
+        if ($signal === 'proximity') {
+            return $restaurant['distance'] ?? null;
+        }
+
+        return $restaurant[$signal] ?? null;
+    }
+
+    /**
+     * Convert an Eloquent Restaurant to an array for unified processing.
+     * Includes the distance attribute added by scopeNearby.
+     */
+    private function restaurantToArray(Restaurant $restaurant): array
+    {
+        $array = $restaurant->toArray();
+        $array['distance'] = $restaurant->getAttribute('distance');
+        return $array;
     }
 
     /**
@@ -333,6 +374,23 @@ class PopularityScoreService
 
         foreach (self::COMPLETENESS_FIELDS as $field) {
             if ($this->isFilled($restaurant->{$field} ?? null)) {
+                $filled++;
+            }
+        }
+
+        return round($filled / count(self::COMPLETENESS_FIELDS), 4);
+    }
+
+    /**
+     * Compute completeness for an array-based restaurant (live search).
+     * Shares the same field set and isFilled logic.
+     */
+    private function computeCompletenessFromArray(array $restaurant): float
+    {
+        $filled = 0;
+
+        foreach (self::COMPLETENESS_FIELDS as $field) {
+            if ($this->isFilled($restaurant[$field] ?? null)) {
                 $filled++;
             }
         }

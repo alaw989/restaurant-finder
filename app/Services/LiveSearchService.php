@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Collection;
 
 class LiveSearchService
 {
@@ -10,6 +11,7 @@ class LiveSearchService
         private OverpassService $overpassService,
         private BizDataApiService $bizDataService,
         private FoursquareService $foursquareService,
+        private PopularityScoreService $scoreService,
     ) {}
 
     /**
@@ -31,9 +33,52 @@ class LiveSearchService
         );
 
         $results = $this->deduplicate($results);
-        $results = $this->scoreResults($results);
+        $results = $this->scoreWithUnifiedService($results, $lat, $lng);
 
         return $results;
+    }
+
+    /**
+     * Score results using the unified PopularityScoreService.
+     * This ensures live and DB paths use the same scoring formula.
+     */
+    private function scoreWithUnifiedService(array $results, float $searchLat, float $searchLng): array
+    {
+        if (empty($results)) {
+            return [];
+        }
+
+        // Convert to collection for normalization
+        $all = new Collection($results);
+
+        foreach ($results as &$r) {
+            // Ensure distance is set (from scopeNearby or calculated)
+            if (!isset($r['distance']) && isset($r['lat'], $r['lng'])) {
+                $r['distance'] = $this->haversineKm($searchLat, $searchLng, (float) $r['lat'], (float) $r['lng']);
+            }
+
+            $breakdown = $this->scoreService->calculateBreakdownForArray($r, $all);
+            $r['popularity_score'] = $breakdown['total'];
+            $r['score_breakdown'] = $breakdown;
+        }
+
+        // Sort by popularity score descending
+        usort($results, fn ($a, $b) => $b['popularity_score'] <=> $a['popularity_score']);
+
+        return $results;
+    }
+
+    /**
+     * Calculate Haversine distance between two coordinates.
+     */
+    private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+        return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     private function fetchBizData(float $lat, float $lng, ?string $cuisine): array
@@ -158,73 +203,6 @@ class LiveSearchService
         }
 
         return $deduped;
-    }
-
-    private function scoreResults(array $results): array
-    {
-        $maxReviews = collect($results)->max(fn ($r) =>
-            ($r['yelp_review_count'] ?? 0) + ($r['google_review_count'] ?? 0)
-        ) ?: 1;
-
-        $maxDistance = collect($results)->max(fn ($r) => $r['distance'] ?? 0) ?: 1;
-
-        foreach ($results as &$r) {
-            $hasRating = ($r['yelp_rating'] ?? null) !== null || ($r['google_rating'] ?? null) !== null;
-            $signalContributions = [];
-
-            if ($hasRating) {
-                $ratingScore = (
-                    (($r['yelp_rating'] ?? 0) * 0.5) +
-                    (($r['google_rating'] ?? 0) * 0.5)
-                ) / 5;
-
-                $totalReviews = ($r['yelp_review_count'] ?? 0) + ($r['google_review_count'] ?? 0);
-                $reviewScore = log(1 + $totalReviews) / log(1 + $maxReviews);
-
-                $r['popularity_score'] = round($ratingScore * 0.6 + $reviewScore * 0.4, 4);
-
-                $contribRating = round(0.6 * $ratingScore, 4);
-                if ($contribRating > 0) {
-                    $signalContributions[] = [
-                        'label' => 'Rating',
-                        'weight' => 0.6,
-                        'normalized' => round($ratingScore, 4),
-                        'contribution' => $contribRating,
-                    ];
-                }
-
-                $contribReviews = round(0.4 * $reviewScore, 4);
-                if ($contribReviews > 0) {
-                    $signalContributions[] = [
-                        'label' => 'Reviews',
-                        'weight' => 0.4,
-                        'normalized' => round($reviewScore, 4),
-                        'contribution' => $contribReviews,
-                    ];
-                }
-            } else {
-                $distanceScore = $maxDistance > 0 ? 1 - (($r['distance'] ?? 0) / $maxDistance) : 0;
-                $r['popularity_score'] = round(0.1 + $distanceScore * 0.2, 4);
-
-                $signalContributions[] = [
-                    'label' => 'Proximity',
-                    'weight' => 1.0,
-                    'normalized' => round($distanceScore, 4),
-                    'contribution' => round($distanceScore * 0.3, 4),
-                ];
-            }
-
-            usort($signalContributions, fn ($a, $b) => $b['contribution'] <=> $a['contribution']);
-
-            $r['score_breakdown'] = [
-                'signals' => $signalContributions,
-                'total' => $r['popularity_score'],
-            ];
-        }
-
-        usort($results, fn ($a, $b) => $b['popularity_score'] <=> $a['popularity_score']);
-
-        return $results;
     }
 
     private function resolveCuisineName(?string $slug): ?string

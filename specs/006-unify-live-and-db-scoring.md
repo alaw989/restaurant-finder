@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: Live-search results (`LiveSearchService::scoreResults`) and persisted DB rows (`PopularityScoreService`) use two different scoring formulas, so the same restaurant can rank differently depending on path. Unify them so rankings are consistent. Depends on specs 004 and 005.
 
@@ -49,4 +49,4 @@ As a user, I want consistent ranking whether a result is cached (DB) or fresh (l
 ## Assumptions
 - Specs 004 (proximity) and 005 (completeness) are complete first.
 - Live results carry `distance`, so proximity works on both paths.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->
