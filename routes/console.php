@@ -21,3 +21,10 @@ Schedule::command('apicache:gc')
     ->withoutOverlapping()
     ->onOneServer()
     ->description('Garbage collect expired API cache entries');
+
+// Schedule uptime canary (runs every 15 minutes)
+Schedule::command('uptime:canary')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->description('Check application health and uptime');

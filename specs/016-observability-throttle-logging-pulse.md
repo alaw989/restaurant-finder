@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: The `/api/*` routes (registered in `routes/web.php`) are public with no rate limiting; there is no structured request logging and no monitoring of outbound API health. Add throttling, a `LogApiRequest` middleware that tags requests with `is_live` (live path vs DB path), Laravel Pulse (`/pulse`) for outbound-HTTP/request metrics, and a simple uptime canary.
 
