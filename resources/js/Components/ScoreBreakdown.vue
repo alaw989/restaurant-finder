@@ -37,6 +37,7 @@ const segmentColors: Record<string, string> = {
   'Yelp Reviews': 'bg-blue-500',
   'Google Rating': 'bg-red-500',
   'Google Reviews': 'bg-red-400',
+  'Proximity': 'bg-green-500',
   'Profile Completeness': 'bg-emerald-500',
   'Award': 'bg-purple-500',
   'Rating': 'bg-orange-500',

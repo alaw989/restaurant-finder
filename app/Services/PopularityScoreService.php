@@ -17,8 +17,9 @@ class PopularityScoreService
     private const DEFAULT_WEIGHTS = [
         'yelp_rating' => 0.0,
         'yelp_review_count' => 0.0,
-        'data_completeness' => 0.15,
-        'has_award' => 0.10,
+        'proximity' => 0.30,
+        'data_completeness' => 0.25,
+        'has_award' => 0.15,
         'google_rating' => 0.03,
         'google_review_count' => 0.02,
         'popular_times_avg_busyness' => 0.0,
@@ -32,6 +33,7 @@ class PopularityScoreService
         'google_rating' => 'linear_rating',
         'yelp_review_count' => 'log_count',
         'google_review_count' => 'log_count',
+        'proximity' => 'inverse_distance',
         'data_completeness' => 'completeness',
         'has_award' => 'boolean',
         'popular_times_avg_busyness' => 'minmax',
@@ -99,6 +101,7 @@ class PopularityScoreService
         $signalLabels = [
             'yelp_rating' => 'Yelp Rating',
             'yelp_review_count' => 'Yelp Reviews',
+            'proximity' => 'Proximity',
             'data_completeness' => 'Profile Completeness',
             'has_award' => 'Award',
             'google_rating' => 'Google Rating',
@@ -164,6 +167,11 @@ class PopularityScoreService
             return $this->computeCompleteness($restaurant);
         }
 
+        if ($signal === 'proximity') {
+            // Distance is added by scopeNearby's selectRaw, not a true column
+            return $restaurant->getAttribute('distance');
+        }
+
         return $restaurant->{$signal} ?? null;
     }
 
@@ -171,11 +179,17 @@ class PopularityScoreService
      * Whether a signal contributes to this restaurant's score. Always-active
      * signals are always present; paid Google signals additionally require a
      * configured key (stale seeded values must not count on a no-key deploy).
+     * Proximity requires a distance value from scopeNearby or live search.
      */
     private function isPresent(string $signal, string $method, mixed $raw): bool
     {
         if (in_array($signal, self::ALWAYS_ACTIVE, true)) {
             return true;
+        }
+
+        if ($signal === 'proximity') {
+            // Proximity only active when distance is present (geolocated search)
+            return $raw !== null && (float) $raw >= 0.0;
         }
 
         if (str_starts_with($signal, 'google_') && !$this->googleKeyConfigured()) {
@@ -199,6 +213,7 @@ class PopularityScoreService
         return match ($method) {
             'linear_rating' => $this->normalizeLinearRating((float) $raw),
             'log_count' => $this->normalizeLogCount((float) $raw, (float) ($logDenoms[$signal] ?? $this->logReviewDefault)),
+            'inverse_distance' => $this->normalizeInverseDistance((float) $raw),
             'completeness' => max(0.0, min(1.0, (float) $raw)),
             'boolean' => $raw ? 1.0 : 0.0,
             'minmax' => $this->normalizeMinMax((float) $raw, $minmax[$signal] ?? null),
@@ -254,6 +269,28 @@ class PopularityScoreService
         }
 
         return max(0.0, min(1.0, ($value - $min) / ($max - $min)));
+    }
+
+    /**
+     * Inverse distance normalization: 1 / (1 + distance_km / scale_km).
+     * Closer venues (lower distance) get higher scores. Scale controls
+     * the decay rate — at 1× scale, score = 0.5; at 0 distance, score = 1.0.
+     */
+    private function normalizeInverseDistance(float $distanceKm): float
+    {
+        $scale = (float) $this->configValue('restaurant-finder.ranking.proximity_scale_km', 2.0);
+
+        if ($scale <= 0.0) {
+            return 0.0;
+        }
+
+        $value = 1.0 / (1.0 + $distanceKm / $scale);
+
+        if (!is_finite($value)) {
+            return 0.0;
+        }
+
+        return max(0.0, min(1.0, $value));
     }
 
     /**

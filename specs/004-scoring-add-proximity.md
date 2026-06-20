@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-19
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Input**: User description: The constitution claims proximity is a 0.30-weight scoring signal, but it does not exist in `PopularityScoreService` — proximity is only a 25km radius *filter*. Add proximity as a real scored signal so closer restaurants rank higher within the radius.
 
@@ -50,4 +50,4 @@ As a user searching near my location, I want nearby places to rank above equally
 ## Assumptions
 - `scopeNearby` continues to expose `distance` via `selectRaw` alias; live-search results also carry `distance`.
 - Weight 0.30 is the target from `docs/ranking-improvements.md` Phase 1.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

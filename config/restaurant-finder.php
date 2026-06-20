@@ -56,12 +56,17 @@ return [
         'weights' => [
             'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0),
             'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0),
-            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.15),
-            'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.10),
+            'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.30),
+            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.25),
+            'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.15),
             'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.03),
             'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.02),
             'popular_times_avg_busyness' => env('RANK_WEIGHT_POPULAR_TIMES', 0.0),
         ],
+
+        // Scale (km) for inverse-distance proximity normalization.
+        // At 1× scale (default 2km), a venue at 2km distance scores 0.5.
+        'proximity_scale_km' => (float) env('RANK_PROXIMITY_SCALE_KM', 2.0),
 
         // Floor for the log-review-count denominator: max(collectionMax, floor).
         // Prevents a single low-review venue from compressing everyone to ~1.0.
