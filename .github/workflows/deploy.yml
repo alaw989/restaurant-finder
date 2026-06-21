@@ -53,7 +53,6 @@ jobs:
             --exclude '.env' \
             --exclude '.git' \
             --exclude 'node_modules' \
-            --exclude 'vendor' \
             --exclude 'storage/framework/cache/data/*' \
             --exclude 'storage/framework/sessions/*' \
             --exclude 'storage/framework/views/*' \
@@ -76,7 +75,19 @@ jobs:
              php8.4 artisan route:cache && \
              php8.4 artisan view:cache && \
              php8.4 artisan cache:clear && \
+             (sudo systemctl reload php8.4-fpm 2>/dev/null || sudo systemctl restart php8.4-fpm 2>/dev/null || true) && \
              supervisorctl restart ipop360-worker:*"
+
+      - name: Ensure Laravel scheduler cron (restaurants:score, apicache:gc, uptime:canary)
+        continue-on-error: true
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "PHP_BIN=\$(command -v php8.4 || command -v php); \
+             echo \"* * * * * www-data cd \${{ secrets.DEPLOY_PATH }} && \${PHP_BIN} artisan schedule:run >> \${{ secrets.DEPLOY_PATH }}/storage/logs/scheduler.log 2>&1\" \
+               | sudo tee /etc/cron.d/ipop360 > /dev/null && \
+             sudo chmod 644 /etc/cron.d/ipop360 && \
+             echo 'CRON INSTALLED:' && sudo cat /etc/cron.d/ipop360"
 
       - name: Verify deployment
         run: |
