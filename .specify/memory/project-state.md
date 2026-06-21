@@ -66,11 +66,34 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
 - Config: `config/restaurant-finder.php` (weights + knobs).
 - Tests: `php artisan test` (157 tests, 521 assertions).
 
-## Working across machines
+## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
 reads `CLAUDE.md` → this file + `constitution.md`. Per-machine `~/.claude`
 memory does NOT sync between machines, so anything Claude must always know
 lives **here in the repo**, not in local memory.
+
+`.env` is gitignored, so a fresh clone has none. First-time setup on a machine:
+```bash
+cp .env.example .env
+php artisan key:generate
+composer install
+npm install && npm run build
+php artisan migrate --seed     # SQLite DB + cuisines + a test user (RestaurantSeeder is a no-op)
+php artisan test               # ~157 tests should pass
+php artisan serve              # http://localhost:8000
+```
+Prereqs: PHP 8.3+ (deploy uses 8.4), Composer, Node 22+, SQLite.
+
+Add the SerpApi quality key to `.env` so live search returns ratings:
+```
+SERPAPI_API_KEY=<the validated free key — value is in docs/ranking-improvements.md>
+```
+Without it, search still works but returns unrated OSM results (see the
+"binding constraint" section above — it's the only free quality source).
+
+The DB file (`database/database.sqlite`) is gitignored — each machine has its
+own local DB, which is expected (the live site uses its own on the droplet).
+To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs)
 - **018** — dedup redundant OSM sources (BizData ≡ Overpass, both OpenStreetMap)
