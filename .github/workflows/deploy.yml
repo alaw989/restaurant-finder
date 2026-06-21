@@ -64,6 +64,23 @@ jobs:
             ./ \
             ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
+      - name: Inject SerpApi quality key into server .env
+        # .env is rsync-excluded and server-managed, so inject the one quality
+        # key we need from a GitHub secret. Idempotent: removes any existing
+        # SERPAPI_API_KEY line then appends. Runs before config:cache below so
+        # the cached config picks up the key. Skipped entirely if no secret is
+        # set, so it never clobbers a real key with an empty value.
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_API_KEY }}
+        if: ${{ env.SERPAPI_KEY != '' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && \
+             sed -i '/^SERPAPI_API_KEY=/d' .env && \
+             printf 'SERPAPI_API_KEY=%s\n' '${{ secrets.SERPAPI_API_KEY }}' >> .env && \
+             echo 'SERPAPI_API_KEY injected into .env'"
+
       - name: Post-deploy (fix permissions, migrate, cache)
         run: |
           ssh -i ~/.ssh/deploy_key \
