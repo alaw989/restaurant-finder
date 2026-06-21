@@ -45,22 +45,31 @@ return [
     |--------------------------------------------------------------------------
     | Ranking weights + normalization knobs
     |--------------------------------------------------------------------------
-    | Free signals (data_completeness, has_award, proximity) are all that is
-    | required for a score. The two google_* signals are pure bonus (active
-    | only with a key + value). popular_times_avg_busyness is min-max normalized
-    | but carries 0.0 weight by default (no free source). yelp_* weights are 0
-    | (removed). Every weight is env-overridable; weights need not sum to 1
-    | because the active set is always renormalized.
+    | Quality signals (google_rating, google_review_count — sourced from SerpApi
+    | google_maps data) LEAD the ranking when present, because without a quality
+    | signal the score collapses to a proximity sort. proximity is a tiebreaker
+    | among similarly-rated venues, not the primary driver. data_completeness and
+    | has_award are secondary. popular_times_avg_busyness is min-max normalized
+    | but carries 0.0 weight (no free source). yelp_* weights are 0 (removed).
+    | Every weight is env-overridable; weights need not sum to 1 because the
+    | active set is always renormalized per restaurant.
+    |
+    | Active-set renormalization:
+    |  - With SerpApi data: rating 0.30 + reviews 0.25 + proximity 0.15 +
+    |    completeness 0.15 + award 0.15 = 1.00.
+    |  - Pure-free (no key): proximity + completeness + award = 0.45, split
+    |    equally after renorm — an honest proximity-leaning sort with no quality
+    |    signal available.
     */
     'ranking' => [
         'weights' => [
             'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0),
             'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0),
-            'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.30),
-            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.25),
+            'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.15),
+            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.15),
             'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.15),
-            'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.03),
-            'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.02),
+            'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.30),
+            'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.25),
             'popular_times_avg_busyness' => env('RANK_WEIGHT_POPULAR_TIMES', 0.0),
         ],
 

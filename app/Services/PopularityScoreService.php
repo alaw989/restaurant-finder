@@ -10,18 +10,19 @@ class PopularityScoreService
     /**
      * Fallback weight set used when the container/config is unavailable (e.g.
      * pure unit tests). Mirrors config/restaurant-finder.php -> ranking.weights.
-     * Free signals (data_completeness, has_award, proximity) are sufficient;
-     * google_* signals are pure bonus; yelp_* signals are removed (weight 0.0);
+     * Quality signals (google_rating, google_review_count) LEAD when present
+     * (sourced from SerpApi); proximity is a tiebreaker; data_completeness and
+     * has_award are secondary. yelp_* signals are removed (weight 0.0);
      * popular_times is opt-in (weight 0.0).
      */
     private const DEFAULT_WEIGHTS = [
         'yelp_rating' => 0.0,
         'yelp_review_count' => 0.0,
-        'proximity' => 0.30,
-        'data_completeness' => 0.25,
+        'proximity' => 0.15,
+        'data_completeness' => 0.15,
         'has_award' => 0.15,
-        'google_rating' => 0.03,
-        'google_review_count' => 0.02,
+        'google_rating' => 0.30,
+        'google_review_count' => 0.25,
         'popular_times_avg_busyness' => 0.0,
     ];
 
@@ -274,7 +275,11 @@ class PopularityScoreService
             return $raw !== null && (float) $raw >= 0.0;
         }
 
-        if (str_starts_with($signal, 'google_') && !$this->googleKeyConfigured()) {
+        if (str_starts_with($signal, 'google_') && !$this->qualitySourceConfigured()) {
+            // The google_* columns are populated by an external quality source
+            // (SerpApi google_maps, Google Places, or Outscraper). When none of
+            // those keys are configured, any stored rating/review values are
+            // treated as stale and excluded from the score.
             return false;
         }
 
@@ -458,13 +463,21 @@ class PopularityScoreService
         return (bool) $value;
     }
 
-    private function googleKeyConfigured(): bool
+    /**
+     * Whether any external quality source (SerpApi, Google Places, or Outscraper)
+     * is configured. The google_* rating/review columns are only trusted to
+     * contribute when at least one such source is live, so stale seeded or
+     * legacy values don't distort scores on a no-key deploy.
+     */
+    private function qualitySourceConfigured(): bool
     {
         try {
-            return !empty(config('services.google.places_key'));
+            return !empty(config('services.serpapi.api_key'))
+                || !empty(config('services.google.places_key'))
+                || !empty(config('services.outscraper.api_key'));
         } catch (\Throwable $e) {
             // Pure unit-test context (no booted container): assume present so the
-            // Google bonus path remains testable.
+            // quality-signal path remains testable.
             return true;
         }
     }

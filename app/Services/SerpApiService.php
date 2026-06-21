@@ -10,6 +10,14 @@ class SerpApiService
 {
     private ?string $apiKey;
 
+    /**
+     * Zoom level for the google_maps `ll` parameter (`@lat,lng,<zoom>z`).
+     * SerpApi/Google Maps controls the search area via zoom, not a metre
+     * radius. 15 ≈ neighborhood/street level, appropriate for "restaurants
+     * near this point". Lower = wider area.
+     */
+    private const MAP_ZOOM = 15;
+
     public function __construct()
     {
         $this->apiKey = config('services.serpapi.api_key');
@@ -19,13 +27,13 @@ class SerpApiService
      * Search Google Maps for restaurants via SerpApi.
      * Returns normalized restaurant data.
      */
-    public function search(float $lat, float $lng, ?string $query = null, int $radius = 5000): array
+    public function search(float $lat, float $lng, ?string $query = null): array
     {
         if (empty($this->apiKey)) {
             return [];
         }
 
-        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -37,7 +45,7 @@ class SerpApiService
                 ->get('https://serpapi.com/search', [
                     'engine' => 'google_maps',
                     'q' => $this->buildQuery($query),
-                    'll' => "@{$lat},{$lng},{$radius}",
+                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
                     'type' => 'search',
                     'api_key' => $this->apiKey,
                 ]);
@@ -73,13 +81,13 @@ class SerpApiService
      * Fetch raw data from SerpApi without normalization for parallel pooling.
      * Returns the raw API response data.
      */
-    public function fetchRaw(float $lat, float $lng, ?string $query = null, int $radius = 5000): ?array
+    public function fetchRaw(float $lat, float $lng, ?string $query = null): ?array
     {
         if (empty($this->apiKey)) {
             return null;
         }
 
-        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -91,7 +99,7 @@ class SerpApiService
                 ->get('https://serpapi.com/search', [
                     'engine' => 'google_maps',
                     'q' => $this->buildQuery($query),
-                    'll' => "@{$lat},{$lng},{$radius}",
+                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
                     'type' => 'search',
                     'api_key' => $this->apiKey,
                 ]);

@@ -3,8 +3,11 @@
 This document specifies how `App\Services\PopularityScoreService` turns raw
 restaurant attributes into the single `popularity_score` shown to users. The
 overriding design constraint: **the score must be 100% computable from free data
-sources.** Paid APIs (Google Places, Outscraper popular-times) contribute only an
-optional bonus and are absent on the default deployment.
+sources.** The quality signal — ratings + review counts — is sourced from
+**SerpApi's `google_maps` engine** (free tier ~50 searches/mo), which is the
+only free source that provides ratings. Without it the free path (OSM,
+Wikidata, Socrata) carries no quality data and the score collapses to a
+proximity sort. Google Places and Outscraper remain optional paid bonuses.
 
 ## Why the old weights were broken
 
@@ -31,31 +34,40 @@ scores **0.0**.
 
 | Source | Cost | Provides | Role |
 |---|---|---|---|
-| **BizData API** | free | name, address, phone, website, price, categories, location | **primary** data source |
+| **SerpApi google_maps** | free ~50/mo | **rating, review_count, price, phone, website, coords** | **primary quality source** — the only free ratings |
+| **BizData API** | free | name, address, phone, website, location (OSM mirror) | coverage / completeness (redundant w/ Overpass) |
 | **Overpass / OSM** | free, no key | existence, location, cuisine, hours, address | coverage backfill + data-completeness |
 | **Wikidata SPARQL** | free, no key | Michelin/award records (low coverage) | `has_award` |
 | **Nominatim (OSM)** | free | geocoding | already used by `GeolocationService` |
-| **Foursquare Places** | 500/mo free tier | rating, review_count, price, categories | bonus enrichment |
+| Foursquare Places | basic free; **rating is premium** | name, address, phone, website, categories (no free rating) | parked — needs credits for ratings |
 | Google Places | paid | rating, review_count, photo | optional bonus |
 | Outscraper | paid | popular-times busyness | optional bonus |
 | Yelp Fusion | — | — | **removed** |
+
+Note: BizData and Overpass both serve OpenStreetMap data (BizData's own response
+says "Data from OpenStreetMap"), so they largely duplicate each other; dedup of
+the redundant OSM noise is tracked as a follow-up.
 
 ## Weight set
 
 | Signal | Weight | Source | Always active? |
 |---|---|---|---|
-| `proximity` | **0.30** | User coordinates | only with user lat/lng |
-| `data_completeness` | **0.25** | OSM × BizData field coverage | **yes** (always computable) |
+| `google_rating` | **0.30** | SerpApi (free) | only with a quality key **and** value |
+| `google_review_count` | **0.25** | SerpApi (free) | only with a quality key **and** value |
+| `proximity` | **0.15** | User coordinates | only with user lat/lng |
+| `data_completeness` | **0.15** | OSM × BizData field coverage | **yes** (always computable) |
 | `has_award` | **0.15** | Wikidata (free) | **yes** (`false` is a legitimate signal) |
-| `google_rating` | 0.03 | Google (optional) | only with key **and** value |
-| `google_review_count` | 0.02 | Google (optional) | only with key **and** value |
 | `popular_times_avg_busyness` | 0.0 | Outscraper (optional) | min-max, opt-in (no free source) |
 | `yelp_rating` | 0.0 | — | removed |
 | `yelp_review_count` | 0.0 | — | removed |
 
-Free signals sum to **0.70**; the two paid signals are pure bonus. Every weight
-is env-overridable (`RANK_WEIGHT_*`); they need not sum to 1 because the active
-set is always renormalized (see *Redistribution*).
+Quality signals (rating + reviews) **lead** the ranking when present — without a
+quality signal the score is a proximity sort, which is why they carry the
+largest weights. `proximity` is a tiebreaker among similarly-rated venues. With
+SerpApi data the active set sums to **1.00**; on a pure-free (no-key) deploy the
+active set is proximity + completeness + award = **0.45**, split equally after
+renormalization. Every weight is env-overridable (`RANK_WEIGHT_*`); they need not
+sum to 1 because the active set is always renormalized (see *Redistribution*).
 
 ## Per-signal normalization
 
@@ -125,10 +137,13 @@ now scores exactly **0.0**, not ~0.25.
 row simply has no descriptive data), and this ensures every row has some
 contributing signals even when ratings/reviews/awards are absent.
 
-When Google keys are present, `google_*` signals join the active set and add up to
-0.05 on top of the free score (a pure bonus). When they are absent, that 0.05 is
-redistributed proportionally back across the free signals — the free path never
-depends on paid data.
+The `google_*` signals (rating + review counts) are active only when a quality
+source key is configured (`SERPAPI_API_KEY`, `GOOGLE_PLACES_API_KEY`, or
+`OUTSCRAPER_API_KEY`) **and** the row has a value — this prevents stale seeded
+or legacy rating values from distorting scores on a no-key deploy. When a quality
+source is active they carry the lead weights (0.30 / 0.25); when none is
+configured they drop out entirely and the active weight is redistributed across
+the remaining free signals — the free path never depends on data it can't trust.
 
 ## Configurability
 

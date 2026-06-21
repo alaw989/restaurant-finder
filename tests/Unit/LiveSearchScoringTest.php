@@ -6,6 +6,7 @@ use App\Services\LiveSearchService;
 use App\Services\PopularityScoreService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 class LiveSearchScoringTest extends TestCase
@@ -119,6 +120,12 @@ class LiveSearchScoringTest extends TestCase
 
     public function test_live_result_with_google_bonus_signals(): void
     {
+        // No quality source configured — Google data in the result must be
+        // gracefully excluded (stale/legacy values must not distort the score).
+        Config::set('services.serpapi.api_key', null);
+        Config::set('services.google.places_key', null);
+        Config::set('services.outscraper.api_key', null);
+
         // Live result with Google bonus data
         $liveResult = [
             'id' => -1,

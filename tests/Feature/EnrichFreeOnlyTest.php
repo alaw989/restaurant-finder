@@ -15,6 +15,18 @@ class EnrichFreeOnlyTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // This suite exercises the free-only enrichment path. Null the SerpApi
+        // and Outscraper quality sources so a real key in .env can't trigger
+        // live (un-faked) HTTP calls and inflate the persisted row counts. The
+        // Google Places key is controlled per-test as before.
+        Config::set('services.serpapi.api_key', null);
+        Config::set('services.outscraper.api_key', null);
+    }
+
     private function makeCuisine(): Cuisine
     {
         $category = CuisineCategory::create(['name' => 'European', 'slug' => 'european']);
