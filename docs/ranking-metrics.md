@@ -52,40 +52,51 @@ the redundant OSM noise is tracked as a follow-up.
 
 | Signal | Weight | Source | Always active? |
 |---|---|---|---|
-| `google_rating` | **0.30** | SerpApi (free) | only with a quality key **and** value |
-| `google_review_count` | **0.25** | SerpApi (free) | only with a quality key **and** value |
-| `proximity` | **0.15** | User coordinates | only with user lat/lng |
-| `data_completeness` | **0.15** | OSM × BizData field coverage | **yes** (always computable) |
+| `quality` | **0.60** | SerpApi (Bayesian rating, folds in reviews) | only with a quality key **and** a rating |
+| `proximity` | **0.20** | User coordinates | only with user lat/lng |
 | `has_award` | **0.15** | Wikidata (free) | **yes** (`false` is a legitimate signal) |
+| `data_completeness` | **0.05** | OSM × BizData field coverage | **yes** (always computable) |
 | `popular_times_avg_busyness` | 0.0 | Outscraper (optional) | min-max, opt-in (no free source) |
-| `yelp_rating` | 0.0 | — | removed |
-| `yelp_review_count` | 0.0 | — | removed |
+| `yelp_rating` / `yelp_review_count` | 0.0 | — | removed |
+| `google_rating` / `google_review_count` | 0.0 | — | folded into `quality` |
 
-Quality signals (rating + reviews) **lead** the ranking when present — without a
-quality signal the score is a proximity sort, which is why they carry the
-largest weights. `proximity` is a tiebreaker among similarly-rated venues. With
-SerpApi data the active set sums to **1.00**; on a pure-free (no-key) deploy the
-active set is proximity + completeness + award = **0.45**, split equally after
-renormalization. Every weight is env-overridable (`RANK_WEIGHT_*`); they need not
-sum to 1 because the active set is always renormalized (see *Redistribution*).
+`quality` **leads** the ranking: it's a single Bayesian-weighted rating that
+folds review count in, so a high rating from few reviews shrinks toward the
+credible mean instead of winning (see *Bayesian quality* below). `proximity` is a
+tiebreaker among similarly-rated venues. With quality data the active set sums
+to **1.00**; on a pure-free (no-key) deploy the active set is proximity +
+completeness + award = **0.40**, split equally after renormalization — an honest
+proximity-leaning sort with no quality signal. Every weight is env-overridable
+(`RANK_WEIGHT_*`); they need not sum to 1 because the active set is always
+renormalized (see *Redistribution*).
+
+## Bayesian quality
+
+`quality` replaces the old separate `google_rating` + `google_review_count`
+signals because a plain linear rating lets a 5.0★/3-review outlier beat a
+4.7★/5000-review venue — the #1 way rankings feel wrong. The Bayesian form
+shrinks a rating toward a credible mean `C`, weighted by review count `v` against
+a prior `m`:
+
+```
+Q = (v / (v + m)) · R + (m / (v + m)) · C        # on the 0–5 scale
+quality_normalized = Q / 5                         # → 0–1
+```
+
+- `R` = `google_rating`, `v` = `google_review_count`.
+- `m` = `RANK_QUALITY_PRIOR` (default **50**): reviews needed before a venue's own rating dominates the prior. Conservative; lower it if established mid-volume venues feel over-shrunk.
+- `C` = mean `google_rating` over the collection's **credible** venues (`reviews ≥ m`), so low-review outliers can't inflate the prior and still win in small collections. Falls back to `RANK_QUALITY_MEAN_FALLBACK` (default **4.0**) when no credible venue exists.
+
+A venue with a rating but 0 reviews shrinks fully toward `C` (signal stays
+active). A venue with no rating deactivates `quality` entirely.
 
 ## Per-signal normalization
 
-The old code applied min-max to everything, which distorted heavy-tailed counts
-(one 5000-review outlier dominated) and let a lone low-rated venue drag the whole
-collection's rating scale. Normalization is now **per-method**:
+Normalization is **per-method** (the method is selected per signal in
+`PopularityScoreService::METHODS`):
 
-- **Linear ÷ 5** → ratings (`google_rating`). A 1–5 scale, already bounded,
-  so dividing by 5 is stable and collection-independent. A lone 1-star venue no
-  longer lifts everyone else's normalized rating toward 1.0.
-- **Log** → review counts (`google_review_count`), mirroring
-  `LiveSearchService::scoreResults`. Review counts are heavy-tailed; min-max
-  would let one outlier dominate. Formula: `log(1 + n) / log(1 + denom)` where
-  `denom = max(collectionMax, RANK_LOG_REVIEW_FLOOR=500)`. The floor prevents a
-  small collection of low-review venues from compressing everyone to ~1.0. When
-  the collection is empty or all-zero, `denom` falls back to
-  `RANK_LOG_REVIEW_DEFAULT=5000`. The final quotient is clamped to `[0, 1]` and
-  guarded against `NaN`/`INF`.
+- **Bayesian** → `quality` (the dominant signal). Folds rating + review count
+  into one review-count-shrunk score; see *Bayesian quality* above.
 - **Inverse distance** → `proximity`. Formula: `1 / (1 + distance_km / scale_km)`
   where `scale_km` defaults to 2.0. Closer venues get higher scores; at 2km
   distance, score = 0.5; at 0 distance, score = 1.0.
@@ -94,6 +105,10 @@ collection's rating scale. Normalization is now **per-method**:
 - **Min-max** → retained for `popular_times_avg_busyness` only (opt-in, weight
   `0.0` by default). Kept so operators who *do* have Outscraper data can opt into
   it via `RANK_WEIGHT_POPULAR_TIMES` without code changes.
+- **Linear ÷ 5 / Log** → retained on the dormant `google_rating` /
+  `google_review_count` signals (weight 0; their data feeds `quality`). Kept so a
+  stale row can't throw and so the methods remain available if an operator
+  re-enables them via `RANK_WEIGHT_*`.
 
 ## data_completeness
 

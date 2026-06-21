@@ -160,9 +160,42 @@ class LiveSearchScoringTest extends TestCase
         // Should still have a valid score from free signals
         $this->assertGreaterThan(0, $breakdown['total']);
 
-        // Verify Google data doesn't contribute (graceful degradation)
-        $this->assertNotContains('Google Rating', $labels);
-        $this->assertNotContains('Google Reviews', $labels);
+        // With no quality source configured, the Bayesian quality signal must
+        // be excluded (graceful degradation — stale/legacy ratings don't score).
+        $this->assertNotContains('Quality', $labels);
+    }
+
+    public function test_quality_signal_active_when_serpapi_key_configured(): void
+    {
+        // With SerpApi configured and a rating present, the quality signal IS
+        // active and contributes (mirrors the live production path).
+        Config::set('services.serpapi.api_key', 'test-key');
+
+        $liveResult = [
+            'id' => -1,
+            'name' => 'Rated Place',
+            'slug' => 'rated',
+            'lat' => 37.7749,
+            'lng' => -122.4194,
+            'distance' => 1.0,
+            'address' => '123 Main St',
+            'phone' => '(415) 555-0100',
+            'price_range' => '$$',
+            'website_url' => 'https://example.com',
+            'photo_url' => 'https://example.com/photo.jpg',
+            'google_rating' => 4.6,
+            'google_review_count' => 1200,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'has_award' => false,
+        ];
+
+        $all = new Collection([$liveResult]);
+        $breakdown = $this->scoreService->calculateBreakdownForArray($liveResult, $all);
+        $labels = collect($breakdown['signals'])->pluck('label')->toArray();
+
+        $this->assertContains('Quality', $labels);
+        $this->assertGreaterThan(0, $breakdown['total']);
     }
 
     public function test_live_result_without_ratings_uses_proximity_and_completeness(): void

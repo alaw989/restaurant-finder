@@ -45,19 +45,20 @@ return [
     |--------------------------------------------------------------------------
     | Ranking weights + normalization knobs
     |--------------------------------------------------------------------------
-    | Quality signals (google_rating, google_review_count — sourced from SerpApi
-    | google_maps data) LEAD the ranking when present, because without a quality
-    | signal the score collapses to a proximity sort. proximity is a tiebreaker
-    | among similarly-rated venues, not the primary driver. data_completeness and
-    | has_award are secondary. popular_times_avg_busyness is min-max normalized
-    | but carries 0.0 weight (no free source). yelp_* weights are 0 (removed).
-    | Every weight is env-overridable; weights need not sum to 1 because the
-    | active set is always renormalized per restaurant.
+    | `quality` LEADS the ranking: a single Bayesian-weighted rating that folds
+    | review count in (sourced from SerpApi google_maps data), so a high rating
+    | from few reviews shrinks toward the credible mean instead of winning.
+    | proximity is a tiebreaker among similarly-rated venues; has_award is a
+    | strong boost when present; data_completeness is a minor tiebreaker. The
+    | separate google_rating/google_review_count and yelp signals are weight 0
+    | (their data feeds `quality`); popular_times is opt-in (0.0). Every weight
+    | is env-overridable; weights need not sum to 1 because the active set is
+    | always renormalized per restaurant.
     |
     | Active-set renormalization:
-    |  - With SerpApi data: rating 0.30 + reviews 0.25 + proximity 0.15 +
-    |    completeness 0.15 + award 0.15 = 1.00.
-    |  - Pure-free (no key): proximity + completeness + award = 0.45, split
+    |  - With quality data: quality 0.60 + proximity 0.20 + award 0.15 +
+    |    completeness 0.05 = 1.00.
+    |  - Pure-free (no key): proximity + completeness + award = 0.40, split
     |    equally after renorm — an honest proximity-leaning sort with no quality
     |    signal available.
     */
@@ -65,13 +66,24 @@ return [
         'weights' => [
             'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0),
             'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0),
-            'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.15),
-            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.15),
+            'quality' => env('RANK_WEIGHT_QUALITY', 0.60),
+            'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.20),
+            'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.05),
             'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.15),
-            'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.30),
-            'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.25),
+            'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.0),
+            'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.0),
             'popular_times_avg_busyness' => env('RANK_WEIGHT_POPULAR_TIMES', 0.0),
         ],
+
+        // Bayesian quality prior (m): a venue's rating is shrunk toward the
+        // credible mean (C) until it accumulates this many reviews. ~50 is
+        // conservative (strong outlier suppression); lower it if established
+        // mid-volume venues feel over-shrunk.
+        'quality_prior_reviews' => (int) env('RANK_QUALITY_PRIOR', 50),
+
+        // Fallback credible-mean rating (C) when no venue in the collection
+        // meets the prior threshold (e.g. an all-low-review area).
+        'quality_mean_fallback' => (float) env('RANK_QUALITY_MEAN_FALLBACK', 4.0),
 
         // Scale (km) for inverse-distance proximity normalization.
         // At 1× scale (default 2km), a venue at 2km distance scores 0.5.
@@ -88,6 +100,20 @@ return [
         // Similarity (0-1) above which a Wikidata entity name is considered to
         // match a restaurant name in WikidataService::hasAward().
         'award_name_similarity' => (float) env('RANK_AWARD_NAME_SIMILARITY', 0.7),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | External API cache TTLs
+    |--------------------------------------------------------------------------
+    | SerpApi is the sole quota-constrained source (free tier ~50 searches/mo)
+    | and the only quality-data source, so its results are cached aggressively:
+    | each unique city/query costs one outbound call per TTL window, then it's
+    | served from cache. ~30 days reflects that Google Maps ratings move slowly.
+    | Other sources are free/unlimited and stay at their per-service defaults.
+    */
+    'cache' => [
+        'serpapi_ttl_hours' => (int) env('SERPAPI_CACHE_TTL_HOURS', 24 * 30),
     ],
 
 ];

@@ -53,8 +53,7 @@ class ScoreRestaurants extends Command
                 foreach ($restaurants as $restaurant) {
                     $breakdown = $scoringService->calculateBreakdownWithAggregatesFromEloquent(
                         $restaurant,
-                        $aggregates['log_denoms'],
-                        $aggregates['minmax']
+                        $aggregates
                     );
 
                     $updates[] = [

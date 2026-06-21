@@ -64,7 +64,7 @@ class SerpApiService
 
             $results = $this->normalizeResults($localResults, $lat, $lng);
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours((int) config('restaurant-finder.cache.serpapi_ttl_hours', 720)));
 
             return $results;
         } catch (\Throwable $e) {
@@ -116,7 +116,7 @@ class SerpApiService
             $data = $response->json();
             $localResults = $data['local_results'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $localResults, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $localResults, now()->addHours((int) config('restaurant-finder.cache.serpapi_ttl_hours', 720)));
 
             return ['cached' => false, 'data' => $localResults];
         } catch (\Throwable $e) {

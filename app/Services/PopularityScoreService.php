@@ -10,19 +10,21 @@ class PopularityScoreService
     /**
      * Fallback weight set used when the container/config is unavailable (e.g.
      * pure unit tests). Mirrors config/restaurant-finder.php -> ranking.weights.
-     * Quality signals (google_rating, google_review_count) LEAD when present
-     * (sourced from SerpApi); proximity is a tiebreaker; data_completeness and
-     * has_award are secondary. yelp_* signals are removed (weight 0.0);
-     * popular_times is opt-in (weight 0.0).
+     * `quality` (a Bayesian-weighted rating that folds review count in) LEADS;
+     * proximity is a tiebreaker; has_award is a strong boost when present;
+     * data_completeness is a minor tiebreaker. The yelp and google rating and
+     * review signals are removed (weight 0.0 — their data feeds `quality`
+     * instead); popular_times is opt-in (weight 0.0).
      */
     private const DEFAULT_WEIGHTS = [
         'yelp_rating' => 0.0,
         'yelp_review_count' => 0.0,
-        'proximity' => 0.15,
-        'data_completeness' => 0.15,
+        'quality' => 0.60,
+        'proximity' => 0.20,
+        'data_completeness' => 0.05,
         'has_award' => 0.15,
-        'google_rating' => 0.30,
-        'google_review_count' => 0.25,
+        'google_rating' => 0.0,
+        'google_review_count' => 0.0,
         'popular_times_avg_busyness' => 0.0,
     ];
 
@@ -34,6 +36,7 @@ class PopularityScoreService
         'google_rating' => 'linear_rating',
         'yelp_review_count' => 'log_count',
         'google_review_count' => 'log_count',
+        'quality' => 'bayesian_quality',
         'proximity' => 'inverse_distance',
         'data_completeness' => 'completeness',
         'has_award' => 'boolean',
@@ -67,12 +70,16 @@ class PopularityScoreService
     private array $weights;
     private int $logReviewFloor;
     private int $logReviewDefault;
+    private float $qualityPrior;
+    private float $qualityMeanFallback;
 
-    public function __construct(?array $weights = null, ?int $logReviewFloor = null, ?int $logReviewDefault = null)
+    public function __construct(?array $weights = null, ?int $logReviewFloor = null, ?int $logReviewDefault = null, ?float $qualityPrior = null, ?float $qualityMeanFallback = null)
     {
         $this->weights = $weights ?? $this->configValue('restaurant-finder.ranking.weights', self::DEFAULT_WEIGHTS);
         $this->logReviewFloor = $logReviewFloor ?? (int) $this->configValue('restaurant-finder.ranking.log_review_floor', 500);
         $this->logReviewDefault = $logReviewDefault ?? (int) $this->configValue('restaurant-finder.ranking.log_review_default', 5000);
+        $this->qualityPrior = $qualityPrior ?? (float) $this->configValue('restaurant-finder.ranking.quality_prior_reviews', 50);
+        $this->qualityMeanFallback = $qualityMeanFallback ?? (float) $this->configValue('restaurant-finder.ranking.quality_mean_fallback', 4.0);
     }
 
     /**
@@ -101,12 +108,11 @@ class PopularityScoreService
     /**
      * Calculate breakdown for an Eloquent model using precomputed aggregates.
      */
-    public function calculateBreakdownWithAggregatesFromEloquent(Restaurant $restaurant, array $logDenoms, array $minmax): array
+    public function calculateBreakdownWithAggregatesFromEloquent(Restaurant $restaurant, array $aggregates): array
     {
         return $this->calculateBreakdownWithAggregates(
             $this->restaurantToArray($restaurant),
-            $logDenoms,
-            $minmax
+            $aggregates
         );
     }
 
@@ -124,6 +130,9 @@ class PopularityScoreService
             'minmax' => [
                 'popular_times_avg_busyness' => $this->minmaxStats($allRestaurants, 'popular_times_avg_busyness'),
             ],
+            'quality' => [
+                'mean_rating' => $this->collectionMeanRating($allRestaurants),
+            ],
         ];
     }
 
@@ -135,27 +144,26 @@ class PopularityScoreService
     public function calculateBreakdownForArray(array $restaurant, Collection $allRestaurants): array
     {
         $aggregates = $this->computeAggregates($allRestaurants);
-        return $this->calculateBreakdownWithAggregates(
-            $restaurant,
-            $aggregates['log_denoms'],
-            $aggregates['minmax']
-        );
+        return $this->calculateBreakdownWithAggregates($restaurant, $aggregates);
     }
 
     /**
      * Calculate breakdown using precomputed aggregates. Used by chunked
      * scoring where collection-level stats are computed once upfront.
      */
-    public function calculateBreakdownWithAggregates(array $restaurant, array $logDenoms, array $minmax): array
+    public function calculateBreakdownWithAggregates(array $restaurant, array $aggregates): array
     {
-        $logDenoms = $logDenoms + [
+        $logDenoms = ($aggregates['log_denoms'] ?? []) + [
             'yelp_review_count' => (float) $this->logReviewDefault,
             'google_review_count' => (float) $this->logReviewDefault,
         ];
+        $minmax = $aggregates['minmax'] ?? [];
+        $qualityMean = (float) ($aggregates['quality']['mean_rating'] ?? $this->qualityMeanFallback);
 
         $signalLabels = [
             'yelp_rating' => 'Yelp Rating',
             'yelp_review_count' => 'Yelp Reviews',
+            'quality' => 'Quality',
             'proximity' => 'Proximity',
             'data_completeness' => 'Profile Completeness',
             'has_award' => 'Award',
@@ -180,7 +188,7 @@ class PopularityScoreService
             }
 
             $activeWeights[$signal] = (float) $weight;
-            $activeNormalized[$signal] = $this->normalize($method, $raw, $signal, $logDenoms, $minmax);
+            $activeNormalized[$signal] = $this->normalize($method, $raw, $signal, $logDenoms, $minmax, $qualityMean);
         }
 
         $totalActiveWeight = array_sum($activeWeights);
@@ -244,6 +252,16 @@ class PopularityScoreService
             return $restaurant['distance'] ?? null;
         }
 
+        if ($signal === 'quality') {
+            $rating = $restaurant['google_rating'] ?? null;
+            $reviews = $restaurant['google_review_count'] ?? null;
+
+            return [
+                'rating' => ($rating !== null && is_numeric($rating)) ? (float) $rating : null,
+                'reviews' => ($reviews !== null && is_numeric($reviews)) ? (float) $reviews : 0.0,
+            ];
+        }
+
         return $restaurant[$signal] ?? null;
     }
 
@@ -275,6 +293,19 @@ class PopularityScoreService
             return $raw !== null && (float) $raw >= 0.0;
         }
 
+        if ($signal === 'quality') {
+            // Active only when an external quality source is configured AND this
+            // row has a usable google_rating. Reviews=0 is allowed (the Bayesian
+            // shrink pulls it fully toward the credible mean).
+            if (!$this->qualitySourceConfigured()) {
+                return false;
+            }
+
+            return is_array($raw)
+                && ($raw['rating'] ?? null) !== null
+                && (float) $raw['rating'] > 0.0;
+        }
+
         if (str_starts_with($signal, 'google_') && !$this->qualitySourceConfigured()) {
             // The google_* columns are populated by an external quality source
             // (SerpApi google_maps, Google Places, or Outscraper). When none of
@@ -295,7 +326,7 @@ class PopularityScoreService
         return true;
     }
 
-    private function normalize(string $method, mixed $raw, string $signal, array $logDenoms, array $minmax): float
+    private function normalize(string $method, mixed $raw, string $signal, array $logDenoms, array $minmax, float $qualityMean): float
     {
         return match ($method) {
             'linear_rating' => $this->normalizeLinearRating((float) $raw),
@@ -304,8 +335,71 @@ class PopularityScoreService
             'completeness' => max(0.0, min(1.0, (float) $raw)),
             'boolean' => $raw ? 1.0 : 0.0,
             'minmax' => $this->normalizeMinMax((float) $raw, $minmax[$signal] ?? null),
+            'bayesian_quality' => $this->normalizeBayesianQuality($raw, $qualityMean),
             default => 0.0,
         };
+    }
+
+    /**
+     * Bayesian-weighted quality: shrinks a rating toward the collection's
+     * credible-mean rating (C), weighted by review count (v) vs prior (m).
+     * Q = (v/(v+m))·R + (m/(v+m))·C, then ÷5 to normalize to 0-1. A high rating
+     * from few reviews collapses toward the mean; a high-review rating stands.
+     * See docs/ranking-metrics.md.
+     */
+    private function normalizeBayesianQuality(array $raw, float $meanRating): float
+    {
+        $R = (float) ($raw['rating'] ?? 0.0);
+        $v = max(0.0, (float) ($raw['reviews'] ?? 0.0));
+        $m = $this->qualityPrior;
+        $C = $meanRating > 0.0 ? $meanRating : $this->qualityMeanFallback;
+
+        if ($R <= 0.0) {
+            return 0.0;
+        }
+
+        $denom = $v + $m;
+        if ($denom <= 0.0) {
+            return 0.0;
+        }
+
+        $Q = (($v / $denom) * $R) + (($m / $denom) * $C);
+        $Q = $Q / 5.0;
+
+        if (!is_finite($Q)) {
+            return 0.0;
+        }
+
+        return max(0.0, min(1.0, $Q));
+    }
+
+    /**
+     * Credible-mean rating (C): the mean google_rating over venues whose review
+     * count meets the prior threshold (m). Excludes low-review outliers from the
+     * prior so they can't inflate C and still win in small collections. Falls
+     * back to quality_mean_fallback when no credible venue exists. Works on both
+     * Eloquent collections and plain array collections (live search).
+     */
+    private function collectionMeanRating(Collection $all): float
+    {
+        $ratings = $all->map(function ($r) {
+            $rating = $r['google_rating'] ?? null;
+            $reviews = $r['google_review_count'] ?? null;
+
+            if ($rating !== null && is_numeric($rating) && (float) $rating > 0.0
+                && $reviews !== null && is_numeric($reviews) && (float) $reviews >= $this->qualityPrior
+            ) {
+                return (float) $rating;
+            }
+
+            return null;
+        })->filter();
+
+        if ($ratings->isEmpty()) {
+            return $this->qualityMeanFallback;
+        }
+
+        return (float) ($ratings->sum() / $ratings->count());
     }
 
     /**

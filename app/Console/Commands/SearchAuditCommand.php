@@ -12,8 +12,9 @@ use Illuminate\Console\Command;
  * then prints the top-N results with their per-signal score contributions so
  * it's obvious what is driving the ranking (e.g. Proximity vs. Google Rating).
  *
- * Respects the 24h ExternalApiCache, so re-running within the cache window
- * makes no new outbound API calls (protects the SerpApi free-tier quota).
+ * Respects the ExternalApiCache (SerpApi defaults to ~30 days), so re-running
+ * within the cache window makes no new outbound API calls (protects the SerpApi
+ * free-tier quota).
  */
 class SearchAuditCommand extends Command
 {

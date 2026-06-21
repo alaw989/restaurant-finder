@@ -59,11 +59,11 @@ class PopularityScoreServiceTest extends TestCase
         $all = new Collection([$restaurant]);
         $score = $this->service->calculateScore($restaurant, $all);
 
-        // Yelp weights are 0 (removed). Proximity + Google are inactive (no distance,
-        // no Google data). Only data_completeness (8/9=0.8889, weight 0.15) and
-        // has_award (false=0.0, weight 0.15) contribute. Active weight 0.30.
-        // = (0.15/0.30)*0.8889 = 0.4445
-        $this->assertEqualsWithDelta(0.4445, $score, 0.001);
+        // Yelp weights are 0 (removed). Proximity + quality are inactive (no
+        // distance, no Google rating). Only data_completeness (8/9=0.8889,
+        // weight 0.05) and has_award (false=0.0, weight 0.15) contribute.
+        // Active weight 0.20. = (0.05/0.20)*0.8889 = 0.2222
+        $this->assertEqualsWithDelta(0.2222, $score, 0.001);
     }
 
     public function test_no_data_scores_zero(): void
@@ -101,11 +101,11 @@ class PopularityScoreServiceTest extends TestCase
         $score = $this->service->calculateScore($restaurant, $all);
 
         // completeness = 1/9 = 0.1111 (only `name` filled; lat/lng are 0 sentinel);
-        // has_award = 0. Proximity is inactive (no distance). Active weight 0.30
-        // (data_completeness 0.15 + has_award 0.15).
-        // = (0.15/0.30)*0.1111 = 0.0556.
+        // has_award = 0. Proximity + quality inactive. Active weight 0.20
+        // (data_completeness 0.05 + has_award 0.15).
+        // = (0.05/0.20)*0.1111 = 0.0278.
         // (With the isFilled bug, lat/lng would count -> completeness 3/9 -> 0.2000.)
-        $this->assertEqualsWithDelta(0.0556, $score, 0.001);
+        $this->assertEqualsWithDelta(0.0278, $score, 0.001);
     }
 
     public function test_high_quality_outscores_low_quality(): void
@@ -195,10 +195,11 @@ class PopularityScoreServiceTest extends TestCase
         $outlierScore = $this->service->calculateScore($outlier, $all);
 
         // Both venues score identically since they have the same data_completeness
-        // and Yelp signals are removed (weight 0). Proximity is inactive (no distance).
-        // Active weight 0.30 (data_completeness 0.15 + has_award 0.15).
+        // and Yelp signals are removed (weight 0). Proximity + quality inactive
+        // (no distance, Yelp-only). Active weight 0.20 (data_completeness 0.05 +
+        // has_award 0.15).
         $this->assertEqualsWithDelta($venueScore, $outlierScore, 0.001);
-        $this->assertEqualsWithDelta(0.4445, $venueScore, 0.001);
+        $this->assertEqualsWithDelta(0.2222, $venueScore, 0.001);
     }
 
     public function test_log_floor_prevents_compression(): void
@@ -316,5 +317,64 @@ class PopularityScoreServiceTest extends TestCase
 
         $this->assertNotNull($completenessSignal, 'Completeness signal should be present');
         $this->assertGreaterThanOrEqual(0.6, $completenessSignal['normalized']);
+    }
+
+    public function test_bayesian_shrink_ranks_high_review_venue_above_low_review_outlier(): void
+    {
+        // The headline accuracy fix. A realistic collection establishes the
+        // credible-mean prior C (~4.26, from the 200-review venues; the 3-review
+        // outlier is excluded from C). The Bayesian shrink must pull the
+        // 5.0★/3-review outlier down toward C so the 4.7★/5000-review venue
+        // outranks it — the exact case a plain linear rating gets wrong.
+        $base = $this->fullFreeFields();
+
+        $normal = function (float $rating) use ($base) {
+            return $this->makeRestaurant(array_merge($base, [
+                'google_rating' => $rating,
+                'google_review_count' => 200,
+            ]));
+        };
+
+        $outlier = $this->makeRestaurant(array_merge($base, [
+            'name' => 'Outlier',
+            'google_rating' => 5.0,
+            'google_review_count' => 3,
+        ]));
+        $credible = $this->makeRestaurant(array_merge($base, [
+            'name' => 'Credible',
+            'google_rating' => 4.7,
+            'google_review_count' => 5000,
+        ]));
+
+        $all = new Collection([
+            $normal(4.0), $normal(4.1), $normal(4.2), $normal(4.3),
+            $outlier, $credible,
+        ]);
+
+        $outlierScore = $this->service->calculateScore($outlier, $all);
+        $credibleScore = $this->service->calculateScore($credible, $all);
+
+        $this->assertGreaterThan(
+            $outlierScore,
+            $credibleScore,
+            'A 4.7★/5000-review venue must outrank a 5.0★/3-review outlier (Bayesian shrink).'
+        );
+    }
+
+    public function test_quality_signal_inactive_without_rating(): void
+    {
+        // A venue with no google_rating must not activate the quality signal —
+        // it falls back to completeness + award only.
+        $restaurant = $this->makeRestaurant(array_merge($this->fullFreeFields(), [
+            'google_rating' => null,
+            'google_review_count' => 0,
+        ]));
+        $all = new Collection([$restaurant]);
+
+        $breakdown = $this->service->calculateBreakdown($restaurant, $all);
+        $labels = collect($breakdown['signals'])->pluck('label')->toArray();
+
+        $this->assertNotContains('Quality', $labels);
+        $this->assertContains('Profile Completeness', $labels);
     }
 }

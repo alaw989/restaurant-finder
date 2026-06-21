@@ -10,21 +10,19 @@ class RestaurantSeeder extends Seeder
 {
     public function run(): void
     {
-        $restaurants = $this->getRestaurantsData();
-
-        foreach ($restaurants as $data) {
-            $cuisineSlugs = $data['cuisines'];
-            unset($data['cuisines']);
-
-            $restaurant = Restaurant::firstOrCreate(
-                ['name' => $data['name'], 'address' => $data['address']],
-                $data
-            );
-
-            $cuisineIds = Cuisine::whereIn('slug', $cuisineSlugs)->pluck('id');
-            $restaurant->cuisines()->syncWithoutDetaching($cuisineIds);
-        }
+        // Intentionally disabled (spec-019). The hard-coded San Francisco
+        // restaurants below were fake seed data with invented ratings/reviews.
+        // Because the controller is DB-first, that fake data was served for SF
+        // while every other city hit live search — distorting results. iPop360
+        // is now live-search-first for every city (cached ~30 days via SerpApi),
+        // so the DB no longer needs seed restaurants. The data array is kept
+        // below as a paper trail; populate real venues via `restaurants:enrich`
+        // instead.
+        return;
     }
+
+    // getRestaurantsData() below is retained as a paper trail but is no longer
+    // called — see run(). Original fake SF seed data.
 
     private function getRestaurantsData(): array
     {
