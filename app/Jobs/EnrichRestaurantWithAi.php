@@ -76,6 +76,7 @@ class EnrichRestaurantWithAi implements ShouldQueue
             $aiMetadata = [
                 'enriched_at' => now()->toISOString(),
                 'fields_updated' => [],
+                'model' => config('services.ai.model', 'llama-3.3-70b-versatile'),
             ];
 
             // Update normalized address if provided

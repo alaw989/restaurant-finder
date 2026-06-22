@@ -26,6 +26,12 @@ class RestaurantWebsiteScraperService
     /** Timeout for HTTP requests (seconds). */
     private const REQUEST_TIMEOUT = 10;
 
+    /** Maximum retry attempts for transient HTTP failures. */
+    private const MAX_RETRIES = 3;
+
+    /** Base delay for exponential backoff (milliseconds). */
+    private const RETRY_BASE_DELAY_MS = 100;
+
     /** User agent for requests. */
     private const USER_AGENT = 'Mozilla/5.0 (compatible; iPop360-Bot/1.0; +https://ipop360.example.com/bot)';
 
@@ -230,51 +236,91 @@ class RestaurantWebsiteScraperService
      */
     private function performScrape(string $url): ?array
     {
-        try {
-            $response = Http::timeout(self::REQUEST_TIMEOUT)
-                ->withUserAgent(self::USER_AGENT)
-                ->get($url);
+        $lastException = null;
 
-            if (!$response->successful()) {
-                Log::warning('Failed to fetch website for scraping', [
+        for ($attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++) {
+            try {
+                $response = Http::timeout(self::REQUEST_TIMEOUT)
+                    ->withUserAgent(self::USER_AGENT)
+                    ->get($url);
+
+                if (!$response->successful()) {
+                    Log::warning('Failed to fetch website for scraping', [
+                        'url' => $url,
+                        'status' => $response->status(),
+                        'attempt' => $attempt,
+                        'max_retries' => self::MAX_RETRIES,
+                    ]);
+
+                    // Retry on transient errors (5xx) or if we have retries left
+                    if ($response->serverError() && $attempt < self::MAX_RETRIES) {
+                        $this->backoff($attempt);
+                        continue;
+                    }
+
+                    return null;
+                }
+
+                $html = $response->body();
+                if (empty($html)) {
+                    return null;
+                }
+
+                // Use DOMDocument to parse HTML
+                libxml_use_internal_errors(true);
+                $dom = new DOMDocument();
+                $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+                libxml_clear_errors();
+
+                $xpath = new DOMXPath($dom);
+
+                $result = [
+                    'opening_hours' => $this->extractOpeningHours($dom, $xpath, $url),
+                    'menu_url' => $this->extractMenuUrl($dom, $xpath, $url),
+                    'photo_url' => null, // Could be extended to extract gallery images
+                ];
+
+                // Only return result if we found something useful
+                if ($result['opening_hours'] !== null || $result['menu_url'] !== null) {
+                    return $result;
+                }
+
+                return null;
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                $lastException = $e;
+                Log::warning('Transient connection error during website scrape', [
                     'url' => $url,
-                    'status' => $response->status(),
+                    'error' => $e->getMessage(),
+                    'attempt' => $attempt,
+                    'max_retries' => self::MAX_RETRIES,
+                ]);
+
+                if ($attempt < self::MAX_RETRIES) {
+                    $this->backoff($attempt);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Error during website scrape', [
+                    'url' => $url,
+                    'error' => $e->getMessage(),
                 ]);
                 return null;
             }
-
-            $html = $response->body();
-            if (empty($html)) {
-                return null;
-            }
-
-            // Use DOMDocument to parse HTML
-            libxml_use_internal_errors(true);
-            $dom = new DOMDocument();
-            $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-            libxml_clear_errors();
-
-            $xpath = new DOMXPath($dom);
-
-            $result = [
-                'opening_hours' => $this->extractOpeningHours($dom, $xpath, $url),
-                'menu_url' => $this->extractMenuUrl($dom, $xpath, $url),
-                'photo_url' => null, // Could be extended to extract gallery images
-            ];
-
-            // Only return result if we found something useful
-            if ($result['opening_hours'] !== null || $result['menu_url'] !== null) {
-                return $result;
-            }
-
-            return null;
-        } catch (\Throwable $e) {
-            Log::warning('Error during website scrape', [
-                'url' => $url,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
         }
+
+        // All retries exhausted
+        Log::warning('All retry attempts exhausted for website scrape', [
+            'url' => $url,
+        ]);
+        return null;
+    }
+
+    /**
+     * Exponential backoff delay between retries.
+     */
+    private function backoff(int $attempt): void
+    {
+        $delayMs = self::RETRY_BASE_DELAY_MS * (2 ** ($attempt - 1));
+        usleep($delayMs * 1000); // Convert to microseconds
     }
 
     /**

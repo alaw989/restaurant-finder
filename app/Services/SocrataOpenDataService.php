@@ -11,6 +11,12 @@ class SocrataOpenDataService
     private ?string $appToken;
     private array $endpoints;
 
+    /** Maximum retry attempts for transient HTTP failures. */
+    private const MAX_RETRIES = 3;
+
+    /** Base delay for exponential backoff (milliseconds). */
+    private const RETRY_BASE_DELAY_MS = 100;
+
     public function __construct()
     {
         $this->appToken = config('services.socrata.app_token');
@@ -136,35 +142,74 @@ class SocrataOpenDataService
         // Build SoQL query for spatial filtering
         $soql = $this->buildSoqlQuery($lat, $lng, $query, $fields);
 
-        try {
-            $response = Http::timeout(15)
-                ->withHeaders($this->buildHeaders())
-                ->get($url, $soql);
+        for ($attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++) {
+            try {
+                $response = Http::timeout(15)
+                    ->withHeaders($this->buildHeaders())
+                    ->get($url, $soql);
 
-            if ($response->failed()) {
-                Log::warning('Socrata endpoint request failed', [
+                if ($response->failed()) {
+                    Log::warning('Socrata endpoint request failed', [
+                        'domain' => $domain,
+                        'dataset_id' => $datasetId,
+                        'status' => $response->status(),
+                        'attempt' => $attempt,
+                        'max_retries' => self::MAX_RETRIES,
+                    ]);
+
+                    // Retry on transient errors (5xx) or if we have retries left
+                    if ($response->serverError() && $attempt < self::MAX_RETRIES) {
+                        $this->backoff($attempt);
+                        continue;
+                    }
+
+                    return [];
+                }
+
+                $data = $response->json();
+
+                if (!is_array($data)) {
+                    return [];
+                }
+
+                return $this->normalizeEndpointResults($data, $lat, $lng);
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                Log::warning('Socrata endpoint connection error', [
                     'domain' => $domain,
                     'dataset_id' => $datasetId,
-                    'status' => $response->status(),
+                    'error' => $e->getMessage(),
+                    'attempt' => $attempt,
+                    'max_retries' => self::MAX_RETRIES,
+                ]);
+
+                if ($attempt < self::MAX_RETRIES) {
+                    $this->backoff($attempt);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Socrata endpoint threw exception', [
+                    'domain' => $domain,
+                    'dataset_id' => $datasetId,
+                    'message' => $e->getMessage(),
                 ]);
                 return [];
             }
-
-            $data = $response->json();
-
-            if (!is_array($data)) {
-                return [];
-            }
-
-            return $this->normalizeEndpointResults($data, $lat, $lng);
-        } catch (\Throwable $e) {
-            Log::warning('Socrata endpoint threw exception', [
-                'domain' => $domain,
-                'dataset_id' => $datasetId,
-                'message' => $e->getMessage(),
-            ]);
-            return [];
         }
+
+        // All retries exhausted
+        Log::warning('All retry attempts exhausted for Socrata endpoint', [
+            'domain' => $domain,
+            'dataset_id' => $datasetId,
+        ]);
+        return [];
+    }
+
+    /**
+     * Exponential backoff delay between retries.
+     */
+    private function backoff(int $attempt): void
+    {
+        $delayMs = self::RETRY_BASE_DELAY_MS * (2 ** ($attempt - 1));
+        usleep($delayMs * 1000); // Convert to microseconds
     }
 
     /**

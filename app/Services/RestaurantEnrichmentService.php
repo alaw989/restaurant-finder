@@ -706,6 +706,9 @@ class RestaurantEnrichmentService
                 if (!empty($details['photos'][0]['photo_reference']) && $restaurant->photo_url === null) {
                     $updates['photo_url'] = $this->buildGooglePhotoUrl($details['photos'][0]['photo_reference']);
                 }
+                if (!empty($details['website']) && empty($restaurant->website_url)) {
+                    $updates['website_url'] = $details['website'];
+                }
 
                 $restaurant->update($updates);
 
