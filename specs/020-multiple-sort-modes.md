@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-21
 
-**Status**: Ready
+**Status**: COMPLETE
 
 **Input**: `RestaurantController` sorts results by a single signal only — `popularity_score` — via the `byPopularity()` scope (`app/Models/Restaurant.php:109-112` = `orderByDesc('popularity_score')`), applied in both `index()` (`app/Http/Controllers/RestaurantController.php:96`) and `apiIndex()` (`:183`). Users expect to re-sort the same result set by **nearest, rating, reviews, or price** in addition to the default best-match. No `?sort=` query parameter is parsed anywhere, and there is no frontend sort control. All sort-relevant columns **already exist** on the `restaurants` table: `google_rating`, `google_review_count`, `yelp_rating`, `yelp_review_count`, `price_range`, `popularity_score` (`database/migrations/2026_06_06_171950_create_restaurants_table.php` + the price-range widening migration). `distance` is a **virtual alias** added by `scopeNearby` (`Restaurant.php:101`, `selectRaw("*, {$haversine} AS distance", …)`), so it is only sortable when the `nearby()` scope has run (i.e. when coordinates are present).
 
@@ -69,4 +69,4 @@ As a user, after searching I can switch the ordering between best match, nearest
 
 ## Completion
 All FRs met, `php artisan test` green, changes committed and pushed on the current branch → output `<promise>DONE</promise>` (see `.specify/memory/constitution.md`). Exactly this one spec per iteration.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->
