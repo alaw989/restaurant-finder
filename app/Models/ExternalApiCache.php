@@ -74,4 +74,46 @@ class ExternalApiCache extends Model
             ]
         );
     }
+
+    /**
+     * Get cache statistics including quota usage.
+     *
+     * @param int $expiringDays Number of days to look ahead for expiring entries
+     * @return array{total_rows: int, by_source: array<string, int>, expiring_within: int, serpapi_calls_last_30d: int}
+     */
+    public static function stats(int $expiringDays = 7): array
+    {
+        $now = Carbon::now();
+        $expiringCutoff = $now->copy()->addDays($expiringDays);
+        $thirtyDaysAgo = $now->copy()->subDays(30);
+
+        // Total rows
+        $totalRows = static::count();
+
+        // By source (all entries have non-null source per schema)
+        $bySource = static::query()
+            ->selectRaw('source as source_name, COUNT(*) as count')
+            ->groupBy('source_name')
+            ->pluck('count', 'source_name')
+            ->map(fn ($count) => (int) $count)
+            ->toArray();
+
+        // Expiring within N days (schema ensures expires_at is not null)
+        $expiringWithin = static::where('expires_at', '<=', $expiringCutoff)
+            ->where('expires_at', '>=', $now)
+            ->count();
+
+        // SerpApi calls in last 30 days (represents real API calls)
+        // Schema ensures fetched_at is not null
+        $serpapiCallsLast30d = static::where('source', 'serpapi')
+            ->where('fetched_at', '>=', $thirtyDaysAgo)
+            ->count();
+
+        return [
+            'total_rows' => $totalRows,
+            'by_source' => $bySource,
+            'expiring_within' => $expiringWithin,
+            'serpapi_calls_last_30d' => $serpapiCallsLast30d,
+        ];
+    }
 }

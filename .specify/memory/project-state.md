@@ -15,9 +15,9 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–019 COMPLETE.** Most recent: 017 (SerpApi quality source + bug
-  fixes), 019 (Bayesian quality ranking + 30-day cache + cleared fake seed).
-  See `specs/` for per-spec `Status`.
+- **Specs 001–021 COMPLETE.** Most recent: 018 (OSM dedup + garbage-name filter),
+  020 (multiple sort modes), 021 (throttled DB enrichment + persist
+  `google_rating`/`google_review_count`). See `specs/` for per-spec `Status`.
 - **DB is intentionally near-empty** (live-search-first). The fake SF seed and
   the unrated OSM-enriched rows were cleared via one-time migrations.
 
@@ -95,10 +95,16 @@ The DB file (`database/database.sqlite`) is gitignored — each machine has its
 own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
-## What's next (queued specs)
-- **018** — dedup redundant OSM sources (BizData ≡ Overpass, both OpenStreetMap)
-  + filter garbage OSM names (e.g. `"\"diner\""`, `1803`, `$1.50 Fresh Pizza`).
-- **020** — multiple sort modes (`?sort=best_match|nearest|rating|reviews|price`).
-- **021** — throttled/scheduled DB enrichment under the quota; also fix
-  `RestaurantEnrichmentService::normalizeSerpApiVenue` + `processFreeVenue`
-  dropping `google_rating`/`google_review_count`.
+## What's next (queued specs — Ralph queue, 2026-06-21)
+All of 001–021 are COMPLETE (018/020/021 landed on 2026-06-21). The queue had been
+empty; a fresh 3-spec queue was authored on 2026-06-21 for the next Ralph run. Ralph
+picks the lowest-numbered incomplete `specs/*.md`, so order is 022 → 023 → 024:
+- **022** — cache/quota observability: read-only `quota:status` command surfacing
+  serpapi last-30d burn vs 50 free / 40 budget + cache inventory. Zero quota burn.
+- **023** — live-search feedback states (frontend): error banner for silent search
+  failures + wire up the imported-but-unused `Skeleton`. Done-criteria include
+  `npm run build` (no JS test framework; `php artisan test` is PHP-only).
+- **024** — enrichment robustness (4 verified gaps only): persist Google
+  `website_url` (unblocks scraper → `opening_hours`), retry/backoff for scraper +
+  Socrata, record AI model. ~7 prior "gaps" are already implemented (listed as
+  out-of-scope in the spec).

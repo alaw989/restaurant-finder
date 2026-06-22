@@ -118,6 +118,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | SerpApi quota limits
+    |--------------------------------------------------------------------------
+    | Free tier quota per month for SerpApi Google Maps searches.
+    | This is the hard limit enforced by the service; the enrichment budget
+    | (enrich.monthly_budget) is a self-imposed cap below this to leave
+    | headroom for live search and audits.
+    */
+    'serpapi' => [
+        'free_quota' => (int) env('SERPAPI_FREE_QUOTA', 50),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | DB enrichment throttling (SerpApi quota protection)
     |--------------------------------------------------------------------------
     | Enrichment progressively fills the DB under the free tier quota (~50/mo).
