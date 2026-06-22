@@ -116,4 +116,35 @@ return [
         'serpapi_ttl_hours' => (int) env('SERPAPI_CACHE_TTL_HOURS', 24 * 30),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Cross-source dedup thresholds
+    |--------------------------------------------------------------------------
+    | Control how venues from different sources (BizData, Overpass, Foursquare,
+    | etc.) are matched as duplicates. Uses fuzzy name similarity (similar_text
+    | percentage) AND haversine proximity within a radius.
+    */
+    'dedup' => [
+        // Haversine match threshold (km) for considering two venues the same.
+        'match_radius_km' => (float) env('DEDUP_MATCH_RADIUS_KM', 0.2),
+
+        // Name similarity (0-100) above which two names are considered a match.
+        'name_similarity_threshold' => (float) env('DEDUP_NAME_SIMILARITY_THRESHOLD', 85.0),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Garbage name filters
+    |--------------------------------------------------------------------------
+    | OSM-derived sources (Overpass, BizData) sometimes return garbage names
+    | like numeric-only strings, generic cuisine words, or price fragments.
+    | These are filtered out before dedup/scoring/persistence.
+    */
+    'filters' => [
+        // Generic words that are rejected when used as the entire name.
+        'garbage_generic_words' => array_filter(explode(' ', env('GARBAGE_GENERIC_WORDS',
+            'diner restaurant cafe pizza bar grill bistro pub tavern eatery food kitchen cantina'
+        ))),
+    ],
+
 ];

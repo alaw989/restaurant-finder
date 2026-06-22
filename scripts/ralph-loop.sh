@@ -30,7 +30,7 @@
 # 2. specs/ folder - pick highest priority incomplete spec
 #
 # Usage:
-#   ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 50)
+#   ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 20)
 #   ./scripts/ralph-loop.sh 20           # Build, max 20 iterations
 #   ./scripts/ralph-loop.sh --unlimited  # Build, no cap (explicit)
 #   ./scripts/ralph-loop.sh --dry-run    # One iteration, no push, no git mutation
@@ -50,7 +50,7 @@ LOG_DIR="$PROJECT_DIR/logs"
 CONSTITUTION="$PROJECT_DIR/.specify/memory/constitution.md"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-MAX_ITERATIONS="${RALPH_MAX_ITERATIONS:-50}"   # finite default; 0 / --unlimited = no cap
+MAX_ITERATIONS="${RALPH_MAX_ITERATIONS:-20}"   # finite default; 0 / --unlimited = no cap
 MODE="build"
 CLAUDE_CMD="${CLAUDE_CMD:-claude}"
 # Model: RALPH_MODEL takes precedence, then CLAUDE_MODEL, then a current default.
@@ -107,7 +107,7 @@ Based on Geoffrey Huntley's Ralph Wiggum methodology + SpecKit specs.
 https://github.com/ghuntley/how-to-ralph-wiggum
 
 Usage:
-  ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 50)
+  ./scripts/ralph-loop.sh              # Build, capped at RALPH_MAX_ITERATIONS (default 20)
   ./scripts/ralph-loop.sh 20           # Build, max 20 iterations
   ./scripts/ralph-loop.sh --unlimited  # Build, no cap (must be explicit)
   ./scripts/ralph-loop.sh --dry-run    # One iteration, no push, no git mutation
@@ -121,12 +121,12 @@ Safety flags / env:
   --require-green-tests    Refuse to start unless \`php artisan test\` is green
   --no-verify-tests        Disable the post-DONE green-test gate
   --push-on-failure        Push even on a failed/non-DONE iteration (default: off)
-  RALPH_MAX_ITERATIONS     Finite cap (default 50); 0 means unlimited
+  RALPH_MAX_ITERATIONS     Finite cap (default 20); 0 means unlimited
   RALPH_ITERATION_TIMEOUT  Per-iteration wall-clock seconds (default 1800)
   RALPH_TEST_TIMEOUT       Cap on the \`php artisan test\` gate, seconds (default 600)
   RALPH_PUSH_TIMEOUT       Cap on each \`git push\`, seconds (default 120)
   RALPH_MAX_CONSECUTIVE_FAILURES  Consecutive failures before hard stop (default 3)
-  RALPH_MAX_TOTAL_FAILURES        Total failures before hard stop (default 10)
+  RALPH_MAX_TOTAL_FAILURES        Total failures before hard stop (default 20)
   RALPH_VERIFY_TESTS       Run \`php artisan test\` after DONE before success (default true)
   RALPH_AUTO_STASH         Auto-stash a dirty tree before starting (default false)
   RALPH_MODEL / CLAUDE_MODEL      Override the model id (default claude-opus-4-8)

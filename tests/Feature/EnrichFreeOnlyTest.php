@@ -271,4 +271,134 @@ class EnrichFreeOnlyTest extends TestCase
         $names = Restaurant::whereIn('name', ['BizData Place', 'OSM Place'])->pluck('name')->sort()->values()->all();
         $this->assertSame(['BizData Place', 'OSM Place'], $names);
     }
+
+    public function test_cross_source_dedup_with_fuzzy_names(): void
+    {
+        Config::set('services.google.places_key', null);
+
+        // Same physical venue from BizData and Overpass with slightly different names
+        // "Tony's Pizza" vs "Tony's Pizzeria" — should collapse to one row
+        // (similarity ~89%, meets the 85% threshold)
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response([
+                'businesses' => [
+                    $this->bizDataVenue('Tony\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4194], '555-0100'),
+                ],
+            ], 200),
+            'foursquare:*' => Http::response(['results' => []], 200),
+            'overpass-api.de/*' => Http::response([
+                'elements' => [
+                    // Same coords, slightly different name — should be deduped (89% similar)
+                    $this->osmNode(2001, 'Tony\'s Pizzeria', 37.7749, -122.4194, ['cuisine' => 'italian']),
+                ],
+            ], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
+
+        $this->assertSame(1, $count, 'Should collapse fuzzy-name cross-source duplicates to one row');
+
+        $restaurant = Restaurant::where('name', 'LIKE', 'Tony%')->first();
+        $this->assertNotNull($restaurant, 'Should persist the deduped venue');
+
+        // Should have phone from the BizData source (merge non-empty fields)
+        $this->assertSame('555-0100', $restaurant->phone);
+    }
+
+    public function test_cross_source_dedup_proximity_within_radius(): void
+    {
+        Config::set('services.google.places_key', null);
+
+        // Same venue from two sources, <200m apart (within MATCH_RADIUS_KM)
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response([
+                'businesses' => [
+                    $this->bizDataVenue('Tony\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4194]),
+                ],
+            ], 200),
+            'foursquare:*' => Http::response(['results' => []], 200),
+            'overpass-api.de/*' => Http::response([
+                'elements' => [
+                    // ~120m away — within the 200m match radius
+                    $this->osmNode(3001, 'Tony\'s Pizza', 37.7758, -122.4180, ['cuisine' => 'italian']),
+                ],
+            ], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
+
+        $this->assertSame(1, $count, 'Should dedup venues within the match radius');
+
+        $restaurants = Restaurant::where('name', 'Tony\'s Pizza')->get();
+        $this->assertCount(1, $restaurants);
+    }
+
+    public function test_cross_source_dedup_preserves_distinct_nearby_venues(): void
+    {
+        Config::set('services.google.places_key', null);
+
+        // Two genuinely different restaurants with similar names within 200m
+        // Should NOT be merged because the fuzzy threshold prevents over-merge
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response([
+                'businesses' => [
+                    $this->bizDataVenue('Mario\'s Italian', ['lat' => 37.7749, 'lon' => -122.4194]),
+                ],
+            ], 200),
+            'foursquare:*' => Http::response(['results' => []], 200),
+            'overpass-api.de/*' => Http::response([
+                'elements' => [
+                    // Similar but different name ("Mario's Italian" vs "Mario's Pizza") — 67% similar, below 85% threshold
+                    $this->osmNode(4001, 'Mario\'s Pizza', 37.7760, -122.4175, ['cuisine' => 'italian']),
+                ],
+            ], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
+
+        $this->assertSame(2, $count, 'Should preserve distinct venues when names are below similarity threshold');
+
+        $names = Restaurant::whereIn('name', ['Mario\'s Italian', 'Mario\'s Pizza'])->pluck('name')->sort()->values()->all();
+        $this->assertSame(['Mario\'s Italian', 'Mario\'s Pizza'], $names);
+    }
+
+    public function test_garbage_names_filtered_before_persistence(): void
+    {
+        Config::set('services.google.places_key', null);
+
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response([
+                'businesses' => [
+                    $this->bizDataVenue('$1.50 Fresh Pizza', ['lat' => 37.7749, 'lon' => -122.4194]),
+                    $this->bizDataVenue('Joe\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4195]),
+                ],
+            ], 200),
+            'foursquare:*' => Http::response(['results' => []], 200),
+            'overpass-api.de/*' => Http::response([
+                'elements' => [
+                    $this->osmNode(5001, '1803', 37.7750, -122.4190),
+                    $this->osmNode(5002, '"diner"', 37.7751, -122.4191),
+                    $this->osmNode(5003, 'Pi', 37.7752, -122.4192),
+                ],
+            ], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
+
+        $this->assertSame(2, $count, 'Should filter garbage names and keep only legitimate venues');
+
+        $names = Restaurant::pluck('name')->sort()->values()->all();
+        $this->assertSame(['Joe\'s Pizza', 'Pi'], $names);
+        $this->assertNotContains('$1.50 Fresh Pizza', $names);
+        $this->assertNotContains('1803', $names);
+        $this->assertNotContains('"diner"', $names);
+    }
 }
