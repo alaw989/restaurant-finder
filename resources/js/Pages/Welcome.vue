@@ -5,6 +5,8 @@ import CuisinePicker from '@/Components/CuisinePicker.vue'
 import LocationPicker from '@/Components/LocationPicker.vue'
 import RestaurantCard from '@/Components/RestaurantCard.vue'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 
 interface Cuisine {
     id: number
@@ -88,6 +90,9 @@ const loadingMore = ref(false)
 const searched = ref(false)
 const nextPageUrl = ref<string | null>(null)
 const detectingLocation = ref(false)
+const searchError = ref<string | null>(null)
+const loadMoreError = ref<string | null>(null)
+const geolocationError = ref<string | null>(null)
 
 onMounted(() => {
     // Check if we already have location from prior session
@@ -127,6 +132,7 @@ onMounted(() => {
             },
             () => {
                 detectingLocation.value = false
+                geolocationError.value = 'Unable to detect your location. Please enter it manually.'
             },
             { timeout: 10000, enableHighAccuracy: false }
         )
@@ -147,10 +153,15 @@ function detectLocation() {
                     location.value = { city: data.city ?? null, state: data.state ?? null }
                     localStorage.setItem('foodrank_location', JSON.stringify(location.value))
                 }
-            } catch {}
+            } catch {
+                // Keep existing coordinates
+            }
             detectingLocation.value = false
         },
-        () => { detectingLocation.value = false },
+        () => {
+            detectingLocation.value = false
+            geolocationError.value = 'Unable to detect your location. Please enter it manually.'
+        },
         { timeout: 10000, enableHighAccuracy: false }
     )
 }
@@ -184,6 +195,8 @@ async function onLocationUpdate(newLocation: Location) {
 async function search() {
     loading.value = true
     searched.value = true
+    searchError.value = null
+    loadMoreError.value = null
 
     const params = new URLSearchParams()
     if (selectedCuisine.value) {
@@ -197,10 +210,15 @@ async function search() {
 
     try {
         const response = await fetch(`/api/restaurants?${params}`)
+        if (!response.ok) {
+            throw new Error('Search failed')
+        }
         const data = await response.json()
         restaurants.value = data.data ?? []
         nextPageUrl.value = data.next_page_url
+        searchError.value = null
     } catch {
+        searchError.value = 'Couldn\'t reach the listing service. Please try again.'
         restaurants.value = []
         nextPageUrl.value = null
     } finally {
@@ -212,13 +230,18 @@ async function loadMore() {
     if (!nextPageUrl.value || loadingMore.value) return
 
     loadingMore.value = true
+    loadMoreError.value = null
     try {
         const response = await fetch(nextPageUrl.value)
+        if (!response.ok) {
+            throw new Error('Load more failed')
+        }
         const data = await response.json()
         restaurants.value.push(...(data.data ?? []))
         nextPageUrl.value = data.next_page_url
+        loadMoreError.value = null
     } catch {
-        // Keep existing results
+        loadMoreError.value = 'Couldn\'t load more results. Please try again.'
     } finally {
         loadingMore.value = false
     }
@@ -246,6 +269,19 @@ async function loadMore() {
                 Login
             </Link>
         </div>
+
+        <!-- Geolocation error banner -->
+        <Card v-if="geolocationError" class="absolute left-4 right-4 top-16 z-10 mx-auto max-w-2xl border-destructive bg-destructive/10">
+            <CardContent class="flex items-center justify-between py-3">
+                <div class="flex items-center gap-2">
+                    <Badge variant="destructive">Location Error</Badge>
+                    <span class="text-sm text-destructive">{{ geolocationError }}</span>
+                </div>
+                <Button variant="ghost" size="sm" @click="geolocationError = null">
+                    Dismiss
+                </Button>
+            </CardContent>
+        </Card>
 
         <!-- Centered content -->
         <div class="flex flex-1 flex-col items-center justify-center px-4">
@@ -288,6 +324,15 @@ async function loadMore() {
                     <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     <p class="text-sm text-muted-foreground animate-pulse">Finding the best spots...</p>
                 </div>
+                <Card v-else-if="searchError" class="border-destructive bg-destructive/10">
+                    <CardContent class="flex flex-col items-center gap-4 py-8 text-center">
+                        <div class="flex items-center gap-2">
+                            <Badge variant="destructive">Search Error</Badge>
+                            <span class="text-muted-foreground">{{ searchError }}</span>
+                        </div>
+                        <Button @click="search">Try Again</Button>
+                    </CardContent>
+                </Card>
                 <div v-else-if="restaurants.length === 0" class="py-8 text-center text-muted-foreground">
                     No restaurants found. Try a different cuisine or location.
                 </div>
@@ -327,6 +372,24 @@ async function loadMore() {
                         </span>
                         <span v-else>Load More</span>
                     </Button>
+
+                    <!-- Load more error -->
+                    <Card v-if="loadMoreError" class="mx-auto mt-2 border-destructive bg-destructive/10">
+                        <CardContent class="flex items-center justify-between py-3">
+                            <div class="flex items-center gap-2">
+                                <Badge variant="destructive" class="text-xs">Load Error</Badge>
+                                <span class="text-sm text-muted-foreground">{{ loadMoreError }}</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <Button variant="ghost" size="sm" @click="loadMoreError = null">
+                                    Dismiss
+                                </Button>
+                                <Button size="sm" @click="loadMore">
+                                    Retry
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         </div>

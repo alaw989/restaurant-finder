@@ -69,10 +69,12 @@ DRY_RUN=false
 CONTINUE_ON_STUCK=false                     # --continue-on-stuck: old soft (warn-and-reset) behavior
 PUSH_ON_FAILURE="${RALPH_PUSH_ON_FAILURE:-false}"
 VERIFY_TESTS="${RALPH_VERIFY_TESTS:-true}"   # green-test gate after DONE
+VERIFY_BUILD="${RALPH_VERIFY_BUILD:-true}"   # `npm run build` (vue-tsc + SSR) gate after DONE
 REQUIRE_GREEN_START="${RALPH_REQUIRE_GREEN_TESTS:-false}"
 AUTO_STASH="${RALPH_AUTO_STASH:-false}"
 ITERATION_TIMEOUT="${RALPH_ITERATION_TIMEOUT:-1800}"        # 30 min per iteration
 TEST_TIMEOUT="${RALPH_TEST_TIMEOUT:-600}"                   # 10 min cap on the test gate
+BUILD_TIMEOUT="${RALPH_BUILD_TIMEOUT:-300}"                 # 5 min cap on the `npm run build` gate
 PUSH_TIMEOUT="${RALPH_PUSH_TIMEOUT:-120}"                   # 2 min cap on git push
 MAX_CONSECUTIVE_FAILURES="${RALPH_MAX_CONSECUTIVE_FAILURES:-3}"
 MAX_TOTAL_FAILURES="${RALPH_MAX_TOTAL_FAILURES:-10}"
@@ -120,14 +122,17 @@ Safety flags / env:
                            instead of halting (see --help note on the hard stop)
   --require-green-tests    Refuse to start unless \`php artisan test\` is green
   --no-verify-tests        Disable the post-DONE green-test gate
+  --no-verify-build        Disable the post-DONE \`npm run build\` gate
   --push-on-failure        Push even on a failed/non-DONE iteration (default: off)
   RALPH_MAX_ITERATIONS     Finite cap (default 20); 0 means unlimited
   RALPH_ITERATION_TIMEOUT  Per-iteration wall-clock seconds (default 1800)
   RALPH_TEST_TIMEOUT       Cap on the \`php artisan test\` gate, seconds (default 600)
+  RALPH_BUILD_TIMEOUT      Cap on the \`npm run build\` gate, seconds (default 300)
   RALPH_PUSH_TIMEOUT       Cap on each \`git push\`, seconds (default 120)
   RALPH_MAX_CONSECUTIVE_FAILURES  Consecutive failures before hard stop (default 3)
   RALPH_MAX_TOTAL_FAILURES        Total failures before hard stop (default 20)
   RALPH_VERIFY_TESTS       Run \`php artisan test\` after DONE before success (default true)
+  RALPH_VERIFY_BUILD       Run \`npm run build\` (vue-tsc + SSR) after DONE before success (default true)
   RALPH_AUTO_STASH         Auto-stash a dirty tree before starting (default false)
   RALPH_MODEL / CLAUDE_MODEL      Override the model id (default claude-opus-4-8)
 
@@ -273,6 +278,10 @@ while [[ $# -gt 0 ]]; do
             VERIFY_TESTS=false
             shift
             ;;
+        --no-verify-build)
+            VERIFY_BUILD=false
+            shift
+            ;;
         --push-on-failure)
             PUSH_ON_FAILURE=true
             shift
@@ -411,6 +420,11 @@ if [ "$REQUIRE_GREEN_START" = true ] && [ "$DRY_RUN" = false ]; then
         exit 1
     fi
     echo -e "${GREEN}✓ Start-state tests green${NC}"
+    if [ "$VERIFY_BUILD" = true ] && ! npm run build >/dev/null 2>&1; then
+        echo -e "${RED}✗ \`npm run build\` fails at start — refusing to begin. Fix the build or set RALPH_VERIFY_BUILD=false.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Start-state build green${NC}"
 fi
 echo -e "${GREEN}✓ Pre-flight OK${NC}"
 echo ""
@@ -451,6 +465,7 @@ else
     echo -e "${BLUE}Max:${NC}      unlimited"
 fi
 echo -e "${BLUE}Test gate:${NC} $([ "$VERIFY_TESTS" = true ] && echo "ON (\`php artisan test\` after DONE)" || echo "OFF")"
+echo -e "${BLUE}Build gate:${NC} $([ "$VERIFY_BUILD" = true ] && echo "ON (\`npm run build\` after DONE)" || echo "OFF")"
 if [ "$DRY_RUN" = true ]; then
     echo -e "${YELLOW}Dry-run:${NC}  ON (no push, no git mutation by the loop)"
 fi
@@ -655,7 +670,25 @@ while true; do
                 fi
             fi
 
-            if [ "$TESTS_GREEN" = true ]; then
+            # Build gate: a DONE claim must also pass `npm run build` (vue-tsc + SSR).
+            # The PHP test gate is blind to broken JS (this repo has no frontend test
+            # framework), so this is the real safety net for frontend specs like 023.
+            # Only runs if tests already passed; a build failure routes to the failure
+            # path below (no push, counts as a failed iteration).
+            BUILD_GREEN=true
+            if [ "$TESTS_GREEN" = true ] && [ "$VERIFY_BUILD" = true ] && [ "$DRY_RUN" = false ]; then
+                echo -e "${CYAN}Build gate: running \`npm run build\`…${NC}"
+                if timeout "$BUILD_TIMEOUT" npm run build 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    echo -e "${GREEN}✓ Build green${NC}"
+                else
+                    BUILD_GREEN=false
+                    echo -e "${RED}✗ Build FAILED (or timed out) — NOT counting this as success and NOT pushing.${NC}"
+                    echo -e "${RED}  The DONE promise was not backed by a green \`npm run build\` (vue-tsc + SSR).${NC}"
+                    print_latest_output "$LOG_FILE" "Build output"
+                fi
+            fi
+
+            if [ "$TESTS_GREEN" = true ] && [ "$BUILD_GREEN" = true ]; then
                 ITER_RESULT="success"
                 CONSECUTIVE_FAILURES=0
                 echo -e "${GREEN}✓ Task completed successfully!${NC}"

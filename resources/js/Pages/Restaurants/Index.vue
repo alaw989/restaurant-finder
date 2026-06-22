@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent } from '@/components/ui/card';
 
 const props = defineProps<{
     filters: {
@@ -54,6 +56,16 @@ const props = defineProps<{
         next_page_url: string | null;
     };
 }>();
+
+const isLoading = ref(false);
+
+// Track Inertia navigation for loading state
+router.on('start', () => {
+    isLoading.value = true;
+});
+router.on('finish', () => {
+    isLoading.value = false;
+});
 
 const sortOptions = [
     { value: 'best_match', label: 'Best Match' },
@@ -122,7 +134,26 @@ function updateSort(newSort: string) {
                 </p>
             </div>
 
-            <div v-if="restaurants.data.length > 0" class="flex flex-col gap-4">
+            <!-- Loading skeletons -->
+            <div v-if="isLoading" class="flex flex-col gap-4">
+                <Card v-for="i in 5" :key="'skeleton-' + i" class="overflow-hidden">
+                    <CardContent class="p-4">
+                        <div class="flex gap-4">
+                            <Skeleton class="h-24 w-24 rounded-lg" />
+                            <div class="flex-1 space-y-2">
+                                <Skeleton class="h-6 w-3/4" />
+                                <Skeleton class="h-4 w-1/2" />
+                                <div class="flex gap-2">
+                                    <Skeleton class="h-6 w-16 rounded-full" />
+                                    <Skeleton class="h-6 w-16 rounded-full" />
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <div v-if="!isLoading && restaurants.data.length > 0" class="flex flex-col gap-4">
                 <RestaurantCard
                     v-for="(restaurant, index) in restaurants.data"
                     :key="restaurant.id"
@@ -131,7 +162,7 @@ function updateSort(newSort: string) {
                 />
             </div>
 
-            <div v-else class="rounded-lg border border-border bg-card p-12 text-center">
+            <div v-else-if="!isLoading" class="rounded-lg border border-border bg-card p-12 text-center">
                 <p class="text-lg text-muted-foreground">
                     No {{ cuisineName || '' }} restaurants found in your area yet.
                 </p>
@@ -141,7 +172,7 @@ function updateSort(newSort: string) {
             </div>
 
             <div
-                v-if="restaurants.last_page > 1"
+                v-if="!isLoading && restaurants.last_page > 1"
                 class="mt-8 flex items-center justify-center gap-4"
             >
                 <Button
