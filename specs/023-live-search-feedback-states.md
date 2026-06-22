@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-21
 
-**Status**: Ready
+**Status**: COMPLETE
 
 > ⚠️ **Frontend-only spec.** There is **no frontend test framework** in this repo (no
 > vitest/playwright/jest — only `npm run build` = `vue-tsc && vite build && vite build --ssr`).
