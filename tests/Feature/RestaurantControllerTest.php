@@ -179,4 +179,156 @@ class RestaurantControllerTest extends TestCase
         $response->assertStatus(200);
         $response->assertInertia(fn ($page) => $page->has('restaurants.data', 0));
     }
+
+    public function test_restaurant_index_sort_by_rating(): void
+    {
+        Restaurant::factory()->create(['name' => 'High Rating', 'is_active' => true, 'google_rating' => 4.8, 'popularity_score' => 0.1]);
+        Restaurant::factory()->create(['name' => 'Low Rating', 'is_active' => true, 'google_rating' => 3.2, 'popularity_score' => 0.9]);
+        Restaurant::factory()->create(['name' => 'Mid Rating', 'is_active' => true, 'google_rating' => 4.0, 'popularity_score' => 0.5]);
+
+        $response = $this->get('/restaurants?sort=rating');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'High Rating')
+            ->where('restaurants.data.1.name', 'Mid Rating')
+            ->where('restaurants.data.2.name', 'Low Rating')
+        );
+    }
+
+    public function test_restaurant_index_sort_by_reviews(): void
+    {
+        Restaurant::factory()->create(['name' => 'Many Reviews', 'is_active' => true, 'google_review_count' => 500, 'popularity_score' => 0.1]);
+        Restaurant::factory()->create(['name' => 'Few Reviews', 'is_active' => true, 'google_review_count' => 10, 'popularity_score' => 0.9]);
+        Restaurant::factory()->create(['name' => 'Some Reviews', 'is_active' => true, 'google_review_count' => 100, 'popularity_score' => 0.5]);
+
+        $response = $this->get('/restaurants?sort=reviews');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'Many Reviews')
+            ->where('restaurants.data.1.name', 'Some Reviews')
+            ->where('restaurants.data.2.name', 'Few Reviews')
+        );
+    }
+
+    public function test_restaurant_index_sort_by_price(): void
+    {
+        Restaurant::factory()->create(['name' => 'Cheap', 'is_active' => true, 'price_range' => '$', 'popularity_score' => 0.1]);
+        Restaurant::factory()->create(['name' => 'Expensive', 'is_active' => true, 'price_range' => '$$$$', 'popularity_score' => 0.9]);
+        Restaurant::factory()->create(['name' => 'Mid Price', 'is_active' => true, 'price_range' => '$$', 'popularity_score' => 0.5]);
+
+        $response = $this->get('/restaurants?sort=price');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'Cheap')
+            ->where('restaurants.data.1.name', 'Mid Price')
+            ->where('restaurants.data.2.name', 'Expensive')
+        );
+    }
+
+    public function test_restaurant_index_sort_by_nearest(): void
+    {
+        Restaurant::factory()->create([
+            'name' => 'Close',
+            'is_active' => true,
+            'latitude' => 37.7750,
+            'longitude' => -122.4195,
+            'popularity_score' => 0.1,
+        ]);
+        Restaurant::factory()->create([
+            'name' => 'Far',
+            'is_active' => true,
+            'latitude' => 37.7900,
+            'longitude' => -122.4000,
+            'popularity_score' => 0.9,
+        ]);
+
+        $response = $this->get('/restaurants?lat=37.7749&lng=-122.4194&sort=nearest');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'Close')
+            ->where('restaurants.data.1.name', 'Far')
+        );
+    }
+
+    public function test_restaurant_index_sort_nearest_without_coords_falls_back_to_best_match(): void
+    {
+        Restaurant::factory()->create(['name' => 'High Score', 'is_active' => true, 'popularity_score' => 0.9]);
+        Restaurant::factory()->create(['name' => 'Low Score', 'is_active' => true, 'popularity_score' => 0.1]);
+
+        // Without coords, nearest should fall back to best_match
+        $response = $this->get('/restaurants?sort=nearest');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'High Score')
+            ->where('restaurants.data.1.name', 'Low Score')
+        );
+    }
+
+    public function test_restaurant_index_sort_best_match_is_default(): void
+    {
+        Restaurant::factory()->create(['name' => 'High Score', 'is_active' => true, 'popularity_score' => 0.9]);
+        Restaurant::factory()->create(['name' => 'Low Score', 'is_active' => true, 'popularity_score' => 0.1]);
+
+        // Without sort parameter, should use best_match (popularity_score)
+        $response = $this->get('/restaurants');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('restaurants.data.0.name', 'High Score')
+            ->where('restaurants.data.1.name', 'Low Score')
+        );
+    }
+
+    public function test_restaurant_index_invalid_sort_is_rejected(): void
+    {
+        $response = $this->get('/restaurants?sort=invalid_mode');
+
+        $response->assertStatus(302); // Redirect back with validation error
+    }
+
+    public function test_restaurant_index_sort_included_in_filters(): void
+    {
+        $response = $this->get('/restaurants?sort=rating');
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('filters.sort', 'rating')
+        );
+    }
+
+    public function test_restaurant_api_sort_by_rating(): void
+    {
+        Restaurant::factory()->create(['name' => 'High Rating', 'is_active' => true, 'google_rating' => 4.8, 'popularity_score' => 0.1]);
+        Restaurant::factory()->create(['name' => 'Low Rating', 'is_active' => true, 'google_rating' => 3.2, 'popularity_score' => 0.9]);
+
+        $response = $this->get('/api/restaurants?sort=rating');
+
+        $response->assertStatus(200);
+        $data = $response->json('data');
+        $this->assertSame('High Rating', $data[0]['name']);
+        $this->assertSame('Low Rating', $data[1]['name']);
+    }
+
+    public function test_restaurant_api_sort_by_nearest(): void
+    {
+        Restaurant::factory()->create([
+            'name' => 'Close',
+            'is_active' => true,
+            'latitude' => 37.7750,
+            'longitude' => -122.4195,
+            'popularity_score' => 0.1,
+        ]);
+        Restaurant::factory()->create([
+            'name' => 'Far',
+            'is_active' => true,
+            'latitude' => 37.7900,
+            'longitude' => -122.4000,
+            'popularity_score' => 0.9,
+        ]);
+
+        $response = $this->get('/api/restaurants?lat=37.7749&lng=-122.4194&sort=nearest');
+
+        $response->assertStatus(200);
+        $data = $response->json('data');
+        $this->assertSame('Close', $data[0]['name']);
+        $this->assertSame('Far', $data[1]['name']);
+    }
 }

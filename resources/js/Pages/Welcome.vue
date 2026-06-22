@@ -72,6 +72,15 @@ const selectedLabel = ref<string | null>(null)
 const location = ref<Location>(props.location ?? { city: null, state: null })
 const lat = ref<number | null>(props.fallbackCoords?.lat ?? null)
 const lng = ref<number | null>(props.fallbackCoords?.lng ?? null)
+const sort = ref<string>('best_match')
+
+const sortOptions = [
+    { value: 'best_match', label: 'Best Match' },
+    { value: 'nearest', label: 'Nearest' },
+    { value: 'rating', label: 'Rating' },
+    { value: 'reviews', label: 'Reviews' },
+    { value: 'price', label: 'Price (Low to High)' },
+]
 
 const restaurants = ref<Restaurant[]>([])
 const loading = ref(false)
@@ -184,6 +193,7 @@ async function search() {
     }
     if (lat.value !== null) params.set('lat', lat.value.toString())
     if (lng.value !== null) params.set('lng', lng.value.toString())
+    params.set('sort', sort.value)
 
     try {
         const response = await fetch(`/api/restaurants?${params}`)
@@ -281,7 +291,23 @@ async function loadMore() {
                 <div v-else-if="restaurants.length === 0" class="py-8 text-center text-muted-foreground">
                     No restaurants found. Try a different cuisine or location.
                 </div>
-                <div v-else class="flex flex-col gap-3">
+                <div v-else>
+                    <!-- Sort control -->
+                    <div class="mb-4 flex items-center justify-end gap-2">
+                        <label for="sort-select" class="text-sm text-muted-foreground">Sort by:</label>
+                        <select
+                            id="sort-select"
+                            v-model="sort"
+                            @change="search()"
+                            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        >
+                            <option v-for="option in sortOptions" :key="option.value" :value="option.value">
+                                {{ option.label }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-3">
                     <RestaurantCard
                         v-for="(restaurant, index) in restaurants"
                         :key="restaurant.id"
@@ -303,6 +329,7 @@ async function loadMore() {
                     </Button>
                 </div>
             </div>
+        </div>
         </div>
     </div>
 </template>

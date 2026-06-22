@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-defineProps<{
+const props = defineProps<{
     filters: {
         cuisine?: string;
         lat?: string;
         lng?: string;
+        sort?: string;
     };
     cuisineName: string | null;
     categorySlug: string | null;
@@ -53,6 +54,28 @@ defineProps<{
         next_page_url: string | null;
     };
 }>();
+
+const sortOptions = [
+    { value: 'best_match', label: 'Best Match' },
+    { value: 'nearest', label: 'Nearest' },
+    { value: 'rating', label: 'Rating' },
+    { value: 'reviews', label: 'Reviews' },
+    { value: 'price', label: 'Price (Low to High)' },
+];
+
+function updateSort(newSort: string) {
+    router.get(
+        '/restaurants',
+        {
+            ...props.filters,
+            sort: newSort,
+        },
+        {
+            preserveState: true,
+            replace: true,
+        }
+    );
+}
 </script>
 
 <template>
@@ -75,9 +98,25 @@ defineProps<{
                 >
                     &larr; Back to categories
                 </a>
-                <h1 class="mt-4 text-3xl font-bold text-foreground">
-                    Top {{ (cuisineName || 'All').toLowerCase() }} Restaurants
-                </h1>
+                <div class="mt-4 flex items-center justify-between">
+                    <h1 class="text-3xl font-bold text-foreground">
+                        Top {{ (cuisineName || 'All').toLowerCase() }} Restaurants
+                    </h1>
+                    <!-- Sort control -->
+                    <div class="flex items-center gap-2">
+                        <label for="sort-select" class="text-sm text-muted-foreground">Sort by:</label>
+                        <select
+                            id="sort-select"
+                            :value="filters.sort || 'best_match'"
+                            @change="updateSort(($event.target as HTMLSelectElement).value)"
+                            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        >
+                            <option v-for="option in sortOptions" :key="option.value" :value="option.value">
+                                {{ option.label }}
+                            </option>
+                        </select>
+                    </div>
+                </div>
                 <p class="mt-1 text-muted-foreground">
                     Ranked by popularity score from Google, Yelp, and live busyness data.
                 </p>

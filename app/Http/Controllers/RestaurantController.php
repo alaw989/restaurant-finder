@@ -7,7 +7,9 @@ use App\Models\Restaurant;
 use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
 use App\Services\PopularityScoreService;
+use App\Services\PriceLevelNormalizer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class RestaurantController extends Controller
@@ -16,6 +18,7 @@ class RestaurantController extends Controller
         private GeolocationService $geolocationService,
         private LiveSearchService $liveSearchService,
         private PopularityScoreService $popularityScoreService,
+        private PriceLevelNormalizer $priceLevelNormalizer,
     ) {}
 
     private function formatRestaurantData(\Illuminate\Support\Collection $restaurants): \Illuminate\Support\Collection
@@ -63,8 +66,64 @@ class RestaurantController extends Controller
         return $this->popularityScoreService->calculateBreakdown($restaurant, $all);
     }
 
+    /**
+     * Apply the selected sort mode to the query.
+     */
+    private function applySortMode(\Illuminate\Database\Eloquent\Builder $query, string $sort, bool $hasCoords): \Illuminate\Database\Eloquent\Builder
+    {
+        return match ($sort) {
+            'best_match' => $query->orderByDesc('popularity_score'),
+            'nearest' => $hasCoords
+                ? $query->orderBy('distance')
+                : $query->orderByDesc('popularity_score'), // Fall back to best_match
+            'rating' => $query
+                ->orderByRaw('COALESCE(google_rating, yelp_rating) DESC NULLS LAST')
+                ->orderByDesc('popularity_score'), // Tie-breaker
+            'reviews' => $query
+                ->orderByRaw('COALESCE(google_review_count, yelp_review_count) DESC NULLS LAST')
+                ->orderByDesc('popularity_score'), // Tie-breaker
+            'price' => $query
+                // Order by normalized price level (1=cheap, 4=expensive), NULLs last
+                // For SQLite: use a CASE statement with common patterns
+                ->orderByRaw('
+                    CASE
+                        WHEN price_range IS NULL THEN 999
+                        WHEN price_range = "$" THEN 1
+                        WHEN price_range = "$$" THEN 2
+                        WHEN price_range = "$$$" THEN 3
+                        WHEN price_range = "$$$$" THEN 4
+                        WHEN price_range = "€" THEN 1
+                        WHEN price_range = "€€" THEN 2
+                        WHEN price_range = "€€€" THEN 3
+                        WHEN price_range = "€€€€" THEN 4
+                        WHEN price_range = "£" THEN 1
+                        WHEN price_range = "££" THEN 2
+                        WHEN price_range = "£££" THEN 3
+                        WHEN price_range = "££££" THEN 4
+                        WHEN price_range = "¥" THEN 1
+                        WHEN price_range = "¥¥" THEN 2
+                        WHEN price_range = "¥¥¥" THEN 3
+                        WHEN price_range = "¥¥¥¥" THEN 4
+                        WHEN price_range = "₩" THEN 1
+                        WHEN price_range = "₩₩" THEN 2
+                        WHEN price_range = "₩₩₩" THEN 3
+                        WHEN price_range = "₩₩₩₩" THEN 4
+                        WHEN price_range GLOB "$*" OR price_range GLOB "€*" OR price_range GLOB "£*" OR price_range GLOB "¥*" OR price_range GLOB "₩*" THEN 2
+                        ELSE 2
+                    END ASC
+                ')
+                ->orderByDesc('popularity_score'), // Tie-breaker
+            default => $query->orderByDesc('popularity_score'),
+        };
+    }
+
     public function index(Request $request)
     {
+        $validated = $request->validate([
+            'sort' => 'nullable|in:best_match,nearest,rating,reviews,price',
+        ]);
+
+        $sort = $validated['sort'] ?? 'best_match';
         $cuisineSlug = $request->query('cuisine');
         $cuisineName = null;
         $categorySlug = null;
@@ -79,7 +138,7 @@ class RestaurantController extends Controller
 
         $coords = $this->geolocationService->resolveCoordinates($request);
 
-        $restaurants = Restaurant::query()
+        $query = Restaurant::query()
             ->with('cuisines')
             ->when(
                 $cuisineSlug,
@@ -92,10 +151,12 @@ class RestaurantController extends Controller
                 $coords !== null,
                 fn ($query) => $query->nearby($coords['lat'], $coords['lng'])
             )
-            ->active()
-            ->byPopularity()
-            ->paginate(20)
-            ->withQueryString();
+            ->active();
+
+        // Apply sorting based on the selected mode
+        $query = $this->applySortMode($query, $sort, $coords !== null);
+
+        $restaurants = $query->paginate(20)->withQueryString();
 
         $items = $restaurants->getCollection();
         $formatted = $this->formatRestaurantData($items);
@@ -103,7 +164,7 @@ class RestaurantController extends Controller
 
         return Inertia::render('Restaurants/Index', [
             'restaurants' => $restaurants,
-            'filters' => $request->only(['cuisine', 'lat', 'lng']),
+            'filters' => $request->only(['cuisine', 'lat', 'lng', 'sort']),
             'cuisineName' => $cuisineName,
             'categorySlug' => $categorySlug,
         ]);
@@ -151,12 +212,17 @@ class RestaurantController extends Controller
 
     public function apiIndex(Request $request)
     {
+        $validated = $request->validate([
+            'sort' => 'nullable|in:best_match,nearest,rating,reviews,price',
+        ]);
+
+        $sort = $validated['sort'] ?? 'best_match';
         $cuisineSlug = $request->query('cuisine');
         $categorySlug = $request->query('category');
 
         $coords = $this->geolocationService->resolveCoordinates($request);
 
-        $restaurants = Restaurant::query()
+        $query = Restaurant::query()
             ->with('cuisines')
             ->when(
                 $cuisineSlug,
@@ -179,10 +245,12 @@ class RestaurantController extends Controller
                 $coords !== null,
                 fn ($query) => $query->nearby($coords['lat'], $coords['lng'])
             )
-            ->active()
-            ->byPopularity()
-            ->paginate(20)
-            ->withQueryString();
+            ->active();
+
+        // Apply sorting based on the selected mode
+        $query = $this->applySortMode($query, $sort, $coords !== null);
+
+        $restaurants = $query->paginate(20)->withQueryString();
 
         if ($restaurants->isEmpty() && $coords !== null) {
             $liveResults = $this->liveSearchService->search(
