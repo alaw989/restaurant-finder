@@ -13,7 +13,8 @@ class EnrichRestaurants extends Command
      */
     protected $signature = 'restaurants:enrich {city? : City name, or omit with --all-cities}
                             {--cuisine=* : Specific cuisine slugs to enrich}
-                            {--all-cities : Run enrichment for all configured cities}';
+                            {--all-cities : Run enrichment for all configured cities}
+                            {--throttled : Run throttled enrichment (quota-protected, cache-aware rotation)}';
 
     /**
      * The console command description.
@@ -25,6 +26,12 @@ class EnrichRestaurants extends Command
      */
     public function handle(RestaurantEnrichmentService $enrichmentService): int
     {
+        $throttled = $this->option('throttled');
+
+        if ($throttled) {
+            return $this->enrichThrottled($enrichmentService);
+        }
+
         $allCities = $this->option('all-cities');
         $cityArg = $this->argument('city');
 
@@ -33,7 +40,7 @@ class EnrichRestaurants extends Command
         }
 
         if (empty($cityArg)) {
-            $this->error('Either provide a city name or use --all-cities to enrich all configured cities.');
+            $this->error('Either provide a city name, use --all-cities, or use --throttled for quota-protected enrichment.');
             return self::FAILURE;
         }
 
@@ -182,5 +189,34 @@ class EnrichRestaurants extends Command
         }
 
         return null;
+    }
+
+    /**
+     * Enrich restaurants using throttled, quota-protected mode.
+     * Rotates through city×cuisine combos, respecting cache and quotas.
+     */
+    protected function enrichThrottled(RestaurantEnrichmentService $enrichmentService): int
+    {
+        $this->info('Starting throttled enrichment (quota-protected)');
+
+        $result = $enrichmentService->enrichAllCitiesThrottled();
+
+        $this->table(
+            ['Metric', 'Value'],
+            [
+                ['Combos processed', $result['total_processed']],
+                ['Real SerpApi calls made', $result['real_calls_made']],
+                ['Cache hits skipped', $result['cache_hits_skipped']],
+                ['Quota exhausted?', $result['quota_exhausted'] ? 'Yes' : 'No'],
+            ]
+        );
+
+        if ($result['quota_exhausted']) {
+            $this->warn('Monthly quota exhausted or per-run cap reached. Consider increasing the budget or running more frequently.');
+        }
+
+        $this->info('Throttled enrichment complete');
+
+        return self::SUCCESS;
     }
 }

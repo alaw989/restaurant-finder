@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-21
 
-**Status**: Ready
+**Status**: COMPLETE
 
 > ⚠️ **This spec touches the paid SerpApi quota (~50 searches/mo) — the project's binding constraint.** Read the "Hard constraint" and "Out of scope" sections before implementing. Do NOT make real SerpApi calls from tests. A push to `master` triggers the live deploy, so the green-test gate matters here.
 
@@ -77,4 +77,4 @@ As the operator, a scheduled enrich run makes at most `per_run_cap` real SerpApi
 
 ## Completion
 All FRs met, `php artisan test` green, changes committed and pushed on the current branch → output `<promise>DONE</promise>` (see `.specify/memory/constitution.md`). Exactly this one spec per iteration.
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->

@@ -28,3 +28,11 @@ Schedule::command('uptime:canary')
     ->withoutOverlapping()
     ->onOneServer()
     ->description('Check application health and uptime');
+
+// Schedule throttled DB enrichment (runs daily at 4 AM UTC)
+// Uses --throttled flag for quota protection, rotates through city×cuisine combos
+Schedule::command('restaurants:enrich --throttled')
+    ->dailyAt('04:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->description('Throttled DB enrichment under SerpApi quota');

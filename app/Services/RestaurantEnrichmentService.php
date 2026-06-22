@@ -350,6 +350,9 @@ class RestaurantEnrichmentService
 
     private function normalizeSerpApiVenue(array $r): array
     {
+        $rating = $r['google_rating'] ?? null;
+        $reviewCount = $r['google_review_count'] ?? 0;
+
         return [
             'yelp_business_id' => null,
             'name' => $r['name'] ?? 'Unknown',
@@ -365,6 +368,8 @@ class RestaurantEnrichmentService
             'photo_url' => $r['photo_url'] ?? null,
             'yelp_rating' => null,
             'yelp_review_count' => 0,
+            'google_rating' => isset($rating) && is_numeric($rating) ? (float) $rating : null,
+            'google_review_count' => isset($reviewCount) && is_numeric($reviewCount) ? (int) $reviewCount : 0,
             'source' => 'serpapi',
         ];
     }
@@ -599,6 +604,9 @@ class RestaurantEnrichmentService
             ]);
         }
 
+        $rating = $venue['google_rating'] ?? null;
+        $reviewCount = $venue['google_review_count'] ?? 0;
+
         $attributes = [
             'name' => $venue['name'],
             'address' => $venue['address'] ?? null,
@@ -613,6 +621,8 @@ class RestaurantEnrichmentService
             'photo_url' => $venue['photo_url'] ?? null,
             'yelp_rating' => $venue['yelp_rating'] ?? null,
             'yelp_review_count' => $venue['yelp_review_count'] ?? 0,
+            'google_rating' => isset($rating) && is_numeric($rating) ? (float) $rating : null,
+            'google_review_count' => isset($reviewCount) && is_numeric($reviewCount) ? (int) $reviewCount : 0,
             'is_active' => true,
         ];
 
@@ -957,5 +967,171 @@ class RestaurantEnrichmentService
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
         return $earthRadius * $c;
+    }
+
+    /**
+     * Count real (non-cached) SerpApi calls made in the last 30 days.
+     * Uses ExternalApiCache to estimate: each cache entry represents one real call.
+     */
+    private function countRealSerpApiCallsLast30Days(): int
+    {
+        return \App\Models\ExternalApiCache::where('source', 'serpapi')
+            ->where('fetched_at', '>=', now()->subDays(30))
+            ->count();
+    }
+
+    /**
+     * Check if a specific SerpApi cache entry is fresh (exists and not expired).
+     */
+    private function isSerpApiCacheFresh(float $lat, float $lng, string $query): bool
+    {
+        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
+        return \App\Models\ExternalApiCache::findByKey($cacheKey) !== null;
+    }
+
+    /**
+     * Throttled enrichment for all cities with SerpApi quota protection.
+     * Rotates through city×cuisine combos, skipping cache-fresh ones,
+     * and stops when per-run cap or monthly budget is reached.
+     *
+     * Returns [
+     *   'total_processed' => int,
+     *   'real_calls_made' => int,
+     *   'cache_hits_skipped' => int,
+     *   'quota_exhausted' => bool,
+     * ]
+     */
+    public function enrichAllCitiesThrottled(): array
+    {
+        $cities = config('restaurant-finder.cities', []);
+        $cuisines = \App\Models\Cuisine::all();
+
+        if (empty($cities) || $cuisines->isEmpty()) {
+            return [
+                'total_processed' => 0,
+                'real_calls_made' => 0,
+                'cache_hits_skipped' => 0,
+                'quota_exhausted' => false,
+            ];
+        }
+
+        $perRunCap = config('restaurant-finder.enrich.per_run_cap', 5);
+        $monthlyBudget = config('restaurant-finder.enrich.monthly_budget', 40);
+
+        $realCallsThisMonth = $this->countRealSerpApiCallsLast30Days();
+        $realCallsThisRun = 0;
+        $cacheHitsSkipped = 0;
+        $totalProcessed = 0;
+        $quotaExhausted = false;
+
+        Log::info('Starting throttled enrichment', [
+            'per_run_cap' => $perRunCap,
+            'monthly_budget' => $monthlyBudget,
+            'real_calls_this_month' => $realCallsThisMonth,
+        ]);
+
+        // Build all city×cuisine combos
+        $combos = [];
+        foreach ($cities as $cityName => [$lat, $lng]) {
+            foreach ($cuisines as $cuisine) {
+                $combos[] = [
+                    'city' => $cityName,
+                    'lat' => $lat,
+                    'lng' => $lng,
+                    'cuisine' => $cuisine,
+                ];
+            }
+        }
+
+        // Shuffle for fair rotation across runs
+        shuffle($combos);
+
+        foreach ($combos as $combo) {
+            // Check monthly budget
+            if ($realCallsThisMonth >= $monthlyBudget) {
+                Log::info('Monthly budget exhausted, stopping enrichment', [
+                    'real_calls_this_month' => $realCallsThisMonth,
+                    'monthly_budget' => $monthlyBudget,
+                ]);
+                $quotaExhausted = true;
+                break;
+            }
+
+            // Check per-run cap
+            if ($realCallsThisRun >= $perRunCap) {
+                Log::info('Per-run cap reached, stopping enrichment', [
+                    'real_calls_this_run' => $realCallsThisRun,
+                    'per_run_cap' => $perRunCap,
+                ]);
+                break;
+            }
+
+            $cityName = $combo['city'];
+            $lat = $combo['lat'];
+            $lng = $combo['lng'];
+            $cuisine = $combo['cuisine'];
+
+            // Skip if cache is fresh (no real call needed)
+            if ($this->isSerpApiCacheFresh($lat, $lng, $cuisine->name)) {
+                $cacheHitsSkipped++;
+                Log::debug('Skipping cache-fresh combo', [
+                    'city' => $cityName,
+                    'cuisine' => $cuisine->name,
+                ]);
+                continue;
+            }
+
+            // Check if we have budget for this call
+            if ($realCallsThisMonth + 1 > $monthlyBudget) {
+                Log::info('Monthly budget would be exceeded, skipping', [
+                    'city' => $cityName,
+                    'cuisine' => $cuisine->name,
+                ]);
+                $quotaExhausted = true;
+                break;
+            }
+
+            if ($realCallsThisRun + 1 > $perRunCap) {
+                Log::info('Per-run cap would be exceeded, skipping', [
+                    'city' => $cityName,
+                    'cuisine' => $cuisine->name,
+                ]);
+                break;
+            }
+
+            // Enrich this combo (will make one real SerpApi call)
+            try {
+                $count = $this->enrichByCuisine($lat, $lng, $cuisine);
+                $realCallsThisRun++;
+                $realCallsThisMonth++;
+                $totalProcessed++;
+                Log::info('Enriched combo', [
+                    'city' => $cityName,
+                    'cuisine' => $cuisine->name,
+                    'restaurants_enriched' => $count,
+                    'real_calls_this_run' => $realCallsThisRun,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Failed to enrich combo', [
+                    'city' => $cityName,
+                    'cuisine' => $cuisine->name,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('Throttled enrichment complete', [
+            'total_processed' => $totalProcessed,
+            'real_calls_made' => $realCallsThisRun,
+            'cache_hits_skipped' => $cacheHitsSkipped,
+            'quota_exhausted' => $quotaExhausted,
+        ]);
+
+        return [
+            'total_processed' => $totalProcessed,
+            'real_calls_made' => $realCallsThisRun,
+            'cache_hits_skipped' => $cacheHitsSkipped,
+            'quota_exhausted' => $quotaExhausted,
+        ];
     }
 }

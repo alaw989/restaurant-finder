@@ -118,6 +118,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | DB enrichment throttling (SerpApi quota protection)
+    |--------------------------------------------------------------------------
+    | Enrichment progressively fills the DB under the free tier quota (~50/mo).
+    | Per-run cap bounds real (cache-miss) SerpApi calls per execution; monthly
+    | budget bounds total across a 30-day window. The rotation walks all
+    | city×cuisine combos over many runs, skipping cache-fresh combos.
+    */
+    'enrich' => [
+        // Max real SerpApi calls per enrich run (cache hits don't count).
+        // Defaults to 5 to leave headroom for live search + audits.
+        'per_run_cap' => (int) env('ENRICH_PER_RUN_CAP', 5),
+
+        // Max real SerpApi calls per 30-day rolling window (must stay under 50).
+        // Defaults to 40, leaving headroom for live search + manual audits.
+        'monthly_budget' => (int) env('ENRICH_MONTHLY_BUDGET', 40),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Cross-source dedup thresholds
     |--------------------------------------------------------------------------
     | Control how venues from different sources (BizData, Overpass, Foursquare,
