@@ -57,6 +57,18 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
   For prod DB changes, use a one-time migration (runs via deploy).
 - `config:clear` / `config:cache` is mandatory after weight/TTL config changes
   (the deploy already runs `config:cache`).
+- **Monitoring a deploy** (triggered by push to master, ~4–6 min): `gh run watch`
+  if `gh` is authed. If `gh` auth is invalid (it was on the dev machine as of
+  2026-06-25), the **unauthenticated** REST API works for this public repo — poll
+  `https://api.github.com/repos/alaw989/ipop360/actions/runs?head_sha=<full-sha>&event=push`
+  every ~50s and watch `status`→`completed` / `conclusion`→`success|failure`.
+  The workflow's own **"Verify deployment" step is a real cache-cold live search**
+  (`/api/restaurants?cuisine=chinese&lat=30.62…&lng=-88.20…`) — a green gate means
+  the live search returns within nginx's 60s limit; a 504 there = a live-path
+  regression. (Spec-025's first deploy failed exactly this gate and caught the
+  unbounded Overpass name-fallback.) Verify behaviorally after deploy with a few
+  `curl` hits to `/api/restaurants?lat=…&lng=…` (cache-cold cities exercise the
+  fixed read path; check `is_live`, result count, and that no venue is far away).
 
 ## Key tools
 - `php artisan search:audit <city> [<city>...] [--limit=N] [--cuisine=slug]
