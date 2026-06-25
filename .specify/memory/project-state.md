@@ -15,11 +15,17 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–026 COMPLETE.** Most recent: 022 (cache/quota observability),
+- **Specs 001–027 COMPLETE.** Most recent: 022 (cache/quota observability),
   023 (live-search feedback states), 024 (enrichment robustness), 025 (real
   `Http::pool` concurrency for the read-path source fetch — the old "parallel"
   thunk fetch was actually serial), 026 (live-search geo-relevance distance
-  filter — drops results beyond `live_search.max_distance_km`, 50km default).
+  filter — drops results beyond `live_search.max_distance_km`, 50km default),
+  027 (live-search **cuisine**-relevance filter — BizData ignores its cuisine
+  `query` param entirely and carries no ratings, so a Chinese search surfaced ~50
+  off-cuisine restaurants; `filterByCuisineRelevance()` hard-drops off-cuisine
+  rows from `filters.cuisine_unfiltered_sources` (default `['bizdata']`) unless
+  the name matches a cuisine keyword, while trusting serpapi/overpass/foursquare.
+  Verified live: Mobile/chinese went from ~50 mixed → 11 all-Chinese).
   See `specs/` for per-spec `Status`.
 - **DB is intentionally near-empty** (live-search-first). The fake SF seed and
   the unrated OSM-enriched rows were cleared via one-time migrations.
@@ -79,7 +85,7 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
 - Scorer: `app/Services/PopularityScoreService.php` (Bayesian `quality`).
 - Retriever: `app/Services/LiveSearchService.php`.
 - Config: `config/restaurant-finder.php` (weights + knobs).
-- Tests: `php artisan test` (157 tests, 521 assertions).
+- Tests: `php artisan test` (232 tests, 795 assertions).
 
 ## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
@@ -111,12 +117,16 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-25)
-All of 001–026 are COMPLETE. The queue is **empty**. Specs 025–026 were authored
+All of 001–027 are COMPLETE. The queue is **empty**. Specs 025–027 were authored
 interactively (off-queue): 025 storified+verified a live-search concurrency
-refactor, 026 fixed geo-irrelevant results (NYC in a Mobile search). Candidate
-**follow-up specs** explicitly deferred from 026: (a) drop SerpApi's
-`buildQuery()` `" near me"` suffix so it returns local results (recall; only takes
-full effect as the 30-day cache turns over); (b) Socrata location-gating + its
-broken lat-only WHERE clause (`SocrataOpenDataService::buildWhereClause`) — both
-are neutralized by 026's distance filter today. If the queue stays empty, the
-constitution says to re-verify a random spec before signaling done.
+refactor, 026 fixed geo-irrelevant results (NYC in a Mobile search), 027 fixed
+cuisine-irrelevant results (BizData ignores cuisine, so a Chinese search surfaced
+Mexican/pizza/wings chains). Candidate **follow-up specs** explicitly deferred:
+(a) drop SerpApi's `buildQuery()` `" near me"` suffix so it returns local results
+(recall; only takes full effect as the 30-day cache turns over) — deferred from
+026; (b) Socrata location-gating + its broken lat-only WHERE clause
+(`SocrataOpenDataService::buildWhereClause`) — neutralized by 026's distance
+filter; (c) expand the `cuisineNameKeywords()` map (e.g. add "panda", "chang") to
+recover more BizData recall — deferred from 027 (today we trust SerpApi for rated
+places instead). If the queue stays empty, the constitution says to re-verify a
+random spec before signaling done.
