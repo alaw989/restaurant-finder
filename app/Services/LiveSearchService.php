@@ -45,6 +45,11 @@ class LiveSearchService
 
         // Cross-source dedup: fuzzy name + proximity matching
         $results = $this->crossSourceDedup($results);
+
+        // Geo-relevance: drop any venue beyond the configured max distance from
+        // the search center (guards against out-of-area SerpApi/Socrata matches).
+        $results = $this->filterByDistance($results, $lat, $lng);
+
         $results = $this->scoreWithUnifiedService($results, $lat, $lng);
 
         return $results;
@@ -293,6 +298,46 @@ class LiveSearchService
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
+     * Geo-relevance filter: drop venues beyond the configured max distance from
+     * the search center. Guarantees a local result set regardless of which source
+     * returned a row (SerpApi can return out-of-area "best matches"; Socrata is
+     * hardcoded to NYC/SF datasets queried for every search).
+     *
+     * Runs after crossSourceDedup (whose mergeVenues can overwrite a row's coords)
+     * and before scoring (so far venues don't distort the active-set proximity
+     * normalization). Distance is recomputed from the row's final coords rather
+     * than trusting the stored `distance`, which dedup may have left stale.
+     *
+     * Venues with no usable coordinates (null, or the (0,0) null-island artifact)
+     * are kept — locality can't be disproven, and dropping them would sacrifice
+     * recall for no relevance gain.
+     */
+    private function filterByDistance(array $results, float $searchLat, float $searchLng): array
+    {
+        $maxKm = (float) config('restaurant-finder.live_search.max_distance_km', 50.0);
+
+        $kept = [];
+        foreach ($results as $r) {
+            $lat = $r['lat'] ?? null;
+            $lng = $r['lng'] ?? null;
+
+            // No usable coords (incl. null-island 0,0) — can't prove it's far; keep.
+            if ($lat === null || $lng === null || ((float) $lat === 0.0 && (float) $lng === 0.0)) {
+                $kept[] = $r;
+                continue;
+            }
+
+            $r['distance'] = $this->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng);
+
+            if ($r['distance'] <= $maxKm) {
+                $kept[] = $r;
+            }
+        }
+
+        return $kept;
     }
 
     /**

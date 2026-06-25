@@ -126,6 +126,13 @@ return [
 
         // Socrata: drop the 3x exponential-backoff retry on the live path.
         'socrata_timeout' => (float) env('LIVE_SEARCH_SOCRATA_TIMEOUT', 8.0),
+
+        // Drop live-search results farther than this (km) from the search center.
+        // Guarantees geographic relevance regardless of which source returned a
+        // row (defends against SerpApi out-of-area matches and the Socrata
+        // NYC/SF datasets). The 5 sources query within ~25km, so 50km covers a
+        // city + metro with margin. Env-overridable.
+        'max_distance_km' => (float) env('LIVE_SEARCH_MAX_DISTANCE_KM', 50.0),
     ],
 
     /*

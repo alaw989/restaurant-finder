@@ -327,4 +327,111 @@ class LiveSearchScoringTest extends TestCase
         $names = array_column($results, 'name');
         $this->assertContains('Survivor Grill', $names, 'Overpass result must survive a BizData failure');
     }
+
+    /**
+     * Build a LiveSearchService whose 5 sources return the given venues (each
+     * source defaults to []), driving them through the real concurrent-pool +
+     * dedup + distance-filter + scoring pipeline. Reused by the distance tests.
+     */
+    private function makeServiceWithVenues(array $venuesBySource): LiveSearchService
+    {
+        Http::fake(fn (Request $request) => Http::response([]));
+
+        $classes = [
+            'overpass' => OverpassService::class,
+            'bizdata' => BizDataApiService::class,
+            'foursquare' => FoursquareService::class,
+            'serpapi' => SerpApiService::class,
+            'socrata' => SocrataOpenDataService::class,
+        ];
+
+        $mocks = [];
+        foreach ($classes as $source => $class) {
+            $mock = Mockery::mock($class);
+            $mock->shouldReceive('cacheKeyFor')->andReturn("key:{$source}");
+            $mock->shouldReceive('poolRequestsFor')->andReturn([
+                new RequestSpec(method: 'GET', url: "https://example.test/{$source}", timeout: 5.0),
+            ]);
+            $mock->shouldReceive('consumePoolResponses')->andReturn($venuesBySource[$source] ?? []);
+            $mocks[$source] = $mock;
+        }
+
+        return new LiveSearchService(
+            $mocks['overpass'],
+            $mocks['bizdata'],
+            $mocks['foursquare'],
+            $mocks['serpapi'],
+            $mocks['socrata'],
+            $this->app->make(PopularityScoreService::class),
+        );
+    }
+
+    public function test_live_search_filters_venue_beyond_max_distance(): void
+    {
+        // The reported bug: a Mobile, AL search returned NYC venues (~1700km).
+        // The distance filter must drop them; only the local venue survives.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Local Mobile Chinese', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20],
+                ['name' => 'NYC Chinatown Spot', 'source' => 'serpapi', 'lat' => 40.7128, 'lng' => -74.0060],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Local Mobile Chinese', $names);
+        $this->assertNotContains('NYC Chinatown Spot', $names);
+    }
+
+    public function test_live_search_keeps_null_coordinate_venue(): void
+    {
+        // A venue with no coordinates can't be proven far, so it is kept (recall
+        // over strictness). A nearby venue is also kept.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'No Coords Venue', 'source' => 'serpapi', 'lat' => null, 'lng' => null],
+                ['name' => 'Nearby Venue', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('No Coords Venue', $names);
+        $this->assertContains('Nearby Venue', $names);
+    }
+
+    public function test_live_search_distance_filter_respects_env_override(): void
+    {
+        // Restore in finally so the tight cap never leaks into later tests in
+        // the same process (e.g. the concurrent-pool test, whose fixtures span
+        // ~22km and would break under a 5km cap).
+        $original = config('restaurant-finder.live_search.max_distance_km');
+        Config::set('restaurant-finder.live_search.max_distance_km', 5.0);
+
+        try {
+            $service = $this->makeServiceWithVenues([
+                'serpapi' => [
+                    ['name' => 'Three Km', 'source' => 'serpapi', 'lat' => 37.802, 'lng' => -122.4194],
+                    ['name' => 'Twenty Two Km', 'source' => 'serpapi', 'lat' => 37.9749, 'lng' => -122.4194],
+                ],
+            ]);
+
+            $results = $service->search(37.7749, -122.4194, null);
+            $names = array_column($results, 'name');
+
+            $this->assertContains('Three Km', $names);
+            $this->assertNotContains('Twenty Two Km', $names);
+        } finally {
+            Config::set('restaurant-finder.live_search.max_distance_km', $original);
+        }
+    }
+
+    public function test_filter_by_distance_handles_empty_input(): void
+    {
+        $service = $this->makeServiceWithVenues([]);
+
+        $this->assertSame([], $service->search(37.7749, -122.4194, null));
+    }
 }
