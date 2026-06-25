@@ -214,12 +214,20 @@ return [
         // Sources whose queries do NOT filter by cuisine (BizData ignores its
         // `query` param entirely — returns all nearby restaurants), so the
         // cuisine-relevance filter drops their off-cuisine rows unless the venue
-        // NAME matches a cuisine keyword. Sources that already cuisine-filter their
-        // own queries (serpapi, overpass, foursquare) are trusted and kept as-is.
-        // Comma-separated, env-overridable.
+        // NAME matches a cuisine keyword. Comma-separated, env-overridable.
         'cuisine_unfiltered_sources' => array_filter(array_map('trim',
             explode(',', env('CUISINE_UNFILTERED_SOURCES', 'bizdata'))
         )),
+
+        // When true, trusted sources (anything NOT in cuisine_unfiltered_sources —
+        // serpapi/overpass/foursquare) are ALSO scrutinized for off-cuisine rows via
+        // a "rival cuisine" match against Google's structured `place_types` +
+        // `description` (spec-028: SerpApi's q="<cuisine> near me" still leaks
+        // off-cuisine rows like a Southern restaurant in a Chinese search). When
+        // false, reverts to spec-027 behavior (trust all non-bizdata unconditionally).
+        'scrutinize_trusted_sources' => filter_var(
+            env('SCRUTINIZE_TRUSTED_SOURCES', true), FILTER_VALIDATE_BOOL
+        ),
     ],
 
 ];

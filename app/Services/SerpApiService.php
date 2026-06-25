@@ -261,6 +261,19 @@ class SerpApiService
             $priceLevel = $this->parsePriceRange($r['price_level'] ?? null);
             $photo = $r['thumbnail'] ?? null;
 
+            // Capture Google's structured cuisine classification. SerpApi's
+            // q="<cuisine> near me" still leaks off-cuisine rows (spec-028), so the
+            // cuisine-relevance filter inspects this against a rival-cuisine set.
+            // 'type' is the primary field (string); 'types' is the alternate array form.
+            $rawType = $r['type'] ?? null;
+            $rawTypes = $r['types'] ?? null;
+            $placeTypes = [];
+            if (is_array($rawTypes)) {
+                $placeTypes = array_values(array_filter($rawTypes, 'is_string'));
+            } elseif (is_string($rawType) && $rawType !== '') {
+                $placeTypes = [$rawType];
+            }
+
             $results[] = [
                 'id' => -1 * abs(crc32('serpapi:' . $fingerprint)),
                 'name' => $name,
@@ -283,6 +296,7 @@ class SerpApiService
                 'has_award' => false,
                 'popularity_score' => 0,
                 'distance' => $distance !== null ? round($distance, 1) : null,
+                'place_types' => $placeTypes,
                 'cuisines' => [['id' => abs(crc32('restaurant')), 'name' => 'Restaurant', 'slug' => 'restaurant']],
                 'source' => 'serpapi',
             ];

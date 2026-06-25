@@ -391,18 +391,32 @@ class LiveSearchService
     }
 
     /**
-     * Cuisine-relevance filter: for a cuisine-scoped search, drop venues from
-     * sources that do NOT cuisine-filter their own query (config
-     * `filters.cuisine_unfiltered_sources`, default BizData — its `query` param is
-     * ignored, so it returns all nearby restaurants) UNLESS the venue name matches
-     * a keyword for the searched cuisine. Sources that already cuisine-filter
-     * (serpapi, overpass, foursquare) are trusted and kept as-is.
+     * Cuisine-relevance filter: for a cuisine-scoped search, drop venues whose
+     * cuisine does not match the searched cuisine. Two source regimes:
      *
-     * No-op when no cuisine is set (a general restaurant search is unaffected).
-     * Runs before crossSourceDedup so each row still carries its pristine `source`
-     * label — dedup's mergeVenues() can fold a trusted-source row into an
-     * unfiltered-source row, which would otherwise mis-drop a venue carrying real
-     * data. Mirrors filterByDistance()'s role for geography (spec-026).
+     *  - Unfiltered sources (config `filters.cuisine_unfiltered_sources`, default
+     *    BizData — its `query` param is ignored, so it returns all nearby
+     *    restaurants): kept iff the venue NAME matches a keyword for the searched
+     *    cuisine. Nameless rows are dropped.
+     *
+     *  - Trusted sources (serpapi, overpass, foursquare): three-valued scrutiny
+     *    (spec-028). SerpApi's q="<cuisine> near me" still leaks off-cuisine rows,
+     *    so trusting a source's query intent does not justify trusting every row.
+     *    Using the on-cuisine keyword pattern against name + Google's structured
+     *    `place_types` + `description`, and a rival-cuisine pattern (all OTHER
+     *    cuisines' keywords) against `place_types` + `description` ONLY (never name
+     *    — names are cross-cuisine ambiguous, e.g. "Tokyo Grill"):
+     *      * on-cuisine signal    → keep  (e.g. "Panda Express", type "Chinese restaurant")
+     *      * rival-cuisine signal → drop  (e.g. Dumbwaiter, type/desc "Southern")
+     *      * ambiguous            → keep  (recall-protective).
+     *    Gated by `filters.scrutinize_trusted_sources` (default true) — false reverts
+     *    to spec-027 unconditional trust.
+     *
+     * No-op when no cuisine is set. Runs before crossSourceDedup so each row still
+     * carries its pristine `source` label — dedup's mergeVenues() can fold a
+     * trusted-source row into an unfiltered-source row, which would otherwise
+     * mis-drop a venue carrying real data. Mirrors filterByDistance()'s role for
+     * geography (spec-026).
      */
     private function filterByCuisineRelevance(array $results, ?string $cuisineName): array
     {
@@ -412,31 +426,95 @@ class LiveSearchService
 
         $unfiltered = config('restaurant-finder.filters.cuisine_unfiltered_sources', ['bizdata']);
         $unfilteredSet = array_flip(array_map('strtolower', $unfiltered));
+        $scrutinizeTrusted = (bool) config('restaurant-finder.filters.scrutinize_trusted_sources', true);
 
-        $keywords = $this->cuisineNameKeywords($cuisineName);
-        if (empty($keywords)) {
+        $fullMap = $this->allCuisineKeywordMap();
+        $onKey = strtolower(trim($cuisineName));
+        $onSet = $fullMap[$onKey] ?? [strtolower($cuisineName)];
+        if (empty($onSet)) {
             return $results;
         }
 
-        // Keywords are authored regex-ready fragments ('dim.sum' matches "dim
-        // sum"/"dimsum"); join into one case-insensitive alternation.
-        $pattern = '/' . implode('|', $keywords) . '/i';
+        // ON pattern matches name + type + description (broad recall for genuine
+        // rows whose name lacks a keyword, e.g. "Panda Express").
+        $onPattern = '/' . implode('|', $onSet) . '/i';
 
-        return array_values(array_filter($results, function ($r) use ($unfilteredSet, $pattern) {
+        // RIVAL pattern = union of all OTHER cuisines' keywords, minus the ON set,
+        // so no ON keyword is ever also a rival (onMatch always wins). Applied to
+        // trusted-source rows ONLY against type + description (not name).
+        $rivalSet = [];
+        foreach ($fullMap as $cuisine => $kws) {
+            if ($cuisine === $onKey) {
+                continue;
+            }
+            foreach ($kws as $kw) {
+                if (!in_array($kw, $onSet, true)) {
+                    $rivalSet[] = $kw;
+                }
+            }
+        }
+        $rivalPattern = empty($rivalSet)
+            ? null
+            : ('/' . implode('|', array_values(array_unique($rivalSet))) . '/i');
+
+        $dropped = []; // observability for the new trusted-source drop
+
+        $kept = array_values(array_filter($results, function ($r) use (
+            $unfilteredSet, $scrutinizeTrusted, $onPattern, $rivalPattern, &$dropped
+        ) {
             $source = strtolower((string) ($r['source'] ?? ''));
+            $name = (string) ($r['name'] ?? '');
 
-            // Trusted (cuisine-filtering) source — keep regardless of name.
-            if (!isset($unfilteredSet[$source])) {
+            // Unfiltered source: gate on NAME only (BizData carries no
+            // type/description, so this is byte-identical to the prior behavior).
+            if (isset($unfilteredSet[$source])) {
+                if ($name === '') {
+                    return false; // nameless noise from an unfiltered source
+                }
+                return preg_match($onPattern, $name) === 1;
+            }
+
+            // Trusted source.
+            $placeTypes = is_array($r['place_types'] ?? null) ? implode(' ', $r['place_types']) : '';
+            $description = (string) ($r['description'] ?? '');
+
+            // On-cuisine signal (name + type + description) → keep.
+            if (preg_match($onPattern, $name . ' ' . $placeTypes . ' ' . $description) === 1) {
                 return true;
             }
 
-            $name = (string) ($r['name'] ?? '');
-            if ($name === '') {
-                return false; // nameless noise from an unfiltered source
+            // Kill-switch off → trust everything non-bizdata (legacy spec-027 behavior).
+            if (!$scrutinizeTrusted) {
+                return true;
             }
 
-            return preg_match($pattern, $name) === 1;
+            // Rival signal (type + description ONLY, never name) → drop.
+            if ($rivalPattern !== null) {
+                $rivalSignal = trim($placeTypes . ' ' . $description);
+                if ($rivalSignal !== '' && preg_match($rivalPattern, $rivalSignal) === 1) {
+                    $dropped[] = [
+                        'name' => $name,
+                        'source' => $source,
+                        'place_types' => $r['place_types'] ?? [],
+                        'description' => $description,
+                    ];
+                    return false;
+                }
+            }
+
+            // Ambiguous (no on-signal, no rival-signal) → keep (recall-protective).
+            return true;
         }));
+
+        if (!empty($dropped)) {
+            Log::info('Cuisine-relevance filter dropped trusted-source rival rows', [
+                'cuisine' => $onKey,
+                'count' => count($dropped),
+                'dropped' => $dropped,
+            ]);
+        }
+
+        return $kept;
     }
 
     /**
@@ -589,7 +667,20 @@ class LiveSearchService
 
     private function cuisineNameKeywords(string $cuisine): array
     {
-        $map = [
+        $map = $this->allCuisineKeywordMap();
+        $key = strtolower(trim($cuisine));
+        return $map[$key] ?? [strtolower($cuisine)];
+    }
+
+    /**
+     * Full cuisine → regex-ready keyword map. Single source of truth shared by
+     * cuisineNameKeywords() (on-cuisine match) and filterByCuisineRelevance()'s
+     * rival-pattern construction (all OTHER cuisines' keywords). Keywords are
+     * regex fragments ('dim.sum' matches "dim sum"/"dimsum") — keep them regex-safe.
+     */
+    private function allCuisineKeywordMap(): array
+    {
+        return [
             'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
             'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
             'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan'],
@@ -598,11 +689,9 @@ class LiveSearchService
             'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
             'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
             'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
-            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse'],
-            'greek'     => ['greek', 'gyro', 'mediterranean', 'athhens', 'santorini', 'olive'],
+            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse', 'southern', 'cajun', 'creole', 'soul.food', 'new.american'],
+            'greek'     => ['greek', 'gyro', 'mediterranean', 'athens', 'santorini', 'olive'],
         ];
-        $key = strtolower(trim($cuisine));
-        return $map[$key] ?? [strtolower($cuisine)];
     }
 
     private function resolveCuisineName(?string $slug): ?string

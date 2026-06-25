@@ -465,8 +465,10 @@ class LiveSearchScoringTest extends TestCase
 
     public function test_live_search_keeps_trusted_source_venue_without_keyword(): void
     {
-        // SerpApi already cuisine-filters its own query, so a non-keyword name
-        // ("Panda Express") must survive; only unfiltered-source noise is dropped.
+        // A trusted-source (serpapi) venue with a non-keyword name and NO
+        // place_types/description is kept via the recall-protective ambiguous-keep
+        // path (spec-028): nothing contradicts the trusted source, so it survives;
+        // only unfiltered-source noise is dropped.
         $this->seedCuisine('Chinese', 'chinese');
 
         $service = $this->makeServiceWithVenues([
@@ -483,6 +485,102 @@ class LiveSearchScoringTest extends TestCase
 
         $this->assertContains('Panda Express', $names);
         $this->assertNotContains('Cracker Barrel', $names);
+    }
+
+    public function test_live_search_drops_serpapi_off_cuisine_venue_with_rival_type(): void
+    {
+        // The reported bug: SerpApi's q="chinese near me" leaked "Dumbwaiter
+        // Restaurant" (Southern/American). Now that 'southern'/'american' are rival
+        // keywords for a Chinese search, a trusted row whose place_types/description
+        // signal a rival cuisine is dropped — even with a non-keyword name — while a
+        // genuine on-cuisine row survives.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                [
+                    'name' => 'Dumbwaiter Restaurant',
+                    'source' => 'serpapi',
+                    'lat' => 30.65,
+                    'lng' => -88.20,
+                    'place_types' => ['American restaurant', 'Southern restaurant (US)'],
+                    'description' => 'Creative Southern fare. Southern classics with a modern twist.',
+                ],
+                [
+                    'name' => 'China One',
+                    'source' => 'serpapi',
+                    'lat' => 30.66,
+                    'lng' => -88.21,
+                    'place_types' => ['Chinese restaurant'],
+                    'description' => 'Traditional Chinese dishes.',
+                ],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'chinese');
+        $names = array_column($results, 'name');
+
+        $this->assertNotContains('Dumbwaiter Restaurant', $names);
+        $this->assertContains('China One', $names);
+    }
+
+    public function test_live_search_keeps_serpapi_on_cuisine_venue_by_type(): void
+    {
+        // A trusted venue with a non-keyword name is kept when its structured
+        // place_types carry the on-cuisine signal. Guards recall independent of the
+        // ambiguous-keep fallback in test_live_search_keeps_trusted_source_venue_without_keyword.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                [
+                    'name' => 'Panda Express',
+                    'source' => 'serpapi',
+                    'lat' => 30.65,
+                    'lng' => -88.20,
+                    'place_types' => ['Chinese restaurant'],
+                    'description' => null,
+                ],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'chinese');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Panda Express', $names);
+    }
+
+    public function test_scrutinize_trusted_sources_kill_switch_reverts(): void
+    {
+        // With scrutinize_trusted_sources=false the filter reverts to spec-027
+        // behavior: all non-bizdata rows are trusted unconditionally, so the
+        // Dumbwaiter leak returns. Proves the knob (not a hardcode) drives it.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $original = config('restaurant-finder.filters.scrutinize_trusted_sources');
+        Config::set('restaurant-finder.filters.scrutinize_trusted_sources', false);
+
+        try {
+            $service = $this->makeServiceWithVenues([
+                'serpapi' => [
+                    [
+                        'name' => 'Dumbwaiter Restaurant',
+                        'source' => 'serpapi',
+                        'lat' => 30.65,
+                        'lng' => -88.20,
+                        'place_types' => ['American restaurant'],
+                        'description' => 'Southern classics.',
+                    ],
+                ],
+            ]);
+
+            $results = $service->search(30.6199783, -88.1967496, 'chinese');
+            $names = array_column($results, 'name');
+
+            $this->assertContains('Dumbwaiter Restaurant', $names);
+        } finally {
+            Config::set('restaurant-finder.filters.scrutinize_trusted_sources', $original);
+        }
     }
 
     public function test_cuisine_filter_noop_without_cuisine(): void
@@ -504,6 +602,9 @@ class LiveSearchScoringTest extends TestCase
     {
         // Emptying the unfiltered-source list trusts BizData → its off-cuisine
         // row is kept. Proves the config (not a hardcode) drives the behavior.
+        // Note: this fixture intentionally has NO description/place_types, so the
+        // spec-028 rival match (which applies to trusted sources) cannot trip — a
+        // description like "Mexican taqueria" would otherwise drop it.
         $this->seedCuisine('Chinese', 'chinese');
 
         $original = config('restaurant-finder.filters.cuisine_unfiltered_sources');
