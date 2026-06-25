@@ -2,7 +2,7 @@
 
 > Living snapshot for Claude (and humans) picking up this project. Read this
 > together with `constitution.md` and `history.md` at session start. Detailed
-> per-spec history lives in `history/`. Updated: 2026-06-21.
+> per-spec history lives in `history/`. Updated: 2026-06-25.
 
 ## What this is
 A restaurant-discovery app that ranks venues with a free-first scoring blend.
@@ -10,14 +10,15 @@ A restaurant-discovery app that ranks venues with a free-first scoring blend.
 SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
 `constitution.md`.
 
-## Current state (2026-06-21)
+## Current state (2026-06-25)
 - **Live search works and is SerpApi-rated.** Any city returns real, quality-
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–021 COMPLETE.** Most recent: 018 (OSM dedup + garbage-name filter),
-  020 (multiple sort modes), 021 (throttled DB enrichment + persist
-  `google_rating`/`google_review_count`). See `specs/` for per-spec `Status`.
+- **Specs 001–025 COMPLETE.** Most recent: 022 (cache/quota observability),
+  023 (live-search feedback states), 024 (enrichment robustness), 025 (real
+  `Http::pool` concurrency for the read-path source fetch — the old "parallel"
+  thunk fetch was actually serial). See `specs/` for per-spec `Status`.
 - **DB is intentionally near-empty** (live-search-first). The fake SF seed and
   the unrated OSM-enriched rows were cleared via one-time migrations.
 
@@ -95,16 +96,9 @@ The DB file (`database/database.sqlite`) is gitignored — each machine has its
 own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
-## What's next (queued specs — Ralph queue, 2026-06-21)
-All of 001–021 are COMPLETE (018/020/021 landed on 2026-06-21). The queue had been
-empty; a fresh 3-spec queue was authored on 2026-06-21 for the next Ralph run. Ralph
-picks the lowest-numbered incomplete `specs/*.md`, so order is 022 → 023 → 024:
-- **022** — cache/quota observability: read-only `quota:status` command surfacing
-  serpapi last-30d burn vs 50 free / 40 budget + cache inventory. Zero quota burn.
-- **023** — live-search feedback states (frontend): error banner for silent search
-  failures + wire up the imported-but-unused `Skeleton`. Done-criteria include
-  `npm run build` (no JS test framework; `php artisan test` is PHP-only).
-- **024** — enrichment robustness (4 verified gaps only): persist Google
-  `website_url` (unblocks scraper → `opening_hours`), retry/backoff for scraper +
-  Socrata, record AI model. ~7 prior "gaps" are already implemented (listed as
-  out-of-scope in the spec).
+## What's next (queued specs — as of 2026-06-25)
+All of 001–025 are COMPLETE. The queue is **empty**. Spec 025 was authored
+interactively (off-queue) to storify + verify a live-search concurrency refactor
+that pre-existed in the working tree. If the queue stays empty, the constitution
+says to re-verify a random spec before signaling done. The next Ralph run needs a
+fresh queue authored.
