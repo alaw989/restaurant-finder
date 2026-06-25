@@ -212,7 +212,10 @@ class LiveSearchService
      * Overpass name-regex fallback: when the cuisine-tagged query yields no
      * venues, re-query OSM scanning restaurant names for cuisine keywords
      * (many OSM restaurants lack a cuisine tag). Serial and conditional — runs
-     * only after the pool resolves and only if Overpass produced nothing.
+     * only after the pool resolves and only if Overpass produced nothing. On the
+     * read path it is BOUNDED (one mirror, one radius, the live timeout) so a
+     * cache-cold search can't blow past the gateway limit; the enrichment path
+     * keeps the full fan-out.
      */
     private function applyOverpassNameFallback(array $merged, float $lat, float $lng, ?string $cuisine): array
     {
@@ -232,7 +235,7 @@ class LiveSearchService
         }
 
         try {
-            $nameRaw = $this->overpassService->fetchByNameRaw($lat, $lng, $keywords);
+            $nameRaw = $this->overpassService->fetchByNameRaw($lat, $lng, $keywords, context: ['read_path' => true]);
             if ($nameRaw !== null) {
                 $merged = array_merge($merged, $this->overpassService->normalizeRaw($nameRaw['data'] ?? [], $lat, $lng));
             }

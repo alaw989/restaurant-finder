@@ -142,8 +142,15 @@ class OverpassService
      * Fetch raw OSM elements for a name search, without normalization.
      * Returns ['cached' => bool, 'data' => array] or null on failure.
      */
-    public function fetchByNameRaw(float $lat, float $lng, array $keywords, int $radius = 25000, int $limit = 50): ?array
+    public function fetchByNameRaw(float $lat, float $lng, array $keywords, int $radius = 25000, int $limit = 50, array $context = []): ?array
     {
+        // Live read path: bound to a single mirror + single radius + the tight
+        // live timeout so a cache-cold cuisine search can never exceed nginx's
+        // gateway limit. The enrichment path (no read_path) keeps the full
+        // 3-radii x 3-mirror fan-out with its generous 30s timeout. The cache
+        // key is context-independent, so both paths share one cache.
+        $readPath = (bool) ($context['read_path'] ?? false);
+
         $cacheKey = 'overpass_name:' . md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
@@ -153,12 +160,19 @@ class OverpassService
 
         $pattern = implode('|', array_map(fn ($k) => preg_quote($k, '/'), $keywords));
 
-        foreach (static::RADII as $r) {
+        $clientTimeout = $readPath
+            ? (float) config('restaurant-finder.live_search.overpass_timeout', 10.0)
+            : 30.0;
+        $serverTimeout = $readPath ? max(1, (int) ceil($clientTimeout)) : 25;
+        $radii = $readPath ? [static::RADII[0]] : static::RADII;
+        $mirrors = $readPath ? [$this->mirrors[0]] : $this->mirrors;
+
+        foreach ($radii as $r) {
             if ($r < $radius) {
                 continue;
             }
 
-            $query = "[out:json][timeout:25];\n"
+            $query = "[out:json][timeout:{$serverTimeout}];\n"
                 . "(\n"
                 . "  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
                 . "  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
@@ -166,9 +180,9 @@ class OverpassService
                 . ");\n"
                 . "out body center {$limit};";
 
-            foreach ($this->mirrors as $mirror) {
+            foreach ($mirrors as $mirror) {
                 try {
-                    $response = Http::timeout(30)
+                    $response = Http::timeout($clientTimeout)
                         ->asForm()
                         ->withHeaders(['User-Agent' => 'iPop360/1.0'])
                         ->post($mirror, ['data' => $query]);

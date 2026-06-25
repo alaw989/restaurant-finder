@@ -381,4 +381,23 @@ class OverpassServiceTest extends TestCase
         $this->assertCount(6, $results);
         $this->assertSame('Fallback', $results[0]['name']);
     }
+
+    public function test_fetch_by_name_raw_live_path_is_bounded_to_one_request(): void
+    {
+        // The live read path must NOT do the 3-radii x 3-mirror fan-out the
+        // enrichment path does. Every mirror "fails"; the read path should fire
+        // exactly ONE request (first mirror, first radius) then bail — bounding
+        // a cache-cold cuisine search well under the gateway timeout.
+        Http::fake([
+            'overpass-api.de/*' => Http::response(null, 500),
+            'lz4.overpass-api.de/*' => Http::response(null, 500),
+            'overpass.kumi.systems/*' => Http::response(null, 500),
+        ]);
+
+        $service = new OverpassService();
+        $result = $service->fetchByNameRaw(37.7749, -122.4194, ['chinese', 'dragon'], context: ['read_path' => true]);
+
+        $this->assertNull($result);
+        Http::assertSentCount(1);
+    }
 }
