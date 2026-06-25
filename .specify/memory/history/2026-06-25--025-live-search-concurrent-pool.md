@@ -72,3 +72,40 @@ The fix drives the cache-miss requests through Laravel's `Http::pool()`:
 - `LiveSearchScoringTest` → 7/7, including the new structural-concurrency and
   failure-isolation tests.
 - `config('restaurant-finder.live_search')` resolves with all four timeout keys.
+
+## Post-deploy fix — bounding the Overpass name fallback (2026-06-25)
+
+The first spec-025 deploy shipped (rsync + `config:cache` + fpm reload all
+succeeded) but **FAILED the workflow's verify gate**: the smoke-test API call —
+a cache-cold `cuisine=chinese` search near Mobile, AL — returned **504 Gateway
+Time-out at nginx's 60s limit**. The homepage returned 200, so only the live
+search hung.
+
+**Root cause (pre-existing, surfaced by cache expiry):** `fetchAndMergeAllSources`
+finishes with `applyOverpassNameFallback()`, which runs *after* the pool and
+calls `OverpassService::fetchByNameRaw()` **serially**. That method did the full
+3-radii × 3-mirror fan-out, each `Http::timeout(30)` plus a 25s server-side
+`[timeout:25]` query — easily 60s+ on overloaded public Overpass mirrors
+(`overpass-api.de` blackholes under load). It fires whenever the cuisine-tagged
+Overpass query (in the pool, already bounded to 10s) returns *nothing* — common
+for sparse-cuisine areas like Chinese in a mid-size city.
+
+Why it passed on prior deploys but not this one: **Overpass cache TTL is 24h**
+(only SerpApi is 30 days). The last deploy was 4 days earlier, so the verify
+query's Overpass cache entry had expired → cache miss → unbounded fallback → 504.
+
+**Fix** (same shape as the pool path already uses): `fetchByNameRaw()` gained an
+`array $context` param; with `read_path` it uses **one mirror, one radius, the
+tight `live_search.overpass_timeout` (10s)** and a matching server-side timeout.
+Worst-case wall time is now pool(~10s) + fallback(~10s) ≈ 20s, comfortably under
+60s. The enrichment path keeps the full fan-out + 30s. Cache key is
+context-independent, so both paths share one cache.
+
+**Key lesson:** a refactor named "bound the wall time" is only as good as its
+*slowest serial step*. The pool was bounded, but the conditional serial fallback
+after it was not — and unit tests (which used `Http::fake`'s synchronous handler
+and never exercised a real multi-mirror fan-out) couldn't catch it. The
+**deploy verify gate** (a real cache-cold HTTP call) is what caught it. This is
+the strongest argument for keeping that gate real rather than caching it away.
+Guard test added: `fetchByNameRaw(..., context: ['read_path' => true])` fires
+exactly one request on failure. **223 tests green.**

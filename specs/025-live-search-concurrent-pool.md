@@ -122,6 +122,12 @@ venue; the Overpass venue must survive in the merged results.
   timeouts/retries unchanged.
 - **FR-006**: No new outbound API calls; SerpApi cache consulted before any
   network call (quota behavior unchanged).
+- **FR-007** *(added post-deploy)*: The Overpass name-regex fallback
+  (`fetchByNameRaw` via `applyOverpassNameFallback`) MUST be bounded on the live
+  read path — one mirror, one radius, the tight `live_search.overpass_timeout` —
+  so a cache-cold cuisine search can't exceed the gateway timeout. The first
+  deploy 504'd the verify gate because this step was an unbounded serial
+  3×3×30s fan-out (pre-existing, surfaced once the 24h Overpass cache expired).
 
 ### Key Entities
 - `app/Services/Http/RequestSpec.php` — **new** readonly request VO.
@@ -150,6 +156,9 @@ venue; the Overpass venue must survive in the merged results.
   failure-isolation test).
 - **SC-004**: `config('restaurant-finder.live_search')` resolves with all four
   timeout keys.
+- **SC-005** *(added post-deploy)*: `fetchByNameRaw(..., context: ['read_path' =>
+  true])` fires exactly ONE HTTP request on failure (no fan-out); the deploy
+  verify query (cache-cold cuisine search) returns within the 60s gateway limit.
 
 ## Assumptions
 - `Http::pool()` is the correct Laravel 13 concurrency primitive for independent
