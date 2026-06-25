@@ -15,10 +15,12 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–025 COMPLETE.** Most recent: 022 (cache/quota observability),
+- **Specs 001–026 COMPLETE.** Most recent: 022 (cache/quota observability),
   023 (live-search feedback states), 024 (enrichment robustness), 025 (real
   `Http::pool` concurrency for the read-path source fetch — the old "parallel"
-  thunk fetch was actually serial). See `specs/` for per-spec `Status`.
+  thunk fetch was actually serial), 026 (live-search geo-relevance distance
+  filter — drops results beyond `live_search.max_distance_km`, 50km default).
+  See `specs/` for per-spec `Status`.
 - **DB is intentionally near-empty** (live-search-first). The fake SF seed and
   the unrated OSM-enriched rows were cleared via one-time migrations.
 
@@ -97,8 +99,12 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-25)
-All of 001–025 are COMPLETE. The queue is **empty**. Spec 025 was authored
-interactively (off-queue) to storify + verify a live-search concurrency refactor
-that pre-existed in the working tree. If the queue stays empty, the constitution
-says to re-verify a random spec before signaling done. The next Ralph run needs a
-fresh queue authored.
+All of 001–026 are COMPLETE. The queue is **empty**. Specs 025–026 were authored
+interactively (off-queue): 025 storified+verified a live-search concurrency
+refactor, 026 fixed geo-irrelevant results (NYC in a Mobile search). Candidate
+**follow-up specs** explicitly deferred from 026: (a) drop SerpApi's
+`buildQuery()` `" near me"` suffix so it returns local results (recall; only takes
+full effect as the 30-day cache turns over); (b) Socrata location-gating + its
+broken lat-only WHERE clause (`SocrataOpenDataService::buildWhereClause`) — both
+are neutralized by 026's distance filter today. If the queue stays empty, the
+constitution says to re-verify a random spec before signaling done.
