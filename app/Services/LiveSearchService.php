@@ -43,6 +43,12 @@ class LiveSearchService
         // Filter garbage names from OSM-derived sources before dedup
         $results = $this->filterGarbageNames($results);
 
+        // Cuisine relevance: drop off-cuisine venues from sources that don't
+        // cuisine-filter their own query (BizData ignores its `query` param).
+        // Runs BEFORE dedup so each row still carries its original `source`
+        // (dedup can fold a trusted row into an unfiltered-source row).
+        $results = $this->filterByCuisineRelevance($results, $cuisineName);
+
         // Cross-source dedup: fuzzy name + proximity matching
         $results = $this->crossSourceDedup($results);
 
@@ -381,6 +387,55 @@ class LiveSearchService
             }
 
             return true;
+        }));
+    }
+
+    /**
+     * Cuisine-relevance filter: for a cuisine-scoped search, drop venues from
+     * sources that do NOT cuisine-filter their own query (config
+     * `filters.cuisine_unfiltered_sources`, default BizData — its `query` param is
+     * ignored, so it returns all nearby restaurants) UNLESS the venue name matches
+     * a keyword for the searched cuisine. Sources that already cuisine-filter
+     * (serpapi, overpass, foursquare) are trusted and kept as-is.
+     *
+     * No-op when no cuisine is set (a general restaurant search is unaffected).
+     * Runs before crossSourceDedup so each row still carries its pristine `source`
+     * label — dedup's mergeVenues() can fold a trusted-source row into an
+     * unfiltered-source row, which would otherwise mis-drop a venue carrying real
+     * data. Mirrors filterByDistance()'s role for geography (spec-026).
+     */
+    private function filterByCuisineRelevance(array $results, ?string $cuisineName): array
+    {
+        if (empty($cuisineName)) {
+            return $results;
+        }
+
+        $unfiltered = config('restaurant-finder.filters.cuisine_unfiltered_sources', ['bizdata']);
+        $unfilteredSet = array_flip(array_map('strtolower', $unfiltered));
+
+        $keywords = $this->cuisineNameKeywords($cuisineName);
+        if (empty($keywords)) {
+            return $results;
+        }
+
+        // Keywords are authored regex-ready fragments ('dim.sum' matches "dim
+        // sum"/"dimsum"); join into one case-insensitive alternation.
+        $pattern = '/' . implode('|', $keywords) . '/i';
+
+        return array_values(array_filter($results, function ($r) use ($unfilteredSet, $pattern) {
+            $source = strtolower((string) ($r['source'] ?? ''));
+
+            // Trusted (cuisine-filtering) source — keep regardless of name.
+            if (!isset($unfilteredSet[$source])) {
+                return true;
+            }
+
+            $name = (string) ($r['name'] ?? '');
+            if ($name === '') {
+                return false; // nameless noise from an unfiltered source
+            }
+
+            return preg_match($pattern, $name) === 1;
         }));
     }
 

@@ -210,6 +210,16 @@ return [
         'garbage_generic_words' => array_filter(explode(' ', env('GARBAGE_GENERIC_WORDS',
             'diner restaurant cafe pizza bar grill bistro pub tavern eatery food kitchen cantina'
         ))),
+
+        // Sources whose queries do NOT filter by cuisine (BizData ignores its
+        // `query` param entirely — returns all nearby restaurants), so the
+        // cuisine-relevance filter drops their off-cuisine rows unless the venue
+        // NAME matches a cuisine keyword. Sources that already cuisine-filter their
+        // own queries (serpapi, overpass, foursquare) are trusted and kept as-is.
+        // Comma-separated, env-overridable.
+        'cuisine_unfiltered_sources' => array_filter(array_map('trim',
+            explode(',', env('CUISINE_UNFILTERED_SOURCES', 'bizdata'))
+        )),
     ],
 
 ];

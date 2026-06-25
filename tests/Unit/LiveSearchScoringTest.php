@@ -353,6 +353,11 @@ class LiveSearchScoringTest extends TestCase
                 new RequestSpec(method: 'GET', url: "https://example.test/{$source}", timeout: 5.0),
             ]);
             $mock->shouldReceive('consumePoolResponses')->andReturn($venuesBySource[$source] ?? []);
+            // Cuisine-scoped searches with no Overpass venue trigger the name-regex
+            // fallback (applyOverpassNameFallback → fetchByNameRaw); stub it to null.
+            if ($source === 'overpass') {
+                $mock->shouldReceive('fetchByNameRaw')->andReturnNull();
+            }
             $mocks[$source] = $mock;
         }
 
@@ -433,5 +438,128 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([]);
 
         $this->assertSame([], $service->search(37.7749, -122.4194, null));
+    }
+
+    public function test_live_search_drops_bizdata_venue_without_cuisine_keyword(): void
+    {
+        // The reported bug: a Chinese search surfaced El Comal / Asian Garden from
+        // BizData (BizData ignores its cuisine `query` param). Off-keyword BizData
+        // rows are dropped; a BizData venue whose name signals the cuisine is kept.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $service = $this->makeServiceWithVenues([
+            'bizdata' => [
+                ['name' => 'China Wok', 'source' => 'bizdata', 'lat' => 30.65, 'lng' => -88.20],
+                ['name' => 'El Comal | Tacos y Cantina', 'source' => 'bizdata', 'lat' => 30.66, 'lng' => -88.21],
+                ['name' => 'Asian Garden', 'source' => 'bizdata', 'lat' => 30.67, 'lng' => -88.22],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'chinese');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('China Wok', $names);
+        $this->assertNotContains('El Comal | Tacos y Cantina', $names);
+        $this->assertNotContains('Asian Garden', $names);
+    }
+
+    public function test_live_search_keeps_trusted_source_venue_without_keyword(): void
+    {
+        // SerpApi already cuisine-filters its own query, so a non-keyword name
+        // ("Panda Express") must survive; only unfiltered-source noise is dropped.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Panda Express', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20],
+            ],
+            'bizdata' => [
+                ['name' => 'Cracker Barrel', 'source' => 'bizdata', 'lat' => 30.66, 'lng' => -88.21],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'chinese');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Panda Express', $names);
+        $this->assertNotContains('Cracker Barrel', $names);
+    }
+
+    public function test_cuisine_filter_noop_without_cuisine(): void
+    {
+        // A general (no-cuisine) search must return generic-named places unchanged.
+        $service = $this->makeServiceWithVenues([
+            'bizdata' => [
+                ['name' => 'El Comal | Tacos y Cantina', 'source' => 'bizdata', 'lat' => 30.65, 'lng' => -88.20],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('El Comal | Tacos y Cantina', $names);
+    }
+
+    public function test_cuisine_filter_respects_config_override(): void
+    {
+        // Emptying the unfiltered-source list trusts BizData → its off-cuisine
+        // row is kept. Proves the config (not a hardcode) drives the behavior.
+        $this->seedCuisine('Chinese', 'chinese');
+
+        $original = config('restaurant-finder.filters.cuisine_unfiltered_sources');
+        Config::set('restaurant-finder.filters.cuisine_unfiltered_sources', []);
+
+        try {
+            $service = $this->makeServiceWithVenues([
+                'bizdata' => [
+                    ['name' => 'El Comal | Tacos y Cantina', 'source' => 'bizdata', 'lat' => 30.65, 'lng' => -88.20],
+                ],
+            ]);
+
+            $results = $service->search(30.6199783, -88.1967496, 'chinese');
+            $names = array_column($results, 'name');
+
+            $this->assertContains('El Comal | Tacos y Cantina', $names);
+        } finally {
+            Config::set('restaurant-finder.filters.cuisine_unfiltered_sources', $original);
+        }
+    }
+
+    public function test_cuisine_filter_unmapped_cuisine_falls_back_to_bare_word(): void
+    {
+        // A cuisine absent from the cuisineNameKeywords map falls back to its bare
+        // lowercased name as the only keyword.
+        $this->seedCuisine('Filipino', 'filipino');
+
+        $service = $this->makeServiceWithVenues([
+            'bizdata' => [
+                ['name' => 'Filipino Kitchen', 'source' => 'bizdata', 'lat' => 30.65, 'lng' => -88.20],
+                ['name' => 'Buddy Seafood', 'source' => 'bizdata', 'lat' => 30.66, 'lng' => -88.21],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'filipino');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Filipino Kitchen', $names);
+        $this->assertNotContains('Buddy Seafood', $names);
+    }
+
+    /**
+     * Create a cuisine (with the category row its FK requires) so search() can
+     * resolve the slug via resolveCuisineName(). RefreshDatabase wipes it per test.
+     */
+    private function seedCuisine(string $name, string $slug): void
+    {
+        $category = \App\Models\CuisineCategory::create([
+            'name' => $name,
+            'slug' => $slug . '-cat',
+        ]);
+
+        \App\Models\Cuisine::create([
+            'name' => $name,
+            'slug' => $slug,
+            'category_id' => $category->id,
+        ]);
     }
 }
