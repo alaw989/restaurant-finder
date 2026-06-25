@@ -2,15 +2,26 @@
 
 namespace Tests\Unit;
 
+use App\Services\BizDataApiService;
+use App\Services\FoursquareService;
+use App\Services\Http\RequestSpec;
 use App\Services\LiveSearchService;
+use App\Services\OverpassService;
 use App\Services\PopularityScoreService;
+use App\Services\SerpApiService;
+use App\Services\SocrataOpenDataService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Http;
+use Mockery;
 use Tests\TestCase;
 
 class LiveSearchScoringTest extends TestCase
 {
+    use RefreshDatabase;
+
     private LiveSearchService $liveSearchService;
     private PopularityScoreService $scoreService;
 
@@ -234,35 +245,86 @@ class LiveSearchScoringTest extends TestCase
         $this->assertContains('Profile Completeness', $labels);
     }
 
-    public function test_sources_are_fetched_concurrently(): void
+    public function test_live_search_uses_concurrent_pool_not_serial_fetchraw(): void
     {
-        // This test verifies that sources are fetched concurrently rather than sequentially.
-        // The concurrent approach should complete faster than the sum of individual source latencies.
-        // Since we can't easily measure exact concurrency in a unit test without mocking,
-        // we verify that the LiveSearchService is using the concurrent fetch pattern by
-        // checking that results from multiple sources can be returned.
+        // The concurrency win lives in Http::pool dispatching all sources at once.
+        // Http::fake serializes pooled requests (its mock handler is synchronous),
+        // so wall-clock timing can't be asserted through a fake. Instead we guard
+        // the regression structurally: the live path must drive each source through
+        // poolRequestsFor() + consumePoolResponses() and must NOT call the old
+        // serial fetchRaw() — which is exactly what the prior closure-based code did.
+        Http::fake(fn (Request $request) => Http::response([]));
 
-        // Search San Francisco (should return cached or mocked results)
-        $lat = 37.7749;
-        $lng = -122.4194;
+        $classes = [
+            'overpass' => OverpassService::class,
+            'bizdata' => BizDataApiService::class,
+            'foursquare' => FoursquareService::class,
+            'serpapi' => SerpApiService::class,
+            'socrata' => SocrataOpenDataService::class,
+        ];
 
-        // Perform a search - if sources were truly sequential, any error in one
-        // would block the others. With concurrent fetch, all sources fire independently.
-        $results = $this->liveSearchService->search($lat, $lng, null);
-
-        // The key assertion: results is an array (not an exception)
-        // and may contain data from any subset of sources that succeeded
-        $this->assertIsArray($results);
-
-        // Each result should have the expected structure
-        foreach ($results as $result) {
-            $this->assertArrayHasKey('name', $result);
-            $this->assertArrayHasKey('source', $result);
-            $this->assertContains($result['source'], ['bizdata', 'foursquare', 'overpass']);
+        $mocks = [];
+        $i = 0;
+        foreach ($classes as $source => $class) {
+            // Distinct coordinates per source so crossSourceDedup (0.2km + name
+            // similarity) doesn't collapse them into one venue.
+            $lat = 37.77 + ($i * 0.05);
+            $mock = Mockery::mock($class);
+            $mock->shouldReceive('cacheKeyFor')->andReturn("key:{$source}");
+            $mock->shouldReceive('poolRequestsFor')->andReturn([
+                new RequestSpec(method: 'GET', url: "https://example.test/{$source}", timeout: 5.0),
+            ]);
+            $mock->shouldReceive('consumePoolResponses')->andReturn([
+                ['name' => "{$source} venue", 'source' => $source, 'lat' => $lat, 'lng' => -122.41],
+            ]);
+            $mock->shouldNotReceive('fetchRaw');
+            $mocks[$source] = $mock;
+            $i++;
         }
 
-        // Verify deduplication happened (sequential merge followed by dedupe)
+        $service = new LiveSearchService(
+            $mocks['overpass'],
+            $mocks['bizdata'],
+            $mocks['foursquare'],
+            $mocks['serpapi'],
+            $mocks['socrata'],
+            $this->app->make(PopularityScoreService::class),
+        );
+
+        $results = $service->search(37.7749, -122.4194, null);
+
+        $sources = array_unique(array_column($results, 'source'));
+        sort($sources);
+
+        $this->assertSame(
+            ['bizdata', 'foursquare', 'overpass', 'serpapi', 'socrata'],
+            $sources,
+            'Live search must dispatch every source through the concurrent pool interface.'
+        );
+    }
+
+    public function test_a_failed_source_does_not_block_others(): void
+    {
+        // One source throws (connection error → pool rejects → Throwable result);
+        // the others must still return venues. Guards the per-source isolation.
+        Http::fake(function (Request $request) {
+            if (str_contains($request->url(), 'bizdata')) {
+                throw new \Illuminate\Http\Client\ConnectionException('BizData is down');
+            }
+
+            if (str_contains($request->url(), 'overpass')) {
+                return Http::response(['elements' => [
+                    ['type' => 'node', 'id' => 2, 'lat' => 37.77, 'lon' => -122.41,
+                        'tags' => ['name' => 'Survivor Grill', 'amenity' => 'restaurant']],
+                ]]);
+            }
+
+            return Http::response([]);
+        });
+
+        $results = $this->liveSearchService->search(37.7749, -122.4194, null);
+
         $names = array_column($results, 'name');
-        $this->assertEquals(count($names), count(array_unique($names)), 'Results should be deduplicated');
+        $this->assertContains('Survivor Grill', $names, 'Overpass result must survive a BizData failure');
     }
 }

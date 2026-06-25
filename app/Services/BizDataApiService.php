@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -12,7 +14,7 @@ class BizDataApiService
 
     public function search(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): array
     {
-        $cacheKey = 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius, $limit);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -110,7 +112,7 @@ class BizDataApiService
      */
     public function fetchRaw(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): ?array
     {
-        $cacheKey = 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius, $limit);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -159,6 +161,82 @@ class BizDataApiService
     public function normalizeRaw(array $businesses, float $searchLat, float $searchLng, ?string $cuisine = null): array
     {
         return $this->normalizeResults($businesses, $searchLat, $searchLng, $cuisine);
+    }
+
+    /**
+     * Cache key for a BizData query. Shared by search()/fetchRaw() and the live
+     * concurrent-pool path so the cache is the same byte-for-byte in both.
+     */
+    public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): string
+    {
+        return 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+    }
+
+    /**
+     * Build the concurrent-pool request(s) for the live read path.
+     * BizData issues a single GET; returned as an array for a uniform interface.
+     */
+    public function poolRequestsFor(float $lat, float $lng, ?string $cuisine = null, array $context = []): array
+    {
+        $timeout = ($context['read_path'] ?? false)
+            ? (float) config('restaurant-finder.live_search.http_timeout', 8.0)
+            : 15.0;
+
+        return [
+            new RequestSpec(
+                method: 'GET',
+                url: $this->baseUrl . '/api/businesses',
+                query: [
+                    'location' => "{$lat},{$lng}",
+                    'category' => 'restaurant',
+                    'radius_km' => 25,
+                    'limit' => 50,
+                    'query' => $cuisine,
+                ],
+                timeout: $timeout,
+            ),
+        ];
+    }
+
+    /**
+     * Parse a pooled BizData response into the raw businesses array (the shape
+     * stored in ExternalApiCache). Returns null on HTTP failure so the caller
+     * can skip without caching a bad result.
+     */
+    public function parsePoolResponse(Response $response, float $lat, float $lng): ?array
+    {
+        if ($response->failed()) {
+            return null;
+        }
+
+        $data = $response->json();
+
+        return $data['businesses'] ?? [];
+    }
+
+    /**
+     * Consume pooled responses for the live read path: parse, cache the raw
+     * payload (24h), and normalize to venues. Called after Http::pool() has
+     * resolved, so the cache write stays off the concurrent I/O path.
+     */
+    public function consumePoolResponses(array $responses, float $lat, float $lng, ?string $cuisine, string $cacheKey): array
+    {
+        foreach ($responses as $response) {
+            if ($response instanceof \Throwable) {
+                continue;
+            }
+
+            $businesses = $this->parsePoolResponse($response, $lat, $lng);
+            if ($businesses === null) {
+                continue;
+            }
+
+            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(24));
+
+            return $this->normalizeRaw($businesses, $lat, $lng, $cuisine);
+        }
+
+        return [];
     }
 
     private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float

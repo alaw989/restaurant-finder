@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -39,7 +41,7 @@ class OverpassService
      */
     public function search(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): array
     {
-        $cacheKey = 'overpass_search:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius, $limit);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -78,7 +80,7 @@ class OverpassService
      */
     public function fetchRaw(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): ?array
     {
-        $cacheKey = 'overpass_search:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius, $limit);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -463,5 +465,81 @@ class OverpassService
     public function normalizeRaw(array $elements, float $searchLat, float $searchLng): array
     {
         return $this->normalizeResults($elements, $searchLat, $searchLng);
+    }
+
+    /**
+     * Cache key for a cuisine Overpass query. Shared by search()/fetchRaw()
+     * and the live concurrent-pool path (byte-identical).
+     */
+    public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): string
+    {
+        return 'overpass_search:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+    }
+
+    /**
+     * Build the concurrent-pool request for the live read path. The live path
+     * uses the FIRST mirror and FIRST radius only (25000m, matching the cache
+     * key) with a tighter client timeout — instead of the full 3 mirrors x 3
+     * radii fan-out enrichment performs. The name-regex fallback stays a
+     * separate serial step driven by LiveSearchService.
+     */
+    public function poolRequestsFor(float $lat, float $lng, ?string $cuisine = null, array $context = []): array
+    {
+        $timeout = ($context['read_path'] ?? false)
+            ? (float) config('restaurant-finder.live_search.overpass_timeout', 10.0)
+            : 30.0;
+
+        $resolved = $cuisine ? $this->resolveCuisine($cuisine) : null;
+        $query = $this->buildQuery($lat, $lng, $resolved, 25000, 50);
+
+        return [
+            new RequestSpec(
+                method: 'POST',
+                url: $this->mirrors[0],
+                body: ['data' => $query],
+                headers: ['User-Agent' => 'iPop360/1.0'],
+                timeout: $timeout,
+                asForm: true,
+            ),
+        ];
+    }
+
+    /**
+     * Parse a pooled Overpass response into the raw elements array (the shape
+     * stored in ExternalApiCache). Returns null on HTTP failure.
+     */
+    public function parsePoolResponse(Response $response, float $lat, float $lng): ?array
+    {
+        if ($response->failed()) {
+            return null;
+        }
+
+        $data = $response->json();
+
+        return $data['elements'] ?? [];
+    }
+
+    /**
+     * Consume pooled responses for the live read path: parse, cache the raw
+     * elements (24h), and normalize to venues.
+     */
+    public function consumePoolResponses(array $responses, float $lat, float $lng, ?string $cuisine, string $cacheKey): array
+    {
+        foreach ($responses as $response) {
+            if ($response instanceof \Throwable) {
+                continue;
+            }
+
+            $elements = $this->parsePoolResponse($response, $lat, $lng);
+            if ($elements === null) {
+                continue;
+            }
+
+            ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+
+            return $this->normalizeRaw($elements, $lat, $lng);
+        }
+
+        return [];
     }
 }

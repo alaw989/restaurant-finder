@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -33,7 +35,7 @@ class SocrataOpenDataService
             return [];
         }
 
-        $cacheKey = 'socrata:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $query, $radius);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -66,7 +68,7 @@ class SocrataOpenDataService
             return null;
         }
 
-        $cacheKey = 'socrata:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $query, $radius);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -97,6 +99,103 @@ class SocrataOpenDataService
     {
         // Results are already normalized in fetchAllEndpoints
         return $data;
+    }
+
+    /**
+     * Cache key for a Socrata query. Shared by search()/fetchRaw() and the live
+     * concurrent-pool path (byte-identical).
+     */
+    public function cacheKeyFor(float $lat, float $lng, ?string $query = null, int $radius = 5000): string
+    {
+        return 'socrata:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+    }
+
+    /**
+     * Build the concurrent-pool request(s) for the live read path. Socrata has
+     * one request per configured endpoint (e.g. NYC, SF) — they all fire in
+     * parallel. Returns [] (disabled) when no endpoints are configured. The
+     * live path drops the 3x exponential-backoff retry (handled as a single
+     * one-shot pooled request per endpoint).
+     */
+    public function poolRequestsFor(float $lat, float $lng, ?string $query = null, array $context = []): array
+    {
+        if (empty($this->endpoints)) {
+            return [];
+        }
+
+        $timeout = ($context['read_path'] ?? false)
+            ? (float) config('restaurant-finder.live_search.socrata_timeout', 8.0)
+            : 15.0;
+
+        $specs = [];
+        foreach ($this->endpoints as $config) {
+            if (!isset($config['dataset_id']) || !isset($config['domain'])) {
+                continue;
+            }
+
+            $specs[] = new RequestSpec(
+                method: 'GET',
+                url: "https://{$config['domain']}/resource/{$config['dataset_id']}.json",
+                query: $this->buildSoqlQuery($lat, $lng, $query, $config['fields'] ?? []),
+                headers: $this->buildHeaders(),
+                timeout: $timeout,
+            );
+        }
+
+        return $specs;
+    }
+
+    /**
+     * Parse a single pooled endpoint response into normalized venues. Socrata
+     * normalizes during parse (unlike the other sources). Returns null on
+     * HTTP failure or a non-array body.
+     */
+    public function parsePoolResponse(Response $response, float $lat, float $lng): ?array
+    {
+        if ($response->failed()) {
+            return null;
+        }
+
+        $data = $response->json();
+        if (!is_array($data)) {
+            return null;
+        }
+
+        return $this->normalizeEndpointResults($data, $lat, $lng);
+    }
+
+    /**
+     * Consume pooled responses (one per endpoint) for the live read path:
+     * parse each, merge across endpoints, dedup, and cache once under the
+     * shared Socrata key (24h). Results are already normalized.
+     */
+    public function consumePoolResponses(array $responses, float $lat, float $lng, ?string $cuisine, string $cacheKey): array
+    {
+        $all = [];
+        $anySuccess = false;
+
+        foreach ($responses as $response) {
+            if ($response instanceof \Throwable) {
+                continue;
+            }
+
+            $parsed = $this->parsePoolResponse($response, $lat, $lng);
+            if ($parsed === null) {
+                continue;
+            }
+
+            $anySuccess = true;
+            $all = array_merge($all, $parsed);
+        }
+
+        if (!$anySuccess) {
+            return [];
+        }
+
+        $all = $this->deduplicateByName($all);
+        ExternalApiCache::storeByKey($cacheKey, $all, now()->addHours(24));
+
+        return $all;
     }
 
     /**

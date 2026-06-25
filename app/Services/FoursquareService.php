@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -26,7 +28,7 @@ class FoursquareService
             return [];
         }
 
-        $cacheKey = $this->buildCacheKey('foursquare_search_v2', compact('lat', 'lng', 'cuisine', 'radius'));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -82,7 +84,7 @@ class FoursquareService
             return null;
         }
 
-        $cacheKey = $this->buildCacheKey('foursquare_search_v2', compact('lat', 'lng', 'cuisine', 'radius'));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $cuisine, $radius);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -128,6 +130,92 @@ class FoursquareService
     private function buildCacheKey(string $source, array $params): string
     {
         return $source . ':' . md5(serialize($params));
+    }
+
+    /**
+     * Cache key for a Foursquare query. Shared by searchNearbyRestaurants()/
+     * fetchRaw() and the live concurrent-pool path (byte-identical). Nullable
+     * cuisine: the live path calls this before gating on cuisine, so it must
+     * tolerate a null (poolRequestsFor then skips the fetch).
+     */
+    public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000): string
+    {
+        return $this->buildCacheKey('foursquare_search_v2', compact('lat', 'lng', 'cuisine', 'radius'));
+    }
+
+    /**
+     * Build the concurrent-pool request(s) for the live read path.
+     * Foursquare requires an API key and a cuisine query; returns [] (disabled)
+     * when either is missing. Adds the explicit timeout the fetchRaw path lacked.
+     */
+    public function poolRequestsFor(float $lat, float $lng, ?string $cuisine = null, array $context = []): array
+    {
+        if (empty($this->apiKey) || empty($cuisine)) {
+            return [];
+        }
+
+        $timeout = ($context['read_path'] ?? false)
+            ? (float) config('restaurant-finder.live_search.foursquare_timeout', 8.0)
+            : 30.0;
+
+        return [
+            new RequestSpec(
+                method: 'GET',
+                url: "{$this->baseUrl}/places/search",
+                query: [
+                    'll' => "{$lat},{$lng}",
+                    'radius' => 25000,
+                    'query' => $cuisine,
+                    'categories' => '13065',
+                    'limit' => 50,
+                    'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
+                ],
+                headers: [
+                    'Authorization' => 'Bearer ' . $this->apiKey,
+                    'X-Places-Api-Version' => $this->version,
+                ],
+                timeout: $timeout,
+            ),
+        ];
+    }
+
+    /**
+     * Parse a pooled Foursquare response into the raw results array (the shape
+     * stored in ExternalApiCache). Returns null on HTTP failure.
+     */
+    public function parsePoolResponse(Response $response, float $lat, float $lng): ?array
+    {
+        if ($response->failed()) {
+            return null;
+        }
+
+        $data = $response->json();
+
+        return $data['results'] ?? [];
+    }
+
+    /**
+     * Consume pooled responses for the live read path: parse, cache the raw
+     * payload (24h), and normalize to venues.
+     */
+    public function consumePoolResponses(array $responses, float $lat, float $lng, ?string $cuisine, string $cacheKey): array
+    {
+        foreach ($responses as $response) {
+            if ($response instanceof \Throwable) {
+                continue;
+            }
+
+            $results = $this->parsePoolResponse($response, $lat, $lng);
+            if ($results === null) {
+                continue;
+            }
+
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+
+            return $this->normalizeRaw($results);
+        }
+
+        return [];
     }
 
     /**

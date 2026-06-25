@@ -2,8 +2,12 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
+use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class LiveSearchService
 {
@@ -47,162 +51,196 @@ class LiveSearchService
     }
 
     /**
-     * Fetch all sources concurrently and merge results.
-     * This replaces the sequential array_merge with parallel execution.
+     * Fetch all sources and merge results.
+     *
+     * Sources fire CONCURRENTLY via Http::pool (cache-pass → pool → consume),
+     * so total wall time tracks the slowest source, not the sum. Each source
+     * checks its own ExternalApiCache first (cheap, synchronous); only cache
+     * misses enter the pool. Per-source failures are isolated — one slow or
+     * dead source cannot block or fail the others.
      */
     private function fetchAndMergeAllSources(float $lat, float $lng, ?string $cuisine): array
     {
-        // Fire all fetches concurrently using forked processes
-        // We use PHP's parallel execution via array_map with callbacks that run independently
-        $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
-        $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
-        $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
-        $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
-        $socrataPromise = $this->fetchSocrataConcurrent($lat, $lng, $cuisine);
+        $context = ['read_path' => true];
 
-        // Wait for all to complete (they run concurrently)
-        $bizDataResults = $bizDataPromise();
-        $foursquareResults = $foursquarePromise();
-        $overpassResults = $overpassPromise();
-        $serpApiResults = $serpApiPromise();
-        $socrataResults = $socrataPromise();
+        $sources = [
+            'bizdata'    => $this->bizDataService,
+            'foursquare' => $this->foursquareService,
+            'serpapi'    => $this->serpApiService,
+            'socrata'    => $this->socrataService,
+            'overpass'   => $this->overpassService,
+        ];
 
-        return array_merge($bizDataResults, $foursquareResults, $overpassResults, $serpApiResults, $socrataResults);
+        // PASS 1 — synchronous cache lookups. Collect hits; plan misses.
+        // Each source is isolated so one source's cache/store hiccup can't kill
+        // the whole search (matches the prior per-source resilience).
+        $keys = [];
+        $hits = [];
+        $toFetch = []; // label => RequestSpec[]
+
+        foreach ($sources as $label => $service) {
+            try {
+                $key = $service->cacheKeyFor($lat, $lng, $cuisine);
+                $keys[$label] = $key;
+
+                $cached = ExternalApiCache::findByKey($key);
+                if ($cached !== null) {
+                    $hits[$label] = $cached;
+                    continue;
+                }
+
+                $specs = $service->poolRequestsFor($lat, $lng, $cuisine, $context);
+                if (!empty($specs)) {
+                    $toFetch[$label] = $specs;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("LiveSearch {$label} setup failed", ['message' => $e->getMessage()]);
+            }
+        }
+
+        // PASS 2 — pool only the cache-miss requests, concurrently.
+        $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
+
+        // PASS 3 — consume cache hits + pool results into normalized venues.
+        $merged = [];
+        foreach ($sources as $label => $service) {
+            try {
+                if (isset($hits[$label])) {
+                    $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $cuisine));
+                } elseif (isset($poolResults[$label])) {
+                    $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $cuisine, $keys[$label]));
+                }
+            } catch (\Throwable $e) {
+                Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
+            }
+        }
+
+        // Overpass name-regex fallback — serial and conditional, as before:
+        // only when the cuisine-tagged Overpass query returned nothing.
+        $merged = $this->applyOverpassNameFallback($merged, $lat, $lng, $cuisine);
+
+        return $merged;
     }
 
     /**
-     * Wrap BizData fetch for concurrent execution.
-     * Returns a thunk that when called executes the fetch.
+     * Dispatch all cache-miss source requests through a single Http::pool so
+     * they resolve concurrently. Returns results grouped back by source label,
+     * preserving each source's spec order (Socrata issues multiple per source).
      */
-    private function fetchBizDataConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    private function dispatchPool(array $toFetch): array
     {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->bizDataService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
+        if (empty($toFetch)) {
+            return [];
+        }
 
-                $businesses = $raw['data'] ?? [];
-                return $this->bizDataService->normalizeRaw($businesses, $lat, $lng, $cuisine);
-            } catch (\Throwable $e) {
-                Log::warning('LiveSearch BizData fetch failed', ['message' => $e->getMessage()]);
-                return [];
+        // Flatten to composite keys (label.subindex) so multi-request sources
+        // each get their own pool slot, and remember how to map them back.
+        $flat = [];  // compositeKey => RequestSpec
+        $owner = []; // compositeKey => label
+
+        foreach ($toFetch as $label => $specs) {
+            foreach ($specs as $i => $spec) {
+                $composite = "{$label}.{$i}";
+                $flat[$composite] = $spec;
+                $owner[$composite] = $label;
             }
+        }
+
+        $responses = Http::pool(function (Pool $pool) use ($flat) {
+            $requests = [];
+            foreach ($flat as $key => $spec) {
+                $requests[] = $this->buildPoolRequest($pool, $key, $spec);
+            }
+
+            return $requests;
+        });
+
+        // Group results back by source label, preserving spec order.
+        $grouped = [];
+        foreach ($responses as $composite => $result) {
+            $label = $owner[$composite] ?? null;
+            if ($label === null) {
+                continue;
+            }
+
+            $index = (int) substr($composite, strlen($label) + 1);
+            $grouped[$label][$index] = $result;
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Register one request on the pool under $key. Http::pool keys its results
+     * by the ->as($key) name.
+     */
+    private function buildPoolRequest(Pool $pool, string $key, RequestSpec $spec)
+    {
+        $request = $pool->as($key)->timeout($spec->timeout);
+
+        if (!empty($spec->headers)) {
+            $request = $request->withHeaders($spec->headers);
+        }
+
+        if ($spec->method === 'POST') {
+            return $spec->asForm
+                ? $request->asForm()->post($spec->url, $spec->body)
+                : $request->post($spec->url, $spec->body);
+        }
+
+        return $request->get($spec->url, $spec->query);
+    }
+
+    /**
+     * Normalize a cached payload for a source. Cached payloads are the raw API
+     * arrays for four sources; Socrata caches already-normalized data (its
+     * normalizeRaw is a pass-through).
+     */
+    private function normalizeCachedHit(string $label, array $cached, float $lat, float $lng, ?string $cuisine): array
+    {
+        return match ($label) {
+            'bizdata'    => $this->bizDataService->normalizeRaw($cached, $lat, $lng, $cuisine),
+            'foursquare' => $this->foursquareService->normalizeRaw($cached),
+            'serpapi'    => $this->serpApiService->normalizeRaw($cached, $lat, $lng),
+            'socrata'    => $this->socrataService->normalizeRaw($cached, $lat, $lng),
+            'overpass'   => $this->overpassService->normalizeRaw($cached, $lat, $lng),
+            default      => [],
         };
     }
 
     /**
-     * Wrap Foursquare fetch for concurrent execution.
-     * Returns a thunk that when called executes the fetch.
+     * Overpass name-regex fallback: when the cuisine-tagged query yields no
+     * venues, re-query OSM scanning restaurant names for cuisine keywords
+     * (many OSM restaurants lack a cuisine tag). Serial and conditional — runs
+     * only after the pool resolves and only if Overpass produced nothing.
      */
-    private function fetchFoursquareConcurrent(float $lat, float $lng, ?string $cuisine): callable
+    private function applyOverpassNameFallback(array $merged, float $lat, float $lng, ?string $cuisine): array
     {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                if (empty($cuisine)) {
-                    return [];
-                }
+        if (empty($cuisine)) {
+            return $merged;
+        }
 
-                $raw = $this->foursquareService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
-
-                $results = $raw['data'] ?? [];
-                return $this->foursquareService->normalizeRaw($results);
-            } catch (\Throwable $e) {
-                Log::warning('LiveSearch Foursquare fetch failed', ['message' => $e->getMessage()]);
-                return [];
+        foreach ($merged as $r) {
+            if (($r['source'] ?? null) === 'overpass') {
+                return $merged; // cuisine query already produced Overpass venues
             }
-        };
-    }
+        }
 
-    /**
-     * Wrap Overpass fetch for concurrent execution with name-based fallback.
-     * Returns a thunk that when called executes the fetch.
-     */
-    private function fetchOverpassConcurrent(float $lat, float $lng, ?string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->overpassService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
+        $keywords = $this->cuisineNameKeywords($cuisine);
+        if (empty($keywords)) {
+            return $merged;
+        }
 
-                $elements = $raw['data'] ?? [];
-                $results = $this->overpassService->normalizeRaw($elements, $lat, $lng);
-
-                if (!empty($results)) {
-                    return $results;
-                }
-
-                // Cuisine-tagged search returned nothing — try name-based
-                // matching. Many OSM restaurants lack a cuisine tag, so the
-                // hard filter produces false negatives. Fall back to scanning
-                // names with cuisine-specific keywords.
-                $keywords = $cuisine ? $this->cuisineNameKeywords($cuisine) : [];
-                if (empty($keywords)) {
-                    return [];
-                }
-
-                $nameRaw = $this->overpassService->fetchByNameRaw($lat, $lng, $keywords);
-                if ($nameRaw === null) {
-                    return [];
-                }
-
-                $nameElements = $nameRaw['data'] ?? [];
-                return $this->overpassService->normalizeRaw($nameElements, $lat, $lng);
-            } catch (\Throwable $e) {
-                Log::warning('LiveSearch Overpass fetch failed', ['message' => $e->getMessage()]);
-                return [];
+        try {
+            $nameRaw = $this->overpassService->fetchByNameRaw($lat, $lng, $keywords);
+            if ($nameRaw !== null) {
+                $merged = array_merge($merged, $this->overpassService->normalizeRaw($nameRaw['data'] ?? [], $lat, $lng));
             }
-        };
-    }
+        } catch (\Throwable $e) {
+            Log::warning('Overpass name fallback failed', ['message' => $e->getMessage()]);
+        }
 
-    /**
-     * Wrap SerpApi fetch for concurrent execution.
-     * Returns a thunk that when called executes the fetch.
-     */
-    private function fetchSerpApiConcurrent(float $lat, float $lng, ?string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->serpApiService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
-
-                $localResults = $raw['data'] ?? [];
-                return $this->serpApiService->normalizeRaw($localResults, $lat, $lng);
-            } catch (\Throwable $e) {
-                Log::warning('LiveSearch SerpApi fetch failed', ['message' => $e->getMessage()]);
-                return [];
-            }
-        };
-    }
-
-    /**
-     * Wrap Socrata fetch for concurrent execution.
-     * Returns a thunk that when called executes the fetch.
-     */
-    private function fetchSocrataConcurrent(float $lat, float $lng, ?string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->socrataService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
-
-                $socrataData = $raw['data'] ?? [];
-                return $this->socrataService->normalizeRaw($socrataData, $lat, $lng);
-            } catch (\Throwable $e) {
-                Log::warning('LiveSearch Socrata fetch failed', ['message' => $e->getMessage()]);
-                return [];
-            }
-        };
+        return $merged;
     }
 
     /**
@@ -218,13 +256,19 @@ class LiveSearchService
         // Convert to collection for normalization
         $all = new Collection($results);
 
+        // Collection-wide aggregates are identical for every row, so compute them
+        // once. The per-row calculateBreakdownForArray() recomputes them on each
+        // call (an O(n²) loop); calculateBreakdownWithAggregates() is byte-identical
+        // given the same aggregates.
+        $aggregates = $this->scoreService->computeAggregates($all);
+
         foreach ($results as &$r) {
             // Ensure distance is set (from scopeNearby or calculated)
             if (!isset($r['distance']) && isset($r['lat'], $r['lng'])) {
                 $r['distance'] = $this->haversineKm($searchLat, $searchLng, (float) $r['lat'], (float) $r['lng']);
             }
 
-            $breakdown = $this->scoreService->calculateBreakdownForArray($r, $all);
+            $breakdown = $this->scoreService->calculateBreakdownWithAggregates($r, $aggregates);
             $r['popularity_score'] = $breakdown['total'];
             $r['score_breakdown'] = $breakdown;
         }

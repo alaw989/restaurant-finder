@@ -104,6 +104,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Live (read-path) search tuning
+    |--------------------------------------------------------------------------
+    | These only apply to the synchronous live search triggered when the DB has
+    | no results for an area (RestaurantController::apiIndex). They bound the
+    | worst-case wall time of the concurrent multi-source fetch. The scheduled
+    | DB enrichment path is unaffected (it keeps each service's generous
+    | defaults). All values are env-overridable.
+    */
+    'live_search' => [
+        // Default per-request timeout for the simple sources (BizData, SerpApi).
+        'http_timeout' => (float) env('LIVE_SEARCH_HTTP_TIMEOUT', 8.0),
+
+        // Foursquare has historically had no explicit timeout (Laravel default
+        // 30s). Give it one on the live path.
+        'foursquare_timeout' => (float) env('LIVE_SEARCH_FOURSQUARE_TIMEOUT', 8.0),
+
+        // Overpass fan-out caps. Enrichment tries 3 radii x 3 mirrors; the live
+        // path uses the first of each only, with a tighter timeout.
+        'overpass_timeout' => (float) env('LIVE_SEARCH_OVERPASS_TIMEOUT', 10.0),
+
+        // Socrata: drop the 3x exponential-backoff retry on the live path.
+        'socrata_timeout' => (float) env('LIVE_SEARCH_SOCRATA_TIMEOUT', 8.0),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | External API cache TTLs
     |--------------------------------------------------------------------------
     | SerpApi is the sole quota-constrained source (free tier ~50 searches/mo)

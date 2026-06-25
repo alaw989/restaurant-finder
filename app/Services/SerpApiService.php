@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExternalApiCache;
+use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -33,7 +35,7 @@ class SerpApiService
             return [];
         }
 
-        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $query);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -87,7 +89,7 @@ class SerpApiService
             return null;
         }
 
-        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
+        $cacheKey = $this->cacheKeyFor($lat, $lng, $query);
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -136,6 +138,92 @@ class SerpApiService
     public function normalizeRaw(array $localResults, float $searchLat, float $searchLng): array
     {
         return $this->normalizeResults($localResults, $searchLat, $searchLng);
+    }
+
+    /**
+     * Cache key for a SerpApi query. Shared by search()/fetchRaw() and the live
+     * concurrent-pool path (byte-identical) — critical because SerpApi is the
+     * quota-constrained source.
+     */
+    public function cacheKeyFor(float $lat, float $lng, ?string $query = null): string
+    {
+        return 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
+    }
+
+    /**
+     * Build the concurrent-pool request for the live read path. Returns []
+     * (disabled) when no API key is configured, so the cache-pass can still
+     * short-circuit a prior keyed result while a keyless deployment skips the
+     * outbound call entirely.
+     */
+    public function poolRequestsFor(float $lat, float $lng, ?string $query = null, array $context = []): array
+    {
+        if (empty($this->apiKey)) {
+            return [];
+        }
+
+        $timeout = ($context['read_path'] ?? false)
+            ? (float) config('restaurant-finder.live_search.http_timeout', 8.0)
+            : 15.0;
+
+        return [
+            new RequestSpec(
+                method: 'GET',
+                url: 'https://serpapi.com/search',
+                query: [
+                    'engine' => 'google_maps',
+                    'q' => $this->buildQuery($query),
+                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
+                    'type' => 'search',
+                    'api_key' => $this->apiKey,
+                ],
+                timeout: $timeout,
+            ),
+        ];
+    }
+
+    /**
+     * Parse a pooled SerpApi response into the raw local_results array (the
+     * shape stored in ExternalApiCache). Returns null on HTTP failure.
+     */
+    public function parsePoolResponse(Response $response, float $lat, float $lng): ?array
+    {
+        if ($response->failed()) {
+            return null;
+        }
+
+        $data = $response->json();
+
+        return $data['local_results'] ?? [];
+    }
+
+    /**
+     * Consume pooled responses for the live read path: parse, cache the raw
+     * payload (30-day SerpApi TTL), and normalize. Quota-safe: the cache pass
+     * runs before this, so a repeat search never reaches here.
+     */
+    public function consumePoolResponses(array $responses, float $lat, float $lng, ?string $cuisine, string $cacheKey): array
+    {
+        foreach ($responses as $response) {
+            if ($response instanceof \Throwable) {
+                continue;
+            }
+
+            $localResults = $this->parsePoolResponse($response, $lat, $lng);
+            if ($localResults === null) {
+                continue;
+            }
+
+            ExternalApiCache::storeByKey(
+                $cacheKey,
+                $localResults,
+                now()->addHours((int) config('restaurant-finder.cache.serpapi_ttl_hours', 720))
+            );
+
+            return $this->normalizeRaw($localResults, $lat, $lng);
+        }
+
+        return [];
     }
 
     /**
