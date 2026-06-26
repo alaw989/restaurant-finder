@@ -31,7 +31,7 @@
 
 - **Backend:** Laravel 13, PHP 8.3+, SQLite, Inertia.js v2
 - **Frontend:** Vue 3 (Composition API), TypeScript, Vite 8, Tailwind CSS 4, shadcn-vue 2, Leaflet 1.9
-- **Testing:** PHPUnit 12 (133 tests, 469 assertions)
+- **Testing:** PHPUnit 12 (258 tests, 954 assertions)
 - **Infra:** DigitalOcean droplet, GitHub Actions CI/CD
 - **Free APIs:** BizData (bizdata-web.vercel.app), Overpass/OSM, Wikidata SPARQL, Nominatim, Photon
 - **Paid APIs (optional):** Foursquare Places (500/mo free), Google Places, Outscraper, SerpApi

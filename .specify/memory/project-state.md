@@ -104,7 +104,7 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
   cuisine/category keyword/synonym lookup goes through it; a drift-guard test asserts it covers the
   seeded DB taxonomy.
 - Config: `config/restaurant-finder.php` (weights + knobs); `config/cuisine-keywords.php` (cuisine lexicon).
-- Tests: `php artisan test` (257 tests, 943 assertions).
+- Tests: `php artisan test` (258 tests, 954 assertions).
 
 ## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
