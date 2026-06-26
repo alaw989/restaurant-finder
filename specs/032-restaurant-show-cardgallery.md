@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Depends on**: 029 (`CardGallery`, `cuisine.ts`). Independent of the card rewrite (030).
 
