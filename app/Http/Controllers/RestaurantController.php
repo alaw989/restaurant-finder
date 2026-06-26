@@ -119,6 +119,94 @@ class RestaurantController extends Controller
         };
     }
 
+    /**
+     * Re-sort the bounded live-search result array by the user's sort mode.
+     *
+     * Mirrors applySortMode()'s SQL semantics on a PHP array (NULLS LAST +
+     * popularity_score tiebreak). Called in apiIndex() right after
+     * LiveSearchService::search() returns, before the JSON response is built.
+     * The service has no sort concept — it always returns popularity_score
+     * desc — so without this the live path ignores ?sort= entirely (every
+     * production request hits the live branch because the DB is near-empty).
+     *
+     * Operates on the already-bounded top-N set (boundResults caps at
+     * max_results BEFORE the controller sees the array). For the common case
+     * (<=N candidates) this is identical to sorting the full pool; broad
+     * searches differ only in that the curated strong set is re-ordered by
+     * user preference — product-aligned with the tail-cut.
+     *
+     * NOTE: the explicit null guards before each <=> are LOAD-BEARING — PHP 8
+     * raises TypeError on `null <=> int`. Do not "simplify" them away.
+     */
+    private function sortLiveResults(array $results, string $sort, bool $hasCoords): array
+    {
+        if (count($results) <= 1) {
+            return $results;
+        }
+
+        // nearest without coords falls back to best_match (parity with applySortMode)
+        $effective = ($sort === 'nearest' && ! $hasCoords) ? 'best_match' : $sort;
+
+        if ($effective === 'best_match') {
+            // Already popularity_score desc from scoreWithUnifiedService().
+            return $results;
+        }
+
+        usort($results, function (array $a, array $b) use ($effective): int {
+            [$va, $vb, $desc] = match ($effective) {
+                'nearest' => [$a['distance'] ?? null, $b['distance'] ?? null, false], // ASC: closest first
+                'rating' => [
+                    $a['google_rating'] ?? $a['yelp_rating'] ?? null,
+                    $b['google_rating'] ?? $b['yelp_rating'] ?? null,
+                    true, // DESC: highest first
+                ],
+                'reviews' => [
+                    $a['google_review_count'] ?? $a['yelp_review_count'] ?? null,
+                    $b['google_review_count'] ?? $b['yelp_review_count'] ?? null,
+                    true,
+                ],
+                'price' => [
+                    $this->priceLevelNormalizer->normalize($a['price_range'] ?? null),
+                    $this->priceLevelNormalizer->normalize($b['price_range'] ?? null),
+                    false, // ASC: cheapest first
+                ],
+                default => [$a['popularity_score'] ?? null, $b['popularity_score'] ?? null, true],
+            };
+
+            // NULLS LAST in BOTH directions (null always sinks, regardless of $desc).
+            if ($va === null && $vb === null) {
+                return $this->tiebreakLive($a, $b);
+            }
+            if ($va === null) {
+                return 1;
+            }
+            if ($vb === null) {
+                return -1;
+            }
+
+            $cmp = $desc ? ($vb <=> $va) : ($va <=> $vb);
+
+            return $cmp !== 0 ? $cmp : $this->tiebreakLive($a, $b);
+        });
+
+        return $results;
+    }
+
+    /**
+     * Deterministic tiebreak for live rows whose primary sort key is equal:
+     * popularity_score DESC, then name ASC. Keeps output stable across requests.
+     */
+    private function tiebreakLive(array $a, array $b): int
+    {
+        $pa = (float) ($a['popularity_score'] ?? 0);
+        $pb = (float) ($b['popularity_score'] ?? 0);
+        if ($pa !== $pb) {
+            return $pb <=> $pa;
+        }
+
+        return ($a['name'] ?? '') <=> ($b['name'] ?? '');
+    }
+
     public function index(Request $request)
     {
         $validated = $request->validate([
@@ -358,6 +446,11 @@ class RestaurantController extends Controller
                 $cuisineSlug,
                 $categorySlug,
             );
+
+            // Apply the user's sort to the live results (the service returns
+            // popularity_score desc unconditionally; without this ?sort= is a
+            // no-op on the live path every production request hits).
+            $liveResults = $this->sortLiveResults($liveResults, $sort, $coords !== null);
 
             return response()->json([
                 'data' => $liveResults,
