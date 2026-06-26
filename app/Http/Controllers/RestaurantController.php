@@ -212,6 +212,82 @@ class RestaurantController extends Controller
         ]);
     }
 
+    /**
+     * Detail page for a LIVE-search result (spec-040, Option A). Reconstructs the
+     * venue from the warm per-source ExternalApiCache via a cache-only search
+     * (zero SerpApi quota, no restaurants-table write) and renders the same Show
+     * view. The URL carries the search-center coords so the per-source cache keys
+     * match the original search. 404s if the venue isn't in a warm cache (expired
+     * or never searched) — it never burns quota to reconstruct.
+     */
+    public function preview(Request $request, string $slug)
+    {
+        $validated = $request->validate([
+            'lat' => ['required', 'numeric'],
+            'lng' => ['required', 'numeric'],
+            'cuisine' => ['nullable', 'string'],
+        ]);
+
+        $lat = (float) $validated['lat'];
+        $lng = (float) $validated['lng'];
+        $cuisineSlug = $validated['cuisine'] ?? null;
+
+        $results = $this->liveSearchService->search($lat, $lng, $cuisineSlug, null, cacheOnly: true);
+
+        $restaurant = collect($results)->first(fn ($r) => ($r['slug'] ?? null) === $slug);
+
+        if ($restaurant === null) {
+            abort(404, 'This restaurant preview is no longer available.');
+        }
+
+        $previewParams = ['slug' => $slug, 'lat' => $lat, 'lng' => $lng];
+        if ($cuisineSlug !== null) {
+            $previewParams['cuisine'] = $cuisineSlug;
+        }
+
+        return Inertia::render('Restaurants/Show', [
+            'restaurant' => $this->formatLiveRestaurant($restaurant),
+            'categorySlug' => null,
+            'isLivePreview' => true,
+            'canonicalUrl' => route('restaurants.preview', $previewParams),
+        ]);
+    }
+
+    /**
+     * Format a raw live-search result array into the Show.vue restaurant prop
+     * shape (parallel to formatRestaurantData, which maps a DB Restaurant model).
+     */
+    private function formatLiveRestaurant(array $r): array
+    {
+        return [
+            'id' => $r['id'] ?? null,
+            'name' => $r['name'] ?? null,
+            'slug' => $r['slug'] ?? null,
+            'description' => $r['description'] ?? null,
+            'address' => $r['address'] ?? null,
+            'city' => $r['city'] ?? null,
+            'state' => $r['state'] ?? null,
+            'postal_code' => $r['postal_code'] ?? null,
+            'lat' => $r['lat'] ?? null,
+            'lng' => $r['lng'] ?? null,
+            'photo_url' => $r['photo_url'] ?? null,
+            'photos' => $r['photos'] ?? [],
+            'price_range' => $r['price_range'] ?? null,
+            'phone' => $r['phone'] ?? null,
+            'website_url' => $r['website_url'] ?? null,
+            'google_rating' => $r['google_rating'] ?? null,
+            'google_review_count' => $r['google_review_count'] ?? null,
+            'yelp_rating' => $r['yelp_rating'] ?? null,
+            'yelp_review_count' => $r['yelp_review_count'] ?? null,
+            'popular_times_avg_busyness' => $r['popular_times_avg_busyness'] ?? null,
+            'has_award' => $r['has_award'] ?? false,
+            'popularity_score' => $r['popularity_score'] ?? null,
+            'cuisines' => $r['cuisines'] ?? [],
+            'source' => $r['source'] ?? 'live',
+            'score_breakdown' => $r['score_breakdown'] ?? null,
+        ];
+    }
+
     public function apiIndex(Request $request)
     {
         $validated = $request->validate([

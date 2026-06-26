@@ -15,6 +15,8 @@ import { useSeo, generateRestaurantJsonLd } from '@/composables/useSeo';
 
 const props = defineProps<{
     categorySlug: string | null;
+    canonicalUrl?: string | null;
+    isLivePreview?: boolean;
     restaurant: {
         id: number;
         name: string;
@@ -89,19 +91,22 @@ const seoData = computed(() => {
         ? `${props.restaurant.description.substring(0, 160)}${props.restaurant.description.length > 160 ? '...' : ''}`
         : `Visit ${props.restaurant.name} for ${cuisineNames.value.toLowerCase()} cuisine in ${props.restaurant.city || 'your area'}. View ratings, reviews, photos, and more.`
 
+    const restaurantUrl = props.canonicalUrl ?? `${baseUrl.value}/restaurants/${props.restaurant.slug}`;
+
     return useSeo({
         title,
         description,
-        url: `${baseUrl.value}/restaurants/${props.restaurant.slug}`,
+        url: restaurantUrl,
         image: photos.value[0] || undefined,
         type: 'restaurant',
+        noindex: props.isLivePreview === true,
     })
 })
 
 const structuredData = computed(() => {
     const restaurantData = {
         name: props.restaurant.name,
-        url: `${baseUrl.value}/restaurants/${props.restaurant.slug}`,
+        url: props.canonicalUrl ?? `${baseUrl.value}/restaurants/${props.restaurant.slug}`,
         address: props.restaurant.address,
         city: props.restaurant.city,
         state: props.restaurant.state,
@@ -132,6 +137,7 @@ function openWebsite(url: string) {
         <Head>
             <title>{{ seoData.title }}</title>
             <meta name="description" :content="seoData.description" />
+            <meta v-if="seoData.noindex" name="robots" content="noindex" />
             <link rel="canonical" :href="seoData.canonical" />
             <link
                 v-if="photos.length > 0"

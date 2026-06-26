@@ -30,7 +30,7 @@ class LiveSearchService
      * Search for restaurants near coordinates using external APIs.
      * All sources fire concurrently (BizData, Foursquare, Overpass) and are merged together.
      */
-    public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null): array
+    public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null, bool $cacheOnly = false): array
     {
         $cuisineName = $this->resolveCuisineName($cuisineSlug);
 
@@ -38,7 +38,7 @@ class LiveSearchService
             return [];
         }
 
-        $results = $this->fetchAndMergeAllSources($lat, $lng, $cuisineName);
+        $results = $this->fetchAndMergeAllSources($lat, $lng, $cuisineName, $cacheOnly);
 
         // Filter garbage names from OSM-derived sources before dedup
         $results = $this->filterGarbageNames($results);
@@ -70,7 +70,7 @@ class LiveSearchService
      * misses enter the pool. Per-source failures are isolated — one slow or
      * dead source cannot block or fail the others.
      */
-    private function fetchAndMergeAllSources(float $lat, float $lng, ?string $cuisine): array
+    private function fetchAndMergeAllSources(float $lat, float $lng, ?string $cuisine, bool $cacheOnly = false): array
     {
         $context = ['read_path' => true];
 
@@ -97,6 +97,13 @@ class LiveSearchService
                 $cached = ExternalApiCache::findByKey($key);
                 if ($cached !== null) {
                     $hits[$label] = $cached;
+                    continue;
+                }
+
+                // Cache-only mode (e.g. detail-page reconstruction): never issue a
+                // live fetch — serve from warm caches only, or contribute nothing.
+                // This keeps preview reconstruction quota-free.
+                if ($cacheOnly) {
                     continue;
                 }
 
@@ -127,8 +134,11 @@ class LiveSearchService
         }
 
         // Overpass name-regex fallback — serial and conditional, as before:
-        // only when the cuisine-tagged Overpass query returned nothing.
-        $merged = $this->applyOverpassNameFallback($merged, $lat, $lng, $cuisine);
+        // only when the cuisine-tagged Overpass query returned nothing. Skipped in
+        // cache-only mode (it performs a live fetch we must not trigger).
+        if (! $cacheOnly) {
+            $merged = $this->applyOverpassNameFallback($merged, $lat, $lng, $cuisine);
+        }
 
         return $merged;
     }

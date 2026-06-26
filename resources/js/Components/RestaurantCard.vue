@@ -14,14 +14,30 @@ import { useFavorites } from '@/composables/useFavorites';
 const props = defineProps<{
     restaurant: Restaurant;
     rank: number;
+    searchLat?: number | null;
+    searchLng?: number | null;
+    cuisine?: string;
 }>();
 
 const { isFavorited, toggle } = useFavorites();
 
-// Compute the detail or maps URL for the stretched link
+// Compute the detail or maps URL for the stretched link. Persisted venues
+// (id > 0) link to their DB detail page; live results link to the cache-backed
+// preview route (spec-040) when we have the search-center coords needed to
+// reconstruct from warm caches, otherwise fall back to Google Maps.
 const detailOrMapsUrl = computed(() => {
     if (props.restaurant.id > 0) {
         return `/restaurants/${props.restaurant.slug}`;
+    }
+    if (props.searchLat != null && props.searchLng != null) {
+        const params = new URLSearchParams({
+            lat: String(props.searchLat),
+            lng: String(props.searchLng),
+        });
+        if (props.cuisine) {
+            params.set('cuisine', props.cuisine);
+        }
+        return `/restaurants/preview/${props.restaurant.slug}?${params.toString()}`;
     }
     return mapsUrl(props.restaurant.name, props.restaurant.city);
 });
