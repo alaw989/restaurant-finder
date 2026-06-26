@@ -5,27 +5,10 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import StarRating from '@/Components/StarRating.vue';
 import ScoreBreakdown from '@/Components/ScoreBreakdown.vue';
 import DetailMap from '@/Components/DetailMap.vue';
+import CardGallery from '@/Components/CardGallery.vue';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-
-const cuisineGradient = (slug: string): string => {
-    const gradients: Record<string, string> = {
-        italian: 'linear-gradient(135deg, #e63946 0%, #f1faee 50%, #457b9d 100%)',
-        mexican: 'linear-gradient(135deg, #f77f00 0%, #fcbf49 20%, #d62828 100%)',
-        chinese: 'linear-gradient(135deg, #d90429 0%, #ef233c 30%, #8d0801 100%)',
-        japanese: 'linear-gradient(135deg, #e63946 0%, #f4a261 40%, #264653 100%)',
-        thai: 'linear-gradient(135deg, #e63946 0%, #e9c46a 40%, #2a9d8f 100%)',
-        indian: 'linear-gradient(135deg, #e76f51 0%, #f4a261 30%, #264653 100%)',
-        american: 'linear-gradient(135deg, #457b9d 0%, #1d3557 50%, #e63946 100%)',
-        greek: 'linear-gradient(135deg, #457b9d 0%, #a8dadc 40%, #f1faee 100%)',
-        korean: 'linear-gradient(135deg, #d62828 0%, #e76f51 40%, #264653 100%)',
-        vietnamese: 'linear-gradient(135deg, #2a9d8f 0%, #e9c46a 40%, #f4a261 100%)',
-        pizza: 'linear-gradient(135deg, #e63946 0%, #f1faee 40%, #a8dadc 100%)',
-        burger: 'linear-gradient(135deg, #d62828 0%, #f77f00 50%, #fcbf49 100%)',
-        sushi: 'linear-gradient(135deg, #264653 0%, #2a9d8f 40%, #e9c46a 100%)',
-    };
-    return gradients[slug] ?? 'linear-gradient(135deg, #1d3557 0%, #457b9d 30%, #a8dadc 100%)';
-};
+import { cuisineGradient } from '@/lib/cuisine';
 
 const props = defineProps<{
     categorySlug: string | null;
@@ -41,6 +24,7 @@ const props = defineProps<{
         lat: number | null;
         lng: number | null;
         photo_url: string | null;
+        photos?: Array<string | null>;
         price_range: string | null;
         phone: string | null;
         website_url: string | null;
@@ -65,13 +49,19 @@ const props = defineProps<{
     };
 }>();
 
-const bgStyle = computed(() => {
-    const gradient = cuisineGradient(props.restaurant.cuisines[0]?.slug || 'food')
-    if (props.restaurant.photo_url) {
-        return { backgroundImage: `url(${props.restaurant.photo_url}), ${gradient}` }
-    }
-    return { backgroundImage: gradient }
-})
+const photos = computed(() =>
+    Array.from(
+        new Set(
+            [props.restaurant.photo_url, ...(props.restaurant.photos ?? [])].filter(
+                Boolean,
+            ) as string[],
+        ),
+    ),
+);
+
+const gradient = computed(() =>
+    cuisineGradient(props.restaurant.cuisines[0]?.slug),
+);
 
 function callPhone(phone: string) {
     window.location.href = `tel:${phone}`;
@@ -109,12 +99,14 @@ function openWebsite(url: string) {
             <!-- Hero -->
             <div class="mt-4 grid gap-8 lg:grid-cols-5">
                 <div class="lg:col-span-3">
-                    <div class="overflow-hidden rounded-xl">
-                    <div
-                        class="h-72 w-full bg-cover bg-center sm:h-96"
-                        :style="bgStyle"
+                    <CardGallery
+                        :photos="photos"
+                        :gradient="gradient"
+                        :alt="restaurant.name"
+                        aspect="3/2"
+                        :multi="false"
+                        rounded-class="rounded-xl"
                     />
-                    </div>
                 </div>
 
                 <!-- Info sidebar -->
