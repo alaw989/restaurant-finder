@@ -140,6 +140,26 @@
     .fade-leave-to {
         opacity: 0;
     }
+
+    /* Skip rendering offscreen result cards. contain-intrinsic-size keeps the
+       scrollbar stable (browser remembers the real height after first paint,
+       falls back to ~380px before). Pairs with removing per-card v-motion:
+       an IntersectionObserver-driven entrance misfires under content-visibility. */
+    .cv-card {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 380px;
+    }
+
+    /* Lightweight card entrance for the first screenful only (rank <= 12).
+       Replaces @vueuse/motion v-motion (one IntersectionObserver/card). */
+    @keyframes cardEnter {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: none; }
+    }
+    .card-enter {
+        animation: cardEnter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation-delay: calc(min(var(--rank, 1) - 1, 12) * 35ms);
+    }
 }
 
 @layer base {

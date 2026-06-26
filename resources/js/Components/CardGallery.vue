@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import { useCardGallery } from '@/composables/useCardGallery';
 
@@ -19,7 +19,7 @@ const props = withDefaults(
     { aspect: '4/3', multi: true, roundedClass: 'rounded-t-2xl', eager: false },
 );
 
-const { activeIndex, onMove, onLeave, prev, next } = useCardGallery(() => props.photos);
+const { activeIndex, onMove, onEnter, onLeave, prev, next } = useCardGallery(() => props.photos);
 
 const galleryActive = computed(() => props.multi && props.photos.length > 1);
 
@@ -45,58 +45,94 @@ function updateHoverCapability() {
     hasHover.value = window.matchMedia('(hover: hover)').matches;
 }
 
+// Lazy-mount the non-hero photo stack: render only the hero until the user shows
+// intent (hover/focus) or the card nears the viewport, then mount the rest. This
+// cuts up to 5 <img> elements (and their compositor layers) per offscreen card.
+// The network fetch was already lazy; now the DOM/layers are too.
+const expanded = ref(false);
+const galleryRoot = ref<HTMLElement | null>(null);
+let expandObserver: IntersectionObserver | null = null;
+
+function expandNow() {
+    if (expanded.value) return;
+    expanded.value = true;
+    expandObserver?.disconnect();
+    expandObserver = null;
+}
+
+function handleEnter() {
+    if (!galleryActive.value) return;
+    expandNow();
+    onEnter();
+}
+
 onMounted(() => {
     updateHoverCapability();
     window.matchMedia('(hover: hover)').addEventListener('change', updateHoverCapability);
+
+    // Only multi-photo cards have extra images worth mounting ahead of time.
+    if (galleryActive.value && galleryRoot.value && 'IntersectionObserver' in window) {
+        expandObserver = new IntersectionObserver(
+            (entries) => {
+                for (const e of entries) {
+                    if (e.isIntersecting) expandNow();
+                }
+            },
+            { rootMargin: '200px 0px' },
+        );
+        expandObserver.observe(galleryRoot.value);
+    }
 });
 
 onUnmounted(() => {
     window.matchMedia('(hover: hover)').removeEventListener('change', updateHoverCapability);
+    expandObserver?.disconnect();
 });
-
-// Blur-up: veil the gradient until the hero photo actually loads.
-const heroLoaded = ref(false);
-const showVeil = computed(() => props.photos.length > 0 && !heroLoaded.value);
-watch(
-    () => props.photos[0],
-    () => {
-        heroLoaded.value = false;
-    },
-);
 </script>
 
 <template>
     <div
+        ref="galleryRoot"
         class="relative w-full overflow-hidden"
         :class="[aspectClass, roundedClass]"
-        @mousemove="galleryActive && onMove($event)"
+        @mousemove="galleryActive && expanded && onMove($event)"
+        @mouseenter="handleEnter"
         @mouseleave="galleryActive && onLeave()"
+        @focusin="galleryActive && expandNow()"
+        @pointerdown="galleryActive && expandNow()"
     >
         <!-- cuisine gradient backdrop (perceived-perf + graceful no-photo) -->
         <div class="absolute inset-0" :style="{ background: gradient }" />
 
-        <!-- image stack: crossfade between photos via opacity -->
+        <!-- Hero image: always rendered (LCP-relevant). Crossfades via opacity
+             over the gradient — no backdrop-blur veil needed. -->
         <img
-            v-for="(src, i) in photos"
-            :key="src + '-' + i"
-            :src="src"
-            :alt="i === 0 ? alt : ''"
+            v-if="photos[0]"
+            :src="photos[0]"
+            :alt="alt"
             :width="imageWidth"
             :height="imageHeight"
             :sizes="imageSizes"
             :loading="eager ? 'eager' : 'lazy'"
             :fetchpriority="eager ? 'high' : 'auto'"
             decoding="async"
-            class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out will-change-[opacity]"
-            :class="i === activeIndex ? 'opacity-100' : 'opacity-0'"
-            @load="i === 0 ? (heroLoaded = true) : undefined"
-            @error="i === 0 ? (heroLoaded = true) : undefined"
+            class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out"
+            :class="activeIndex === 0 ? 'opacity-100' : 'opacity-0'"
         />
 
-        <!-- blur-up veil over the gradient until the hero resolves -->
-        <div
-            v-show="showVeil"
-            class="pointer-events-none absolute inset-0 bg-background/20 backdrop-blur-xl transition-opacity duration-500"
+        <!-- Non-hero images: mounted only after `expanded` (hover/focus/near-viewport). -->
+        <img
+            v-for="(src, i) in (expanded ? photos.slice(1) : [])"
+            :key="src + '-' + (i + 1)"
+            :src="src"
+            :alt="''"
+            :width="imageWidth"
+            :height="imageHeight"
+            :sizes="imageSizes"
+            loading="lazy"
+            decoding="async"
+            class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out"
+            :class="activeIndex === i + 1 ? 'opacity-100' : 'opacity-0'"
         />
 
         <!-- bottom readability scrim -->
@@ -146,7 +182,7 @@ watch(
             </button>
             <!-- Dots + counter (visible on touch, hover on desktop) -->
             <div
-                class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 backdrop-blur-sm transition-opacity duration-300"
+                class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-2 py-1 transition-opacity duration-300"
                 :class="hasHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'"
             >
                 <span

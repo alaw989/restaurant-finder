@@ -259,7 +259,9 @@ class SerpApiService
             $rating = $r['rating'] ?? null;
             $reviews = $r['reviews'] ?? null;
             $priceLevel = $this->parsePriceRange($r['price_level'] ?? null);
-            $photo = $r['thumbnail'] ?? null;
+            // Size Google's thumbnail so we don't ship multi-MB originals.
+            // See sizeGoogleThumbnail(): only lh[3-6].googleusercontent.com URLs are touched.
+            $photo = $this->sizeGoogleThumbnail($r['thumbnail'] ?? null);
 
             // Capture Google's structured cuisine classification. SerpApi's
             // q="<cuisine> near me" still leaks off-cuisine rows (spec-028), so the
@@ -324,6 +326,28 @@ class SerpApiService
             4 => '$$$$',
             default => null,
         };
+    }
+
+    /**
+     * Downsize a Google thumbnail URL to the card's 4:3 reference (400x300).
+     *
+     * SerpApi passes the raw lh[3-6].googleusercontent.com thumbnail through,
+     * which can be a multi-Megabyte original. Google's image CDN sizes via a
+     * trailing `=...` argument, so we replace it with a 400x300 crop. Any other
+     * host (Google Places Photo API, Foursquare, internal /storage) is returned
+     * untouched — those are already sized at their source.
+     */
+    private function sizeGoogleThumbnail(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        if (!preg_match('#^https?://lh[3-6]\.googleusercontent\.com/#i', $url)) {
+            return $url;
+        }
+
+        return preg_replace('/=[^\/]+$/', '=w400-h300-c-no', $url);
     }
 
     /**

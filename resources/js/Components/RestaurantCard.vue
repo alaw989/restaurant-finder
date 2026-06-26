@@ -81,22 +81,9 @@ const mapCoords = computed(() => {
     return null;
 });
 
-// Entrance animation: fade + rise, capped stagger at rank 12
-const animation = computed(() => {
-    const cappedRank = Math.min(Math.max(props.rank - 1, 0), 11);
-    return {
-        initial: { opacity: 0, y: 16 },
-        enter: {
-            opacity: 1,
-            y: 0,
-            transition: {
-                delay: cappedRank * 45,
-                duration: 320,
-                ease: [0.16, 1, 0.3, 1],
-            },
-        },
-    };
-});
+// Entrance is now a CSS fade on the first screenful only (see .card-enter in
+// app.css). Replaces the old v-motion directive — one IntersectionObserver/card
+// misfires under content-visibility, so we dropped it.
 
 function mapsUrl(name: string, city: string | null): string {
     const q = city ? `${name}, ${city}` : name;
@@ -119,7 +106,8 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
 <template>
     <article
-        v-motion="animation"
+        :class="[rank <= 12 ? 'card-enter' : '', 'cv-card']"
+        :style="{ '--rank': rank }"
         class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl bg-card border"
     >
             <!-- Photo section with CardGallery -->
@@ -133,7 +121,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     <!-- Rank badge -->
                     <div class="absolute left-3 top-3">
                         <div
-                            class="flex h-9 min-w-[36px] items-center justify-center rounded-full bg-gradient-to-r px-3 text-sm font-bold shadow-lg ring-2 ring-white/50 backdrop-blur-sm transition-transform duration-200 group-hover:scale-110"
+                            class="flex h-9 min-w-[36px] items-center justify-center rounded-full bg-gradient-to-r px-3 text-sm font-bold shadow-lg ring-2 ring-white/50 transition-transform duration-200 group-hover:scale-110"
                             :class="[rankStyle.bg, rankStyle.text]"
                         >
                             <span v-if="rank === 1">🔥</span>
@@ -143,7 +131,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
                     <!-- Award pill -->
                     <div v-if="restaurant.has_award" class="absolute bottom-3 left-3">
-                        <div class="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2.5 py-1 text-xs font-semibold text-white shadow-lg ring-2 ring-white/50 backdrop-blur-sm">
+                        <div class="inline-flex items-center gap-1 rounded-full bg-amber-400 px-2.5 py-1 text-xs font-semibold text-white shadow-lg ring-2 ring-white/50">
                             <span>⭐</span>
                             <span>Michelin</span>
                         </div>
@@ -157,7 +145,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     <!-- Heart (persistent, hybrid: localStorage for guests, server for authed) -->
                     <!-- Hit area expanded to 44px with -m-1.5 (adds 12px: 32+12=44px) -->
                     <button
-                        class="relative z-10 absolute -right-1.5 -top-1.5 flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0 backdrop-blur-sm"
+                        class="relative z-10 absolute -right-1.5 -top-1.5 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0"
                         :class="{ 'text-red-500 fill-red-500': saved, 'opacity-100': saved }"
                         :aria-label="ariaLabel"
                         @click.stop="() => toggle(restaurant)"
