@@ -99,8 +99,12 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
   (`is_live: true` = served from live search; false/null = DB-served).
 - Scorer: `app/Services/PopularityScoreService.php` (Bayesian `quality`).
 - Retriever: `app/Services/LiveSearchService.php`.
-- Config: `config/restaurant-finder.php` (weights + knobs).
-- Tests: `php artisan test` (235 tests, 799 assertions).
+- Cuisine matching: `app/Services/CuisineMatcher.php` (+ `CuisineScope`) — the single accessor for
+  `config/cuisine-keywords.php` (the lexicon; all 49 cuisines + 8 category→member maps). Every
+  cuisine/category keyword/synonym lookup goes through it; a drift-guard test asserts it covers the
+  seeded DB taxonomy.
+- Config: `config/restaurant-finder.php` (weights + knobs); `config/cuisine-keywords.php` (cuisine lexicon).
+- Tests: `php artisan test` (253 tests, 927 assertions).
 
 ## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
@@ -132,9 +136,13 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-26)
-**001–038 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
+**001–041 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
 results-redesign audit) merged to master via **PR #2 (`ba40e12`, 2026-06-26)** — deployed + verified
-live (branch `ralph/audit-followup` merged + deleted).
+live (branch `ralph/audit-followup` merged + deleted). **041** (cuisine filter single source of truth
++ honest category search — the "All African → 100 any-cuisine" bug; new `config/cuisine-keywords.php`
++ `CuisineMatcher`/`CuisineScope`, category searches first-class, fail-honest, result bounding) —
+implemented in interactive mode, 253 tests green, verified live-locally; **pending commit/push +
+deploy-verify**.
 
 The **open queue is 039 (blocked) + 040 (proposed/blocked on direction).** Specs 034–039 were
 authored + adversarially line-verified against the redesign; their detail bullets are kept below as

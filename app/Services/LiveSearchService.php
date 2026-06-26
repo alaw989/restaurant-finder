@@ -24,6 +24,7 @@ class LiveSearchService
         private SerpApiService $serpApiService,
         private SocrataOpenDataService $socrataService,
         private PopularityScoreService $scoreService,
+        private CuisineMatcher $cuisineMatcher,
     ) {}
 
     /**
@@ -32,22 +33,25 @@ class LiveSearchService
      */
     public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null, bool $cacheOnly = false): array
     {
-        $cuisineName = $this->resolveCuisineName($cuisineSlug);
+        $scope = $this->cuisineMatcher->resolveScope($cuisineSlug, $categorySlug);
 
-        if ($cuisineSlug !== null && $cuisineName === null) {
+        // A cuisine/category was requested but is unknown to the taxonomy →
+        // honest empty. Never silently fall back to unfiltered "any cuisine"
+        // rows (the old fail-open that returned 100 wrong results).
+        if ($scope->isInvalid()) {
             return [];
         }
 
-        $results = $this->fetchAndMergeAllSources($lat, $lng, $cuisineName, $cacheOnly);
+        $results = $this->fetchAndMergeAllSources($lat, $lng, $scope, $cacheOnly);
 
         // Filter garbage names from OSM-derived sources before dedup
         $results = $this->filterGarbageNames($results);
 
-        // Cuisine relevance: drop off-cuisine venues from sources that don't
-        // cuisine-filter their own query (BizData ignores its `query` param).
+        // Cuisine relevance: drop off-cuisine venues. No-op when unscoped
+        // (legit "any cuisine" search / cache-only preview reconstruction).
         // Runs BEFORE dedup so each row still carries its original `source`
         // (dedup can fold a trusted row into an unfiltered-source row).
-        $results = $this->filterByCuisineRelevance($results, $cuisineName);
+        $results = $this->filterByCuisineRelevance($results, $scope);
 
         // Cross-source dedup: fuzzy name + proximity matching
         $results = $this->crossSourceDedup($results);
@@ -57,6 +61,9 @@ class LiveSearchService
         $results = $this->filterByDistance($results, $lat, $lng);
 
         $results = $this->scoreWithUnifiedService($results, $lat, $lng);
+
+        // Bound the list: drop the weak tail and cap the count (scored + sorted).
+        $results = $this->boundResults($results);
 
         return $results;
     }
@@ -70,7 +77,7 @@ class LiveSearchService
      * misses enter the pool. Per-source failures are isolated — one slow or
      * dead source cannot block or fail the others.
      */
-    private function fetchAndMergeAllSources(float $lat, float $lng, ?string $cuisine, bool $cacheOnly = false): array
+    private function fetchAndMergeAllSources(float $lat, float $lng, CuisineScope $scope, bool $cacheOnly = false): array
     {
         $context = ['read_path' => true];
 
@@ -82,6 +89,14 @@ class LiveSearchService
             'overpass'   => $this->overpassService,
         ];
 
+        // Per-source cuisine string derived from the ONE resolved scope.
+        // Query-style sources (SerpApi/Foursquare/BizData/Socrata) get the
+        // human term ("african" → "african near me" — ONE quota call). Overpass
+        // gets the slug, which it expands to a synonym union via config.
+        $scoped = $scope->isScoped();
+        $queryCuisine = $scoped ? $scope->queryTerm : null;
+        $overpassCuisine = $scoped ? $scope->primarySlug : null;
+
         // PASS 1 — synchronous cache lookups. Collect hits; plan misses.
         // Each source is isolated so one source's cache/store hiccup can't kill
         // the whole search (matches the prior per-source resilience).
@@ -91,7 +106,8 @@ class LiveSearchService
 
         foreach ($sources as $label => $service) {
             try {
-                $key = $service->cacheKeyFor($lat, $lng, $cuisine);
+                $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
+                $key = $service->cacheKeyFor($lat, $lng, $sourceCuisine);
                 $keys[$label] = $key;
 
                 $cached = ExternalApiCache::findByKey($key);
@@ -107,7 +123,7 @@ class LiveSearchService
                     continue;
                 }
 
-                $specs = $service->poolRequestsFor($lat, $lng, $cuisine, $context);
+                $specs = $service->poolRequestsFor($lat, $lng, $sourceCuisine, $context);
                 if (!empty($specs)) {
                     $toFetch[$label] = $specs;
                 }
@@ -123,10 +139,11 @@ class LiveSearchService
         $merged = [];
         foreach ($sources as $label => $service) {
             try {
+                $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
                 if (isset($hits[$label])) {
-                    $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $cuisine));
+                    $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $sourceCuisine));
                 } elseif (isset($poolResults[$label])) {
-                    $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $cuisine, $keys[$label]));
+                    $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $sourceCuisine, $keys[$label]));
                 }
             } catch (\Throwable $e) {
                 Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
@@ -137,7 +154,7 @@ class LiveSearchService
         // only when the cuisine-tagged Overpass query returned nothing. Skipped in
         // cache-only mode (it performs a live fetch we must not trigger).
         if (! $cacheOnly) {
-            $merged = $this->applyOverpassNameFallback($merged, $lat, $lng, $cuisine);
+            $merged = $this->applyOverpassNameFallback($merged, $lat, $lng, $scope->onKeywords);
         }
 
         return $merged;
@@ -238,9 +255,9 @@ class LiveSearchService
      * cache-cold search can't blow past the gateway limit; the enrichment path
      * keeps the full fan-out.
      */
-    private function applyOverpassNameFallback(array $merged, float $lat, float $lng, ?string $cuisine): array
+    private function applyOverpassNameFallback(array $merged, float $lat, float $lng, array $keywords): array
     {
-        if (empty($cuisine)) {
+        if (empty($keywords)) {
             return $merged;
         }
 
@@ -248,11 +265,6 @@ class LiveSearchService
             if (($r['source'] ?? null) === 'overpass') {
                 return $merged; // cuisine query already produced Overpass venues
             }
-        }
-
-        $keywords = $this->cuisineNameKeywords($cuisine);
-        if (empty($keywords)) {
-            return $merged;
         }
 
         try {
@@ -299,6 +311,37 @@ class LiveSearchService
 
         // Sort by popularity score descending
         usort($results, fn ($a, $b) => $b['popularity_score'] <=> $a['popularity_score']);
+
+        return $results;
+    }
+
+    /**
+     * Bound the scored result list: drop the weak tail (below min_score) and cap
+     * the count (max_results). Runs after scoring, which sorts by score desc, so
+     * the cap keeps the strongest venues. Guards against dumping dozens of
+     * low-relevance rows (Socrata's $limit=100 plus SerpApi/Socrata breadth can
+     * otherwise produce ~100 cards trailing to single-digit scores). Applied to
+     * scoped AND unscoped live searches.
+     */
+    private function boundResults(array $results): array
+    {
+        if (empty($results)) {
+            return [];
+        }
+
+        $minScore = (float) config('restaurant-finder.live_search.min_score', 0.0);
+        $maxResults = (int) config('restaurant-finder.live_search.max_results', 0);
+
+        if ($minScore > 0) {
+            $results = array_values(array_filter(
+                $results,
+                fn ($r) => (float) ($r['popularity_score'] ?? 0) >= $minScore
+            ));
+        }
+
+        if ($maxResults > 0 && count($results) > $maxResults) {
+            $results = array_slice($results, 0, $maxResults);
+        }
 
         return $results;
     }
@@ -428,9 +471,11 @@ class LiveSearchService
      * mis-drop a venue carrying real data. Mirrors filterByDistance()'s role for
      * geography (spec-026).
      */
-    private function filterByCuisineRelevance(array $results, ?string $cuisineName): array
+    private function filterByCuisineRelevance(array $results, CuisineScope $scope): array
     {
-        if (empty($cuisineName)) {
+        // No-op when unscoped (legit "any cuisine" search). Scoped-on-cuisine
+        // keyword sets are pre-computed on the CuisineScope by CuisineMatcher.
+        if (! $scope->isScoped()) {
             return $results;
         }
 
@@ -438,34 +483,16 @@ class LiveSearchService
         $unfilteredSet = array_flip(array_map('strtolower', $unfiltered));
         $scrutinizeTrusted = (bool) config('restaurant-finder.filters.scrutinize_trusted_sources', true);
 
-        $fullMap = $this->allCuisineKeywordMap();
-        $onKey = strtolower(trim($cuisineName));
-        $onSet = $fullMap[$onKey] ?? [strtolower($cuisineName)];
-        if (empty($onSet)) {
-            return $results;
-        }
-
         // ON pattern matches name + type + description (broad recall for genuine
         // rows whose name lacks a keyword, e.g. "Panda Express").
-        $onPattern = '/' . implode('|', $onSet) . '/i';
+        $onPattern = '/' . implode('|', $scope->onKeywords) . '/i';
 
-        // RIVAL pattern = union of all OTHER cuisines' keywords, minus the ON set,
-        // so no ON keyword is ever also a rival (onMatch always wins). Applied to
+        // RIVAL pattern = all OTHER cuisines' keywords, minus the ON set, so no
+        // ON keyword is ever also a rival (onMatch always wins). Applied to
         // trusted-source rows ONLY against type + description (not name).
-        $rivalSet = [];
-        foreach ($fullMap as $cuisine => $kws) {
-            if ($cuisine === $onKey) {
-                continue;
-            }
-            foreach ($kws as $kw) {
-                if (!in_array($kw, $onSet, true)) {
-                    $rivalSet[] = $kw;
-                }
-            }
-        }
-        $rivalPattern = empty($rivalSet)
+        $rivalPattern = empty($scope->rivalKeywords)
             ? null
-            : ('/' . implode('|', array_values(array_unique($rivalSet))) . '/i');
+            : ('/' . implode('|', array_values(array_unique($scope->rivalKeywords))) . '/i');
 
         $dropped = []; // observability for the new trusted-source drop
 
@@ -518,7 +545,7 @@ class LiveSearchService
 
         if (!empty($dropped)) {
             Log::info('Cuisine-relevance filter dropped trusted-source rival rows', [
-                'cuisine' => $onKey,
+                'cuisine' => $scope->primarySlug,
                 'count' => count($dropped),
                 'dropped' => $dropped,
             ]);
@@ -682,44 +709,5 @@ class LiveSearchService
         }
 
         return $deduped;
-    }
-
-    private function cuisineNameKeywords(string $cuisine): array
-    {
-        $map = $this->allCuisineKeywordMap();
-        $key = strtolower(trim($cuisine));
-        return $map[$key] ?? [strtolower($cuisine)];
-    }
-
-    /**
-     * Full cuisine → regex-ready keyword map. Single source of truth shared by
-     * cuisineNameKeywords() (on-cuisine match) and filterByCuisineRelevance()'s
-     * rival-pattern construction (all OTHER cuisines' keywords). Keywords are
-     * regex fragments ('dim.sum' matches "dim sum"/"dimsum") — keep them regex-safe.
-     */
-    private function allCuisineKeywordMap(): array
-    {
-        return [
-            'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
-            'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
-            'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan'],
-            'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada'],
-            'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan', 'taj', 'raja'],
-            'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
-            'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
-            'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
-            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse', 'southern', 'cajun', 'creole', 'soul.food', 'new.american'],
-            'greek'     => ['greek', 'gyro', 'mediterranean', 'athens', 'santorini', 'olive'],
-        ];
-    }
-
-    private function resolveCuisineName(?string $slug): ?string
-    {
-        if (!$slug) {
-            return null;
-        }
-
-        $cuisine = \App\Models\Cuisine::where('slug', $slug)->first();
-        return $cuisine?->name;
     }
 }

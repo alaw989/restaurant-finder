@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\BizDataApiService;
+use App\Services\CuisineMatcher;
 use App\Services\FoursquareService;
 use App\Services\Http\RequestSpec;
 use App\Services\LiveSearchService;
@@ -289,6 +290,7 @@ class LiveSearchScoringTest extends TestCase
             $mocks['serpapi'],
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
+            $this->app->make(CuisineMatcher::class),
         );
 
         $results = $service->search(37.7749, -122.4194, null);
@@ -368,6 +370,7 @@ class LiveSearchScoringTest extends TestCase
             $mocks['serpapi'],
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
+            $this->app->make(CuisineMatcher::class),
         );
     }
 
@@ -628,8 +631,10 @@ class LiveSearchScoringTest extends TestCase
 
     public function test_cuisine_filter_unmapped_cuisine_falls_back_to_bare_word(): void
     {
-        // A cuisine absent from the cuisineNameKeywords map falls back to its bare
-        // lowercased name as the only keyword.
+        // Filipino is now fully mapped in config/cuisine-keywords.php (it was
+        // previously unmapped). This still validates the on/off-cuisine keep/drop
+        // for a less-common cuisine: an on-cuisine venue survives, an off-cuisine
+        // one is dropped.
         $this->seedCuisine('Filipino', 'filipino');
 
         $service = $this->makeServiceWithVenues([
@@ -646,9 +651,102 @@ class LiveSearchScoringTest extends TestCase
         $this->assertNotContains('Buddy Seafood', $names);
     }
 
+    public function test_category_search_filters_to_member_cuisines(): void
+    {
+        // The reported bug: "All African" returned 100 any-cuisine results
+        // because $categorySlug was a dead parameter. A category scope now
+        // filters: an on-cuisine (Ethiopian) venue is kept, an off-cuisine
+        // (Italian) rival is dropped.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                [
+                    'name' => 'Abyssinia Ethiopian',
+                    'source' => 'serpapi',
+                    'lat' => 30.65,
+                    'lng' => -88.20,
+                    'place_types' => ['Ethiopian restaurant'],
+                    'description' => 'Injera and doro wat.',
+                ],
+                [
+                    'name' => 'Luigis Trattoria',
+                    'source' => 'serpapi',
+                    'lat' => 30.66,
+                    'lng' => -88.21,
+                    'place_types' => ['Italian restaurant'],
+                    'description' => 'Wood-fired pizza and pasta.',
+                ],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null, 'african');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Abyssinia Ethiopian', $names);
+        $this->assertNotContains('Luigis Trattoria', $names);
+    }
+
+    public function test_unknown_cuisine_returns_honest_empty(): void
+    {
+        // A requested-but-unknown cuisine must return NO results, not silently
+        // fall back to unfiltered "any cuisine" rows (the old fail-open).
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [['name' => 'Anything', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20]],
+        ]);
+
+        $this->assertSame([], $service->search(30.6199783, -88.1967496, 'not-a-real-cuisine'));
+    }
+
+    public function test_unknown_category_returns_honest_empty(): void
+    {
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [['name' => 'Anything', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20]],
+        ]);
+
+        $this->assertSame([], $service->search(30.6199783, -88.1967496, null, 'not-a-real-category'));
+    }
+
+    public function test_result_list_is_capped_to_max_results(): void
+    {
+        // 40 venues (spaced >0.2km apart so dedup doesn't collapse them, all
+        // within 50km of the center) must be capped to max_results (default 30).
+        $venues = [];
+        for ($i = 0; $i < 40; $i++) {
+            $venues[] = [
+                'name' => "Venue {$i}",
+                'source' => 'serpapi',
+                'lat' => 30.65 + ($i * 0.005), // ~0.55km spacing
+                'lng' => -88.20,
+            ];
+        }
+        $service = $this->makeServiceWithVenues(['serpapi' => $venues]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+
+        $this->assertCount(30, $results);
+    }
+
+    public function test_result_list_drops_below_min_score_floor(): void
+    {
+        // An impossibly-high floor drops every scored row.
+        $original = config('restaurant-finder.live_search.min_score');
+        Config::set('restaurant-finder.live_search.min_score', 999.0);
+
+        try {
+            $service = $this->makeServiceWithVenues([
+                'serpapi' => [['name' => 'Solo', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20]],
+            ]);
+
+            $this->assertSame([], $service->search(30.6199783, -88.1967496, null));
+        } finally {
+            Config::set('restaurant-finder.live_search.min_score', $original);
+        }
+    }
+
     /**
-     * Create a cuisine (with the category row its FK requires) so search() can
-     * resolve the slug via resolveCuisineName(). RefreshDatabase wipes it per test.
+     * Create a cuisine (with the category row its FK requires). Cuisine
+     * resolution now reads config/cuisine-keywords.php via CuisineMatcher, so a
+     * DB row is no longer required for search() to resolve a slug — kept for
+     * parity. RefreshDatabase wipes it per test.
      */
     private function seedCuisine(string $name, string $slug): void
     {

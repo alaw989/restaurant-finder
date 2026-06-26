@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cuisine;
+use App\Models\CuisineCategory;
 use App\Models\Restaurant;
 use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
@@ -126,14 +127,24 @@ class RestaurantController extends Controller
 
         $sort = $validated['sort'] ?? 'best_match';
         $cuisineSlug = $request->query('cuisine');
+        $categorySlug = $request->query('category');
         $cuisineName = null;
-        $categorySlug = null;
 
+        // Cuisine takes precedence. For a cuisine scope, derive the parent
+        // category slug from the DB (used by the page for navigation). For a
+        // category scope ("All <Category>"), resolve its display name. The
+        // matching/filtering itself is handled by CuisineMatcher on the live
+        // path and by the whereHas() scopes below on the DB path.
         if ($cuisineSlug) {
             $cuisine = Cuisine::where('slug', $cuisineSlug)->with('category')->first();
             if ($cuisine) {
                 $cuisineName = $cuisine->name;
                 $categorySlug = $cuisine->category?->slug;
+            }
+        } elseif ($categorySlug) {
+            $category = CuisineCategory::where('slug', $categorySlug)->first();
+            if ($category) {
+                $cuisineName = $category->name;
             }
         }
 
@@ -146,6 +157,16 @@ class RestaurantController extends Controller
                 fn ($query) => $query->whereHas(
                     'cuisines',
                     fn ($q) => $q->where('slug', $cuisineSlug)
+                )
+            )
+            ->when(
+                $categorySlug && ! $cuisineSlug,
+                fn ($query) => $query->whereHas(
+                    'cuisines',
+                    fn ($q) => $q->whereHas(
+                        'category',
+                        fn ($cq) => $cq->where('slug', $categorySlug)
+                    )
                 )
             )
             ->when(
@@ -165,7 +186,7 @@ class RestaurantController extends Controller
 
         return Inertia::render('Restaurants/Index', [
             'restaurants' => $restaurants,
-            'filters' => $request->only(['cuisine', 'lat', 'lng', 'sort']),
+            'filters' => $request->only(['cuisine', 'category', 'lat', 'lng', 'sort']),
             'cuisineName' => $cuisineName,
             'categorySlug' => $categorySlug,
         ]);

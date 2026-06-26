@@ -37,6 +37,7 @@ class RestaurantEnrichmentService
         private PopularityScoreService $popularityScore,
         private RestaurantWebsiteScraperService $websiteScraper,
         private AiEnrichmentService $aiEnrichment,
+        private CuisineMatcher $cuisineMatcher,
     ) {}
 
     /**
@@ -213,7 +214,7 @@ class RestaurantEnrichmentService
                 }
 
                 // Try name-based fallback
-                $keywords = $this->cuisineNameKeywords($cuisine);
+                $keywords = $this->cuisineMatcher->keywordsFor([$cuisine]);
                 if (empty($keywords)) {
                     return [];
                 }
@@ -569,27 +570,6 @@ class RestaurantEnrichmentService
         }
 
         return $merged;
-    }
-
-    /**
-     * Get cuisine keywords for Overpass name-based fallback.
-     */
-    private function cuisineNameKeywords(string $cuisine): array
-    {
-        $map = [
-            'chinese'   => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
-            'japanese'  => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
-            'italian'   => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan'],
-            'mexican'   => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada'],
-            'indian'    => ['indian', 'tandoor', 'curry', 'biryani', 'masala', 'korma', 'naan', 'taj', 'raja'],
-            'thai'      => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass'],
-            'korean'    => ['korean', 'bbq', 'seoul', 'kimchi', 'bulgogi', 'bibimbap'],
-            'vietnamese' => ['vietnamese', 'pho', 'saigon', 'hanoi', 'banh.mi'],
-            'american'  => ['american', 'burger', 'grill', 'diner', 'smokehouse', 'bbq', 'barbecue', 'steakhouse'],
-            'greek'     => ['greek', 'gyro', 'mediterranean', 'athhens', 'santorini', 'olive'],
-        ];
-        $key = strtolower(trim($cuisine));
-        return $map[$key] ?? [strtolower($cuisine)];
     }
 
     /**

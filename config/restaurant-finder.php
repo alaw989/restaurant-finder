@@ -133,6 +133,20 @@ return [
         // NYC/SF datasets). The 5 sources query within ~25km, so 50km covers a
         // city + metro with margin. Env-overridable.
         'max_distance_km' => (float) env('LIVE_SEARCH_MAX_DISTANCE_KM', 50.0),
+
+        // Cap the live result list after scoring. Socrata hardcodes a 100-row
+        // $limit and SerpApi/Socrata together can return dozens of low-relevance
+        // rows; without a cap the page dumps up to ~100 cards trailing to ~5%
+        // score. Applied to scoped AND unscoped searches, after the cuisine and
+        // distance filters and after scoring (already sorted by score desc).
+        'max_results' => (int) env('LIVE_SEARCH_MAX_RESULTS', 30),
+
+        // Quality floor: drop scored rows below this popularity_score before the
+        // max_results cap. Scores are normalized per active set, so a fixed floor
+        // is unreliable across result sets — it defaults to 0 (off). The
+        // max_results cap is the primary bound; set LIVE_SEARCH_MIN_SCORE (e.g.
+        // 0.10) to additionally trim weak tails in dense areas.
+        'min_score' => (float) env('LIVE_SEARCH_MIN_SCORE', 0.0),
     ],
 
     /*

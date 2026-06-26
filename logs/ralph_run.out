@@ -82,3 +82,25 @@
 [0;35m══════════════════════ LOOP 5 ══════════════════════[0m
 [0;34m[2026-06-25 19:31:07] Starting iteration 5[0m
 
+[0;32m✓ Completion signal detected: <promise>DONE</promise>[0m
+[0;36mGreen-test gate: running `php artisan test`…[0m
+[0;32m✓ Tests green[0m
+[0;36mBuild gate: running `npm run build`…[0m
+[0;32m✓ Build green[0m
+[0;32m✓ Task completed successfully![0m
+
+[0;34mWaiting 2s before next iteration…[0m
+
+[0;35m══════════════════════ LOOP 6 ══════════════════════[0m
+[0;34m[2026-06-25 19:33:25] Starting iteration 6[0m
+
+[0;32m✓ Completion signal detected: <promise>ALL_DONE</promise>[0m
+[0;36mGreen-test gate: running `php artisan test`…[0m
+[0;32m✓ Tests green[0m
+[0;36mBuild gate: running `npm run build`…[0m
+[0;32m✓ Build green[0m
+[0;32m✓ Task completed successfully![0m
+
+[0;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[0;32m     RALPH LOOP FINISHED — ALL SPECS COMPLETE (6 iterations)     [0m
+[0;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m

@@ -12,23 +12,6 @@ class OverpassService
 {
     private const RADII = [25000, 50000, 100000];
 
-    private const CUISINE_SYNONYMS = [
-        'asian' => 'chinese|japanese|korean|vietnamese|thai|indian|mongolian|filipino',
-        'chinese' => 'chinese|szechuan|sichuan|cantonese|dim.sum|shanghai|hunan|peking|beijing|mandarin',
-        'japanese' => 'japanese|sushi|ramen|teriyaki|bento|teppan|izakaya|hibachi|sashimi|tempura|udon|yakitori|tonkatsu',
-        'sushi' => 'japanese|sushi|ramen|teriyaki|bento|teppan|izakaya|hibachi|sashimi|tempura|udon|yakitori|tonkatsu',
-        'italian' => 'italian|pizza|pasta|trattoria|ristorante|napoli',
-        'pizza' => 'italian|pizza|pasta|trattoria|ristorante|napoli',
-        'mexican' => 'mexican|taqueria|taco|burrito|cantina|jalapeno|fajita|quesadilla|enchilada',
-        'indian' => 'indian|tandoor|curry|biryani|masala|korma',
-        'thai' => 'thai|pad.thai|tom.yum|lemongrass',
-        'korean' => 'korean|bbq|seoul|kimchi|bulgogi|bibimbap',
-        'vietnamese' => 'vietnamese|pho|saigon|banh.mi',
-        'american' => 'american|burger|grill|diner|smokehouse|bbq|barbecue|steakhouse',
-        'burger' => 'american|burger|grill|diner|smokehouse|bbq|barbecue|steakhouse',
-        'mediterranean' => 'mediterranean|greek|gyro|middle.eastern|lebanese|turkish|persian',
-    ];
-
     private array $mirrors = [
         'https://overpass-api.de/api/interpreter',
         'https://lz4.overpass-api.de/api/interpreter',
@@ -350,12 +333,34 @@ class OverpassService
     }
 
     /**
-     * Expand a cuisine name with its synonyms for matching.
+     * Expand a cuisine (or category) slug into a pipe-delimited synonym string
+     * for the OSM `cuisine~` tag regex. Reads the single-source
+     * `cuisine-keywords` config (shared with CuisineMatcher): a single cuisine
+     * expands to its slug + keywords; a category expands to its member cuisines'
+     * slugs + keywords. buildCuisineFilter() splits this on `|`.
      */
     private function resolveCuisine(string $cuisine): string
     {
         $key = strtolower(trim($cuisine));
-        return static::CUISINE_SYNONYMS[$key] ?? $key;
+        $cuisines = config('cuisine-keywords.cuisines', []);
+        $categories = config('cuisine-keywords.categories', []);
+
+        if (isset($categories[$key])) {
+            $parts = [$key];
+            foreach ($categories[$key] as $member) {
+                $parts[] = $member;
+                foreach ($cuisines[$member] ?? [] as $kw) {
+                    $parts[] = $kw;
+                }
+            }
+            return implode('|', array_values(array_unique($parts)));
+        }
+
+        if (isset($cuisines[$key])) {
+            return implode('|', array_values(array_unique(array_merge([$key], $cuisines[$key]))));
+        }
+
+        return $key;
     }
 
     private function normalizeResults(array $elements, float $searchLat, float $searchLng): array
