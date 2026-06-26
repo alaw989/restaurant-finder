@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import { useCardGallery } from '@/composables/useCardGallery';
 
@@ -24,6 +24,22 @@ const galleryActive = computed(() => props.multi && props.photos.length > 1);
 const aspectClass = computed(() =>
     props.aspect === '3/2' ? 'aspect-[3/2]' : 'aspect-[4/3]',
 );
+
+// Detect if device has hover capability (for gating touch controls)
+const hasHover = ref(true);
+
+function updateHoverCapability() {
+    hasHover.value = window.matchMedia('(hover: hover)').matches;
+}
+
+onMounted(() => {
+    updateHoverCapability();
+    window.matchMedia('(hover: hover)').addEventListener('change', updateHoverCapability);
+});
+
+onUnmounted(() => {
+    window.matchMedia('(hover: hover)').removeEventListener('change', updateHoverCapability);
+});
 
 // Blur-up: veil the gradient until the hero photo actually loads.
 const heroLoaded = ref(false);
@@ -74,11 +90,29 @@ watch(
         <!-- card-specific overlays (rank, award, score, heart) -->
         <slot name="overlays" />
 
-        <!-- gallery controls (desktop hover; tap-cycle on touch via chevrons) -->
+        <!-- gallery controls (desktop hover; tap-cycle on touch) -->
         <template v-if="galleryActive">
+            <!-- Left tap zone (touch navigation) -->
             <button
                 type="button"
-                class="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-foreground opacity-0 shadow-md transition-opacity duration-300 hover:bg-white group-hover:opacity-100 focus-visible:opacity-100"
+                class="absolute inset-y-0 left-0 w-1/2 cursor-pointer opacity-0 hover:opacity-0 focus-visible:opacity-0"
+                aria-hidden="true"
+                tabindex="-1"
+                @click.prevent="prev"
+            />
+            <!-- Right tap zone (touch navigation) -->
+            <button
+                type="button"
+                class="absolute inset-y-0 right-0 w-1/2 cursor-pointer opacity-0 hover:opacity-0 focus-visible:opacity-0"
+                aria-hidden="true"
+                tabindex="-1"
+                @click.prevent="next"
+            />
+            <!-- Desktop chevrons (hover-only) -->
+            <button
+                type="button"
+                class="absolute left-2 top-1/2 z-20 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-foreground opacity-0 shadow-md transition-opacity duration-300 hover:bg-white group-hover:opacity-100 focus-visible:opacity-100"
+                :class="{ 'opacity-100': !hasHover }"
                 aria-label="Previous photo"
                 @click.prevent="prev"
             >
@@ -86,14 +120,17 @@ watch(
             </button>
             <button
                 type="button"
-                class="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-foreground opacity-0 shadow-md transition-opacity duration-300 hover:bg-white group-hover:opacity-100 focus-visible:opacity-100"
+                class="absolute right-2 top-1/2 z-20 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-foreground opacity-0 shadow-md transition-opacity duration-300 hover:bg-white group-hover:opacity-100 focus-visible:opacity-100"
+                :class="{ 'opacity-100': !hasHover }"
                 aria-label="Next photo"
                 @click.prevent="next"
             >
                 <ChevronRight class="h-4 w-4" />
             </button>
+            <!-- Dots + counter (visible on touch, hover on desktop) -->
             <div
-                class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100"
+                class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 backdrop-blur-sm transition-opacity duration-300"
+                :class="hasHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'"
             >
                 <span
                     v-for="(_, i) in photos"

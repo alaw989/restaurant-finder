@@ -18,6 +18,14 @@ const props = defineProps<{
 
 const { isFavorited, toggle } = useFavorites();
 
+// Compute the detail or maps URL for the stretched link
+const detailOrMapsUrl = computed(() => {
+    if (props.restaurant.id > 0) {
+        return `/restaurants/${props.restaurant.slug}`;
+    }
+    return mapsUrl(props.restaurant.name, props.restaurant.city);
+});
+
 const isTop3 = computed(() => props.rank <= 3);
 
 const rankStyle = computed(() => {
@@ -94,17 +102,10 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 </script>
 
 <template>
-    <Component
-        :is="restaurant.id > 0 ? Link : 'a'"
-        v-bind="restaurant.id > 0
-            ? { href: `/restaurants/${restaurant.slug}` }
-            : { href: mapsUrl(restaurant.name, restaurant.city), target: '_blank', rel: 'noopener' }
-        "
+    <article
         v-motion="animation"
+        class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl bg-card border"
     >
-        <Card
-            class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl"
-        >
             <!-- Photo section with CardGallery -->
             <CardGallery
                 :photos="photos"
@@ -138,8 +139,9 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     </div>
 
                     <!-- Heart (persistent, hybrid: localStorage for guests, server for authed) -->
+                    <!-- Hit area expanded to 44px with -m-1.5 (adds 12px: 32+12=44px) -->
                     <button
-                        class="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/85 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0 backdrop-blur-sm"
+                        class="relative z-10 absolute -right-1.5 -top-1.5 flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0 backdrop-blur-sm"
                         :class="{ 'text-red-500 fill-red-500': saved, 'opacity-100': saved }"
                         :aria-label="ariaLabel"
                         @click.stop="() => toggle(restaurant)"
@@ -154,10 +156,17 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
             <!-- Content section -->
             <div class="p-4 space-y-2">
-                <!-- Name + address -->
+                <!-- Name + address with stretched link -->
                 <div class="min-w-0">
                     <h3 class="text-base font-semibold text-foreground transition-colors group-hover:text-primary">
-                        {{ restaurant.name }}
+                        <a
+                            :href="detailOrMapsUrl"
+                            :target="restaurant.id > 0 ? undefined : '_blank'"
+                            :rel="restaurant.id > 0 ? undefined : 'noopener'"
+                            class="after:absolute after:inset-0 after:z-0"
+                        >
+                            {{ restaurant.name }}
+                        </a>
                     </h3>
                     <p v-if="restaurant.address || restaurant.city" class="truncate text-xs text-muted-foreground">
                         {{ [restaurant.address, restaurant.city, restaurant.state].filter(Boolean).join(', ') }}
@@ -206,7 +215,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                         :href="`https://www.google.com/maps/dir/?api=1&destination=${mapCoords.lat},${mapCoords.lng}`"
                         target="_blank"
                         rel="noopener"
-                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        class="relative z-10 inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         title="Get directions"
                         @click.stop
                     >
@@ -215,7 +224,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     </a>
                     <button
                         v-if="restaurant.phone"
-                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        class="relative z-10 inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         :title="`Call ${restaurant.phone}`"
                         @click.stop="callPhone(restaurant.phone)"
                     >
@@ -224,7 +233,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     </button>
                     <button
                         v-if="restaurant.website_url"
-                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        class="relative z-10 inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         title="Visit website"
                         @click.stop="openWebsite(restaurant.website_url)"
                     >
@@ -233,6 +242,5 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
                     </button>
                 </div>
             </div>
-        </Card>
-    </Component>
+    </article>
 </template>

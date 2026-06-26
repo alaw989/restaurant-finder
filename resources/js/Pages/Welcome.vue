@@ -239,6 +239,9 @@ function refineSearch() {
     <div class="flex min-h-screen flex-col bg-background">
         <Head title="Find Popular Restaurants Near You" />
 
+        <!-- Visually-hidden page title for accessibility -->
+        <h1 class="sr-only">Find Popular Restaurants Near You</h1>
+
         <!-- Auth link -->
         <div class="absolute right-4 top-4 z-10 flex items-center gap-2">
             <Link
@@ -275,7 +278,7 @@ function refineSearch() {
                         <Badge variant="destructive">Location Error</Badge>
                         <span class="text-sm text-destructive">{{ geolocationError }}</span>
                     </div>
-                    <Button variant="ghost" size="sm" @click="geolocationError = null">
+                    <Button variant="ghost" size="sm" aria-label="Dismiss" @click="geolocationError = null">
                         <X class="h-4 w-4" />
                     </Button>
                 </CardContent>
@@ -338,10 +341,10 @@ function refineSearch() {
                         </Link>
 
                         <!-- Dynamic sentence -->
-                        <div class="mt-8 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-medium leading-relaxed sm:text-4xl">
-                            <span>Find the most Popular</span>
+                        <div class="mt-8 flex flex-col items-center justify-center gap-2 text-center sm:gap-4 sm:flex-row sm:justify-center sm:gap-x-2 sm:text-3xl sm:leading-relaxed md:text-4xl">
+                            <span class="text-2xl font-medium sm:text-3xl md:text-4xl">Find the most Popular</span>
                             <CuisinePicker :categories="categories" @select="onCuisineSelect" />
-                            <span>Restaurants in</span>
+                            <span class="text-2xl font-medium sm:text-3xl md:text-4xl">Restaurants in</span>
                             <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" @detect="detectLocation" />
                         </div>
 
@@ -454,7 +457,7 @@ function refineSearch() {
                                             <Badge variant="destructive" class="text-xs">Load Error</Badge>
                                             <span class="text-sm text-muted-foreground">{{ loadMoreError }}</span>
                                             <div class="ml-auto flex gap-2">
-                                                <Button variant="ghost" size="sm" @click="loadMoreError = null">
+                                                <Button variant="ghost" size="sm" aria-label="Dismiss" @click="loadMoreError = null">
                                                     <X class="h-4 w-4" />
                                                 </Button>
                                                 <Button size="sm" @click="loadMore">
