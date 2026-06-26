@@ -166,6 +166,17 @@ function openWebsite(url: string) {
                             </span>
                         </div>
 
+                        <a
+                            v-if="restaurant.lat && restaurant.lng"
+                            :href="`https://www.google.com/maps/dir/?api=1&destination=${restaurant.lat},${restaurant.lng}`"
+                            target="_blank"
+                            rel="noopener"
+                            class="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                            Get directions
+                        </a>
+
                         <button
                             v-if="restaurant.phone"
                             class="flex w-full items-center gap-2.5 text-sm text-muted-foreground hover:text-primary transition-colors"

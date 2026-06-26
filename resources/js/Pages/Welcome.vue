@@ -64,7 +64,7 @@ const loadMoreError = ref<string | null>(null)
 const geolocationError = ref<string | null>(null)
 
 const resultCount = computed(() => restaurants.value.length)
-const isResultsPhase = computed(() => phase.value === 'results' || phase.value === 'empty' || phase.value === 'error')
+const isResultsPhase = computed(() => phase.value !== 'idle')
 const hasResultsOrError = computed(() => phase.value === 'results' || phase.value === 'error')
 
 onMounted(() => {
@@ -228,6 +228,11 @@ function resetToIdle() {
     searchError.value = null
     loadMoreError.value = null
 }
+
+function refineSearch() {
+    phase.value = 'idle'
+    geolocationError.value = null
+}
 </script>
 
 <template>
@@ -294,7 +299,7 @@ function resetToIdle() {
                     </div>
 
                     <!-- Search icon -->
-                    <Button size="icon" variant="ghost" @click="search">
+                    <Button size="icon" variant="ghost" aria-label="Refine search" @click="refineSearch">
                         <Search class="h-5 w-5" />
                     </Button>
                 </div>
