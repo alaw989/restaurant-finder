@@ -42,6 +42,9 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
+                'favorites' => fn () => $request->user()
+                    ? $request->user()->favorites()->pluck('restaurants.id')->all()
+                    : [],
             ],
             'userCoords' => $request->session()->get('user_coords'),
             'ziggy' => fn () => [

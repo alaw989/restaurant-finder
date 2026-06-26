@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Series**: 034–039 (cards-redesign audit → ralph batch on `ralph/audit-followup`). First
 in the series; no deps.

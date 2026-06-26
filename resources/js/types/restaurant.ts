@@ -48,4 +48,5 @@ export interface Restaurant {
     cuisines: Cuisine[];
     source: string | null;
     score_breakdown?: ScoreBreakdown;
+    google_place_id?: string | null;
 }

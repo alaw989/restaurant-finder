@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import StarRating from '@/Components/StarRating.vue';
@@ -9,6 +9,8 @@ import CardGallery from '@/Components/CardGallery.vue';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cuisineGradient } from '@/lib/cuisine';
+import { Heart } from '@lucide/vue';
+import { useFavorites } from '@/composables/useFavorites';
 
 const props = defineProps<{
     categorySlug: string | null;
@@ -48,6 +50,11 @@ const props = defineProps<{
         };
     };
 }>();
+
+const { isFavorited, toggle } = useFavorites();
+
+const saved = computed(() => isFavorited(props.restaurant as any));
+const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
 const photos = computed(() =>
     Array.from(
@@ -118,6 +125,17 @@ function openWebsite(url: string) {
                                 <span class="text-lg" title="Award-winning">⭐</span>
                             </div>
                         </div>
+                        <button
+                            class="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted/50 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-muted hover:scale-110"
+                            :class="{ 'text-red-500 fill-red-500': saved }"
+                            :aria-label="ariaLabel"
+                            @click="() => toggle(restaurant as any)"
+                        >
+                            <Heart
+                                class="h-5 w-5"
+                                :class="saved ? 'fill-current' : 'fill-none stroke-current'"
+                            />
+                        </button>
                     </div>
 
                     <div class="mt-3 flex flex-wrap items-center gap-2">

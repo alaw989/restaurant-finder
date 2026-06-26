@@ -240,7 +240,14 @@ function refineSearch() {
         <Head title="Find Popular Restaurants Near You" />
 
         <!-- Auth link -->
-        <div class="absolute right-4 top-4 z-10">
+        <div class="absolute right-4 top-4 z-10 flex items-center gap-2">
+            <Link
+                v-if="$page.props.auth?.user"
+                href="/favorites"
+                class="text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+                Favorites
+            </Link>
             <Link
                 v-if="$page.props.auth?.user"
                 href="/dashboard"
@@ -248,13 +255,16 @@ function refineSearch() {
             >
                 Dashboard
             </Link>
-            <Link
+            <Button
                 v-else
+                as="a"
                 href="/login"
-                class="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                variant="outline"
+                size="sm"
+                class="text-sm"
             >
                 Login
-            </Link>
+            </Button>
         </div>
 
         <!-- Geolocation error banner -->
@@ -297,6 +307,15 @@ function refineSearch() {
                             <span>{{ location.city || location.state || 'Everywhere' }}</span>
                         </div>
                     </div>
+
+                    <!-- Favorites link (authed users) -->
+                    <Link
+                        v-if="$page.props.auth?.user"
+                        href="/favorites"
+                        class="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+                    >
+                        Favorites
+                    </Link>
 
                     <!-- Search icon -->
                     <Button size="icon" variant="ghost" aria-label="Refine search" @click="refineSearch">

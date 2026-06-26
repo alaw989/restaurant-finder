@@ -71,6 +71,15 @@ class Restaurant extends Model
         return $this->belongsToMany(Cuisine::class, 'cuisine_restaurant');
     }
 
+    /**
+     * The users who have favorited this restaurant.
+     */
+    public function favoritedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'favorite_restaurant_user')
+            ->withTimestamps();
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);

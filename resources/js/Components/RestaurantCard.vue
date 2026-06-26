@@ -5,17 +5,18 @@ import StarRating from '@/Components/StarRating.vue';
 import CardGallery from '@/Components/CardGallery.vue';
 import ScoreChip from '@/Components/ScoreChip.vue';
 import { Link } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import type { Restaurant } from '@/types/restaurant';
 import { cuisineGradient, FOOD_FALLBACK_GRADIENT } from '@/lib/cuisine';
 import { Phone, Globe, Navigation, Heart } from '@lucide/vue';
+import { useFavorites } from '@/composables/useFavorites';
 
 const props = defineProps<{
     restaurant: Restaurant;
     rank: number;
 }>();
 
-const saved = ref(false);
+const { isFavorited, toggle } = useFavorites();
 
 const isTop3 = computed(() => props.rank <= 3);
 
@@ -87,9 +88,9 @@ function openWebsite(url: string) {
     window.open(url, '_blank');
 }
 
-function toggleSaved() {
-    saved.value = !saved.value;
-}
+const saved = computed(() => isFavorited(props.restaurant));
+
+const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 </script>
 
 <template>
@@ -136,12 +137,12 @@ function toggleSaved() {
                         <ScoreChip :total="restaurant.popularity_score" />
                     </div>
 
-                    <!-- Heart (cosmetic) -->
+                    <!-- Heart (persistent, hybrid: localStorage for guests, server for authed) -->
                     <button
                         class="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/85 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0 backdrop-blur-sm"
                         :class="{ 'text-red-500 fill-red-500': saved, 'opacity-100': saved }"
-                        aria-label="Save restaurant"
-                        @click.prevent="toggleSaved"
+                        :aria-label="ariaLabel"
+                        @click.stop="() => toggle(restaurant)"
                     >
                         <Heart
                             class="h-4 w-4"
