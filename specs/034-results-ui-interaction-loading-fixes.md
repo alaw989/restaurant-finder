@@ -6,7 +6,7 @@
 
 **Status**: Pending
 
-**Series**: 034–039 (cards-redesign audit → ralph batch on `ralph/results-redesign-audit`). First
+**Series**: 034–039 (cards-redesign audit → ralph batch on `ralph/audit-followup`). First
 in the series; no deps.
 
 > Fixes the directly-reported broken interactions in the results UI: a **blank screen during
