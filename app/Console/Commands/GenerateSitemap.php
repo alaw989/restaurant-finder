@@ -76,7 +76,7 @@ class GenerateSitemap extends Command
         string $url,
         string $changefreq,
         string $priority,
-        ?string $lastmod = null
+        ?\Illuminate\Support\Carbon $lastmod = null
     ): string {
         $node = '  <url>' . "\n";
         $node .= '    <loc>' . htmlspecialchars($url) . '</loc>' . "\n";
