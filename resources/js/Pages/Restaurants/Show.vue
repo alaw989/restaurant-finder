@@ -82,7 +82,16 @@ function openWebsite(url: string) {
 
 <template>
     <AppLayout>
-        <Head :title="restaurant.name" />
+        <Head>
+            <title>{{ restaurant.name }}</title>
+            <link
+                v-if="photos.length > 0"
+                rel="preload"
+                as="image"
+                :href="photos[0]"
+                fetchpriority="high"
+            />
+        </Head>
 
         <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <!-- Back link -->
@@ -112,6 +121,7 @@ function openWebsite(url: string) {
                         :alt="restaurant.name"
                         aspect="3/2"
                         :multi="false"
+                        :eager="true"
                         rounded-class="rounded-xl"
                     />
                 </div>
