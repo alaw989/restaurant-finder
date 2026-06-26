@@ -134,9 +134,10 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 master (branch `ralph/results-redesign` → PR #1 → `3fab22f`, deployed + verified live).
 
 The **queue is specs 034–039** — the **results-redesign audit**. Authored + adversarially
-line-verified against the redesign, on branch **`ralph/results-redesign-audit`** (based on
-`3fab22f`). Ralph implements them one-per-iteration, lowest-first, as `feat(spec-NNN)` commits
-on that branch:
+line-verified against the redesign. The queue lives on master at `7e6990f` and on branch
+**`ralph/audit-followup`** (which superseded `ralph/results-redesign-audit` — that branch was
+merged to master + deleted). Ralph implements them one-per-iteration, lowest-first, as
+`feat(spec-NNN)` commits on **`ralph/audit-followup`**:
 - **034** results UI interaction + loading fixes — the blank-during-search skeleton (gate
   `isResultsPhase` excludes `'searching'`), the dead Directions `@click.prevent`, a global
   `cursor:pointer`, and search-icon = "refine" (reverse the transition). Frontend-only, no deps,
@@ -158,7 +159,7 @@ on that branch:
 Forward-refs in 036 to `useFavorites`/`@click.stop` are correct under ralph's lowest-first run order.
 
 **Ralph handoff (when 034–039 are all `Status: COMPLETE`):** run
-`gh pr create --base master --head ralph/results-redesign-audit` (PR body summarizing 034–039;
+`gh pr create --base master --head ralph/audit-followup` (PR body summarizing 034–039;
 **do NOT merge — leave for user review**). The binding browser-verify on
 https://ipop360.vp-associates.com then applies **after** the PR is merged to master (watch the GHA
 run for the merged SHA, then reproduce behaviorally).
