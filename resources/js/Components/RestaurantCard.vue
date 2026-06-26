@@ -2,66 +2,20 @@
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import StarRating from '@/Components/StarRating.vue';
-import ScoreBreakdown from '@/Components/ScoreBreakdown.vue';
-import ResultMap from '@/Components/ResultMap.vue';
+import CardGallery from '@/Components/CardGallery.vue';
+import ScoreChip from '@/Components/ScoreChip.vue';
 import { Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
-
-const cuisineGradient = (slug: string): string => {
-    const gradients: Record<string, string> = {
-        italian: 'linear-gradient(135deg, #e63946 0%, #f1faee 50%, #457b9d 100%)',
-        mexican: 'linear-gradient(135deg, #f77f00 0%, #fcbf49 20%, #d62828 100%)',
-        chinese: 'linear-gradient(135deg, #d90429 0%, #ef233c 30%, #8d0801 100%)',
-        japanese: 'linear-gradient(135deg, #e63946 0%, #f4a261 40%, #264653 100%)',
-        thai: 'linear-gradient(135deg, #e63946 0%, #e9c46a 40%, #2a9d8f 100%)',
-        indian: 'linear-gradient(135deg, #e76f51 0%, #f4a261 30%, #264653 100%)',
-        american: 'linear-gradient(135deg, #457b9d 0%, #1d3557 50%, #e63946 100%)',
-        greek: 'linear-gradient(135deg, #457b9d 0%, #a8dadc 40%, #f1faee 100%)',
-        korean: 'linear-gradient(135deg, #d62828 0%, #e76f51 40%, #264653 100%)',
-        vietnamese: 'linear-gradient(135deg, #2a9d8f 0%, #e9c46a 40%, #f4a261 100%)',
-        pizza: 'linear-gradient(135deg, #e63946 0%, #f1faee 40%, #a8dadc 100%)',
-        burger: 'linear-gradient(135deg, #d62828 0%, #f77f00 50%, #fcbf49 100%)',
-        sushi: 'linear-gradient(135deg, #264653 0%, #2a9d8f 40%, #e9c46a 100%)',
-    };
-    return gradients[slug] ?? 'linear-gradient(135deg, #1d3557 0%, #457b9d 30%, #a8dadc 100%)';
-};
+import { computed, ref } from 'vue';
+import type { Restaurant } from '@/types/restaurant';
+import { cuisineGradient, FOOD_FALLBACK_GRADIENT } from '@/lib/cuisine';
+import { Phone, Globe, Navigation, Heart } from '@lucide/vue';
 
 const props = defineProps<{
-    restaurant: {
-        id: number;
-        name: string;
-        slug: string;
-        description: string | null;
-        address: string | null;
-        city: string | null;
-        state: string | null;
-        lat: number | null;
-        lng: number | null;
-        photo_url: string | null;
-        price_range: string | null;
-        phone: string | null;
-        website_url: string | null;
-        google_rating: number | null;
-        google_review_count: number;
-        yelp_rating: number | null;
-        yelp_review_count: number;
-        has_award: boolean;
-        popularity_score: number;
-        distance: number | null;
-        cuisines: Array<{ id: number; name: string; slug: string }>;
-        source: string | null;
-        score_breakdown: {
-            signals: Array<{
-                label: string;
-                weight: number;
-                normalized: number;
-                contribution: number;
-            }>;
-            total: number;
-        };
-    };
+    restaurant: Restaurant;
     rank: number;
 }>();
+
+const saved = ref(false);
 
 const isTop3 = computed(() => props.rank <= 3);
 
@@ -77,13 +31,16 @@ const rankLabel = computed(() => {
     return String(props.rank);
 });
 
-const sourceColor = computed(() => {
-    switch (props.restaurant.source) {
-        case 'foursquare': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-        case 'overpass': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-        case 'bizdata': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
-        default: return 'bg-muted text-muted-foreground';
-    }
+// Normalize photos: hero first, unique, capped at 6
+const photos = computed(() => {
+    const unique = Array.from(new Set([props.restaurant.photo_url, ...(props.restaurant.photos ?? [])].filter(Boolean))) as string[];
+    return unique.slice(0, 6);
+});
+
+// Gradient for CardGallery backdrop (falls back to food gradient if no cuisines)
+const gradient = computed(() => {
+    const primaryCuisine = props.restaurant.cuisines[0]?.slug;
+    return primaryCuisine ? cuisineGradient(primaryCuisine) : FOOD_FALLBACK_GRADIENT;
 });
 
 const displayRating = computed(() => {
@@ -92,14 +49,6 @@ const displayRating = computed(() => {
     return null;
 });
 
-const bgStyle = computed(() => {
-    const gradient = cuisineGradient(props.restaurant.cuisines[0]?.slug || 'food')
-    if (props.restaurant.photo_url) {
-        return { backgroundImage: `url(${props.restaurant.photo_url}), ${gradient}` }
-    }
-    return { backgroundImage: gradient }
-})
-
 const mapCoords = computed(() => {
     if (props.restaurant.lat != null && props.restaurant.lng != null) {
         return { lat: props.restaurant.lat, lng: props.restaurant.lng };
@@ -107,19 +56,22 @@ const mapCoords = computed(() => {
     return null;
 });
 
-const animation = computed(() => ({
-    initial: { opacity: 0, y: 24, scale: 0.96 },
-    enter: {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: {
-            delay: (props.rank - 1) * 70,
-            duration: 450,
-            ease: [0.16, 1, 0.3, 1],
+// Entrance animation: fade + rise, capped stagger at rank 12
+const animation = computed(() => {
+    const cappedRank = Math.min(Math.max(props.rank - 1, 0), 11);
+    return {
+        initial: { opacity: 0, y: 16 },
+        enter: {
+            opacity: 1,
+            y: 0,
+            transition: {
+                delay: cappedRank * 45,
+                duration: 320,
+                ease: [0.16, 1, 0.3, 1],
+            },
         },
-    },
-}));
+    };
+});
 
 function mapsUrl(name: string, city: string | null): string {
     const q = city ? `${name}, ${city}` : name;
@@ -134,6 +86,10 @@ function openWebsite(url: string) {
     if (!url.startsWith('http')) url = 'https://' + url;
     window.open(url, '_blank');
 }
+
+function toggleSaved() {
+    saved.value = !saved.value;
+}
 </script>
 
 <template>
@@ -146,70 +102,57 @@ function openWebsite(url: string) {
         v-motion="animation"
     >
         <Card
-            class="group relative overflow-hidden border border-border/60 bg-card transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl dark:hover:shadow-primary/5"
-            :class="isTop3 ? `hover:shadow-2xl ${rankStyle.ring}` : ''"
+            class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl"
         >
-            <!-- Subtle gradient glow for top 3 -->
-            <div
-                v-if="isTop3"
-                class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
-                :class="rank === 1 ? 'bg-gradient-to-br from-amber-500/5 via-transparent to-transparent' : rank === 2 ? 'bg-gradient-to-br from-slate-400/5 via-transparent to-transparent' : 'bg-gradient-to-br from-orange-500/5 via-transparent to-transparent'"
-            />
+            <!-- Photo section with CardGallery -->
+            <CardGallery
+                :photos="photos"
+                :gradient="gradient"
+                :alt="restaurant.name"
+                aspect="4/3"
+            >
+                <template #overlays>
+                    <!-- Rank badge -->
+                    <div class="absolute left-3 top-3">
+                        <div
+                            class="flex h-9 min-w-[36px] items-center justify-center rounded-full bg-gradient-to-r px-3 text-sm font-bold shadow-lg ring-2 ring-white/50 backdrop-blur-sm transition-transform duration-200 group-hover:scale-110"
+                            :class="[rankStyle.bg, rankStyle.text]"
+                        >
+                            <span v-if="rank === 1">🔥</span>
+                            <span v-else class="tabular-nums">#{{ rankLabel }}</span>
+                        </div>
+                    </div>
 
-            <!-- Photo section -->
-            <div class="relative h-44 w-full overflow-hidden sm:h-52">
-                <div
-                    class="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
-                    :style="bgStyle"
-                />
+                    <!-- Award pill -->
+                    <div v-if="restaurant.has_award" class="absolute bottom-3 left-3">
+                        <div class="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2.5 py-1 text-xs font-semibold text-white shadow-lg ring-2 ring-white/50 backdrop-blur-sm">
+                            <span>⭐</span>
+                            <span>Michelin</span>
+                        </div>
+                    </div>
 
-                <!-- Dark gradient overlay at bottom for readability -->
-                <div class="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
+                    <!-- ScoreChip -->
+                    <div v-if="restaurant.popularity_score != null" class="absolute bottom-3 right-3">
+                        <ScoreChip :total="restaurant.popularity_score" />
+                    </div>
 
-                <!-- Rank badge -->
-                <div class="absolute left-3 top-3">
-                    <div
-                        class="flex h-9 min-w-[36px] items-center justify-center rounded-full bg-gradient-to-r px-3 text-sm font-bold shadow-lg ring-2 ring-white/50 backdrop-blur-sm"
-                        :class="[rankStyle.bg, rankStyle.text]"
+                    <!-- Heart (cosmetic) -->
+                    <button
+                        class="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/85 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-white hover:scale-110 group-hover:opacity-100 opacity-0 backdrop-blur-sm"
+                        :class="{ 'text-red-500 fill-red-500': saved, 'opacity-100': saved }"
+                        aria-label="Save restaurant"
+                        @click.prevent="toggleSaved"
                     >
-                        <span v-if="rank === 1">🔥</span>
-                        <span v-else class="tabular-nums">#{{ rankLabel }}</span>
-                    </div>
-                </div>
-
-                <!-- Award badge -->
-                <div v-if="restaurant.has_award" class="absolute right-3 top-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/90 shadow-lg ring-2 ring-white/50 backdrop-blur-sm">
-                        <span class="text-sm">⭐</span>
-                    </div>
-                </div>
-
-                <!-- Source badge -->
-                <div class="absolute bottom-3 left-3">
-                    <span
-                        class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider shadow-sm backdrop-blur-sm"
-                        :class="sourceColor"
-                    >
-                        {{ restaurant.source || 'ipop360' }}
-                    </span>
-                </div>
-
-                <!-- Map thumbnail bottom-right of photo -->
-                <div class="absolute bottom-3 right-3 h-14 w-20 overflow-hidden rounded-lg border-2 border-white/50 shadow-lg">
-                    <ResultMap
-                        v-if="mapCoords"
-                        :lat="mapCoords.lat"
-                        :lng="mapCoords.lng"
-                        :name="restaurant.name"
-                    />
-                    <div v-else class="flex h-full w-full items-center justify-center bg-muted text-[10px] text-muted-foreground">
-                        No map
-                    </div>
-                </div>
-            </div>
+                        <Heart
+                            class="h-4 w-4"
+                            :class="saved ? 'fill-current' : 'fill-none stroke-current'"
+                        />
+                    </button>
+                </template>
+            </CardGallery>
 
             <!-- Content section -->
-            <div class="space-y-2.5 p-4">
+            <div class="p-4 space-y-2">
                 <!-- Name + address -->
                 <div class="min-w-0">
                     <h3 class="text-base font-semibold text-foreground transition-colors group-hover:text-primary">
@@ -239,7 +182,7 @@ function openWebsite(url: string) {
                 </div>
 
                 <!-- Description -->
-                <p v-if="restaurant.description" class="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                <p v-if="restaurant.description" class="line-clamp-1 sm:line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {{ restaurant.description }}
                 </p>
 
@@ -255,43 +198,38 @@ function openWebsite(url: string) {
                     </Badge>
                 </div>
 
-                <!-- Quick actions -->
-                <div v-if="restaurant.phone || restaurant.website_url" class="flex items-center gap-3 pt-0.5">
-                    <button
-                        v-if="restaurant.phone"
-                        class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-                        :title="`Call ${restaurant.phone}`"
-                        @click.prevent="callPhone(restaurant.phone)"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                        Call
-                    </button>
-                    <button
-                        v-if="restaurant.website_url"
-                        class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-                        title="Visit website"
-                        @click.prevent="openWebsite(restaurant.website_url)"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                        Website
-                    </button>
+                <!-- Action icon pills -->
+                <div class="flex items-center gap-2 pt-0.5">
                     <a
-                        v-if="mapCoords && restaurant.id > 0"
+                        v-if="mapCoords"
                         :href="`https://www.google.com/maps/dir/?api=1&destination=${mapCoords.lat},${mapCoords.lng}`"
                         target="_blank"
                         rel="noopener"
-                        class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         title="Get directions"
                         @click.prevent
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18 3 12l6-6"/><path d="M15 6l6 6-6 6"/></svg>
-                        Directions
+                        <Navigation class="h-3.5 w-3.5" />
+                        <span>Directions</span>
                     </a>
-                </div>
-
-                <!-- Score breakdown -->
-                <div v-if="restaurant.score_breakdown" class="pt-1">
-                    <ScoreBreakdown :breakdown="restaurant.score_breakdown" />
+                    <button
+                        v-if="restaurant.phone"
+                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        :title="`Call ${restaurant.phone}`"
+                        @click.prevent="callPhone(restaurant.phone)"
+                    >
+                        <Phone class="h-3.5 w-3.5" />
+                        <span>Call</span>
+                    </button>
+                    <button
+                        v-if="restaurant.website_url"
+                        class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        title="Visit website"
+                        @click.prevent="openWebsite(restaurant.website_url)"
+                    >
+                        <Globe class="h-3.5 w-3.5" />
+                        <span>Website</span>
+                    </button>
                 </div>
             </div>
         </Card>
