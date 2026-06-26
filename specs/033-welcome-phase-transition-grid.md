@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Depends on**: 030 (rewritten `RestaurantCard`), 029 (`RestaurantCardSkeleton`, `ScoreChip`,
 `@/types/restaurant`).
