@@ -642,6 +642,15 @@ class LiveSearchService
             $merged['cuisines'] = $source['cuisines'];
         }
 
+        // Union gallery photos across sources (dedup by URL, cap 6).
+        if (!empty($source['photos'])) {
+            $unioned = array_values(array_unique(array_merge(
+                $merged['photos'] ?? [],
+                $source['photos'],
+            )));
+            $merged['photos'] = array_slice($unioned, 0, 6);
+        }
+
         return $merged;
     }
 
