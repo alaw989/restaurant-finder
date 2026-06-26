@@ -3,9 +3,8 @@ import { Head, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
+import RestaurantCardSkeleton from '@/Components/RestaurantCardSkeleton.vue';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent } from '@/components/ui/card';
 
 const props = defineProps<{
     filters: {
@@ -135,25 +134,11 @@ function updateSort(newSort: string) {
             </div>
 
             <!-- Loading skeletons -->
-            <div v-if="isLoading" class="flex flex-col gap-4">
-                <Card v-for="i in 5" :key="'skeleton-' + i" class="overflow-hidden">
-                    <CardContent class="p-4">
-                        <div class="flex gap-4">
-                            <Skeleton class="h-24 w-24 rounded-lg" />
-                            <div class="flex-1 space-y-2">
-                                <Skeleton class="h-6 w-3/4" />
-                                <Skeleton class="h-4 w-1/2" />
-                                <div class="flex gap-2">
-                                    <Skeleton class="h-6 w-16 rounded-full" />
-                                    <Skeleton class="h-6 w-16 rounded-full" />
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+            <div v-if="isLoading" class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                <RestaurantCardSkeleton v-for="i in 8" :key="'skeleton-' + i" />
             </div>
 
-            <div v-if="!isLoading && restaurants.data.length > 0" class="flex flex-col gap-4">
+            <div v-if="!isLoading && restaurants.data.length > 0" class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 <RestaurantCard
                     v-for="(restaurant, index) in restaurants.data"
                     :key="restaurant.id"
