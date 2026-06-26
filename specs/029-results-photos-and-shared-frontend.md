@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: COMPLETE
 
 > ⚠️ **This is the FOUNDATION spec for the Airbnb-style results redesign** (full plan:
 > the approved `pretty-nice-results-parallel-clover.md`; live state in per-machine memory
@@ -74,4 +74,4 @@
 ## Completion
 FRs met, build + tests green, committed + pushed → output `<promise>DONE</promise>`
 (see `.specify/memory/constitution.md`).
-<!-- NR_OF_TRIES: 0 -->
+<!-- NR_OF_TRIES: 1 -->
