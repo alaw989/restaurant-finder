@@ -15,6 +15,13 @@ import { Link } from '@inertiajs/vue3';
                     <div class="flex items-center gap-4">
                         <Link
                             v-if="$page.props.auth?.user"
+                            href="/favorites"
+                            class="text-sm text-muted-foreground hover:text-primary transition-colors"
+                        >
+                            Favorites
+                        </Link>
+                        <Link
+                            v-if="$page.props.auth?.user"
                             href="/dashboard"
                             class="text-sm text-muted-foreground hover:text-foreground transition-colors"
                         >
