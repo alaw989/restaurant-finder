@@ -8,10 +8,12 @@
 
         <!-- Favicon -->
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+        <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
 
         <!-- Theme color for mobile browser chrome -->
         <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0.145 0 0" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
 
         <!-- Scripts -->
         @routes

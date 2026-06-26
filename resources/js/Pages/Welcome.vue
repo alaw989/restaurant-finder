@@ -4,7 +4,6 @@ import { ref, onMounted, computed } from 'vue'
 import CuisinePicker from '@/Components/CuisinePicker.vue'
 import LocationPicker from '@/Components/LocationPicker.vue'
 import RestaurantCard from '@/Components/RestaurantCard.vue'
-import RestaurantCardSkeleton from '@/Components/RestaurantCardSkeleton.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -338,9 +337,8 @@ function refineSearch() {
             >
                 <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:gap-4">
                     <!-- Logo mark -->
-                    <Link href="/" @click="resetToIdle" class="flex items-center gap-1.5 text-lg font-semibold">
-                        <span class="text-xl">🍽️</span>
-                        <span class="hidden sm:inline">iPop360</span>
+                    <Link href="/" @click="resetToIdle" class="flex items-center" aria-label="iPop360 home">
+                        <img src="/img/ipop360-logo.png" alt="iPop360" class="h-8 w-auto" />
                     </Link>
 
                     <!-- Compact pickers -->
@@ -380,16 +378,15 @@ function refineSearch() {
                 <div v-if="phase === 'idle'" class="flex flex-1 flex-col items-center justify-center px-4">
                     <div class="w-full max-w-4xl text-center">
                         <!-- Logo -->
-                        <Link href="/" class="mb-8 inline-flex items-center gap-2 text-3xl font-bold tracking-tight text-foreground">
-                            <span class="text-4xl">🍽️</span>
-                            iPop360
+                        <Link href="/" class="mb-8 inline-block" aria-label="iPop360 home">
+                            <img src="/img/ipop360-logo.png" alt="iPop360" class="mx-auto h-20 w-auto" />
                         </Link>
 
                         <!-- Dynamic sentence -->
-                        <div class="mt-8 flex flex-col items-center justify-center gap-2 text-center sm:gap-4 sm:flex-row sm:justify-center sm:gap-x-2 sm:text-3xl sm:leading-relaxed md:text-4xl">
-                            <span class="text-2xl font-medium sm:text-3xl md:text-4xl">Find the most Popular</span>
+                        <div class="mt-8 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-medium leading-relaxed sm:text-4xl">
+                            <span>Find the most Popular</span>
                             <CuisinePicker :categories="categories" @select="onCuisineSelect" />
-                            <span class="text-2xl font-medium sm:text-3xl md:text-4xl">Restaurants in</span>
+                            <span>Restaurants in</span>
                             <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" @detect="detectLocation" />
                         </div>
 
@@ -419,9 +416,10 @@ function refineSearch() {
                     <div class="mx-auto max-w-7xl">
                         <!-- Inner state swap with fade transition -->
                         <Transition name="fade" mode="out-in">
-                            <!-- Skeleton grid (searching phase) -->
-                            <div v-if="phase === 'searching'" key="skeleton" class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                                <RestaurantCardSkeleton v-for="i in 8" :key="`skeleton-${i}`" />
+                            <!-- Loading spinner (searching phase) -->
+                            <div v-if="phase === 'searching'" key="loading" class="flex flex-col items-center gap-3 py-16">
+                                <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                <p class="animate-pulse text-sm text-muted-foreground">Finding the best spots...</p>
                             </div>
 
                             <!-- Error state -->
