@@ -36,3 +36,10 @@ Schedule::command('restaurants:enrich --throttled')
     ->withoutOverlapping()
     ->onOneServer()
     ->description('Throttled DB enrichment under SerpApi quota');
+
+// Schedule daily sitemap generation (runs at 5 AM UTC)
+Schedule::command('seo:sitemap')
+    ->dailyAt('05:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->description('Generate sitemap.xml for SEO');

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: COMPLETE
 
 **Series**: 034–039. Independent (may run alongside 034–037). Coordinates with 039 (reuse the logo
 for the default `og:image`).
