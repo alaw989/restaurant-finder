@@ -24,6 +24,7 @@
         "vue-tsc": "^2.0.24"
     },
     "dependencies": {
+        "@fontsource-variable/geist": "^5.2.9",
         "@lucide/vue": "^1.17.0",
         "@vueuse/core": "^14.3.0",
         "@vueuse/motion": "^3.0.3",

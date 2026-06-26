@@ -1,7 +1,28 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+
+// Lazy-load Leaflet only when the component mounts
+let L: any = null
+let leafletCssLoaded = false
+
+async function loadLeaflet() {
+  if (L) return L
+
+  // Dynamic import of Leaflet
+  const leafletModule = await import('leaflet')
+  L = leafletModule.default
+
+  // Load CSS dynamically
+  if (!leafletCssLoaded) {
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(link)
+    leafletCssLoaded = true
+  }
+
+  return L
+}
 
 const props = defineProps<{
   lat: number | null
@@ -10,10 +31,12 @@ const props = defineProps<{
 }>()
 
 const mapContainer = ref<HTMLElement | null>(null)
-let mapInstance: L.Map | null = null
+let mapInstance: any = null
 
-function initMap() {
+async function initMap() {
   if (!mapContainer.value || props.lat == null || props.lng == null) return
+
+  const L = await loadLeaflet()
 
   mapInstance = L.map(mapContainer.value, {
     center: [props.lat, props.lng],

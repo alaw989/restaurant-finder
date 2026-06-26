@@ -13,8 +13,10 @@ const props = withDefaults(
         multi?: boolean;
         /** Clip class for the photo frame corners. */
         roundedClass?: string;
+        /** Whether to load the image eagerly (for LCP hero). */
+        eager?: boolean;
     }>(),
-    { aspect: '4/3', multi: true, roundedClass: 'rounded-t-2xl' },
+    { aspect: '4/3', multi: true, roundedClass: 'rounded-t-2xl', eager: false },
 );
 
 const { activeIndex, onMove, onLeave, prev, next } = useCardGallery(() => props.photos);
@@ -24,6 +26,17 @@ const galleryActive = computed(() => props.multi && props.photos.length > 1);
 const aspectClass = computed(() =>
     props.aspect === '3/2' ? 'aspect-[3/2]' : 'aspect-[4/3]',
 );
+
+// Image dimensions for CLS prevention (aspect-ratio-based)
+// 4:3 = 400x300, 3:2 = 400x267 at a 400px reference
+const imageWidth = computed(() => 400);
+const imageHeight = computed(() => props.aspect === '3/2' ? 267 : 300);
+
+// Sizes attribute for responsive images (reflects grid layout)
+const imageSizes = computed(() => {
+    // Card column widths in the responsive grid
+    return '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw';
+});
 
 // Detect if device has hover capability (for gating touch controls)
 const hasHover = ref(true);
@@ -68,7 +81,11 @@ watch(
             :key="src + '-' + i"
             :src="src"
             :alt="i === 0 ? alt : ''"
-            loading="lazy"
+            :width="imageWidth"
+            :height="imageHeight"
+            :sizes="imageSizes"
+            :loading="eager ? 'eager' : 'lazy'"
+            :fetchpriority="eager ? 'high' : 'auto'"
             decoding="async"
             class="absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out will-change-[opacity]"
             :class="i === activeIndex ? 'opacity-100' : 'opacity-0'"
