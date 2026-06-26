@@ -104,7 +104,7 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
   cuisine/category keyword/synonym lookup goes through it; a drift-guard test asserts it covers the
   seeded DB taxonomy.
 - Config: `config/restaurant-finder.php` (weights + knobs); `config/cuisine-keywords.php` (cuisine lexicon).
-- Tests: `php artisan test` (258 tests, 954 assertions).
+- Tests: `php artisan test` (266 tests, 972 assertions).
 
 ## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
@@ -136,7 +136,7 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-26)
-**001–042 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
+**001–043 are COMPLETE.** **043** (apply the sort dropdown to live-search results — the dropdown was inert because `apiIndex` applied sort only to the empty DB query, never to the live-search fallback it always hits; new `RestaurantController::sortLiveResults()` mirrors `applySortMode` on a PHP array and reuses the injected-but-dead `PriceLevelNormalizer`; zero quota — sort runs after the cache read) shipped direct to master (`a5bf6d9`, deployed + verified live). 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
 results-redesign audit) merged to master via **PR #2 (`ba40e12`, 2026-06-26)** — deployed + verified
 live (branch `ralph/audit-followup` merged + deleted). **041** (cuisine filter single source of truth
 + honest category search — the "All African → 100 any-cuisine" bug; new `config/cuisine-keywords.php`
