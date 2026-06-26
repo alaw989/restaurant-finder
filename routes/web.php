@@ -21,6 +21,7 @@ Route::middleware(['throttle:60,1', 'log.api'])->group(function () {
 Route::get('/cuisine/{category:slug}', [CuisineController::class, 'show']);
 
 Route::get('/restaurants', [RestaurantController::class, 'index']);
+Route::get('/restaurants/preview/{slug}', [RestaurantController::class, 'preview'])->name('restaurants.preview');
 Route::get('/restaurants/{restaurant:slug}', [RestaurantController::class, 'show']);
 
 Route::get('/dashboard', function () {

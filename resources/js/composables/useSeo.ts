@@ -8,6 +8,7 @@ export interface SeoOptions {
     image?: string;
     type?: 'website' | 'restaurant' | 'article';
     structuredData?: Record<string, unknown>;
+    noindex?: boolean;
 }
 
 export function useSeo(options: SeoOptions) {
@@ -39,6 +40,7 @@ export function useSeo(options: SeoOptions) {
     return {
         title: options.title,
         description: options.description,
+        noindex: options.noindex === true,
         canonical: canonicalUrl,
         ogTitle: options.title,
         ogDescription: options.description,

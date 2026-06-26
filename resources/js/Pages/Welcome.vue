@@ -484,6 +484,9 @@ function refineSearch() {
                                         :key="restaurant.id"
                                         :restaurant="restaurant"
                                         :rank="index + 1"
+                                        :search-lat="lat"
+                                        :search-lng="lng"
+                                        :cuisine="selectedCuisine"
                                     />
                                 </div>
 

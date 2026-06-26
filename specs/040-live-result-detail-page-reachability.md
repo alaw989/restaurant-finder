@@ -4,9 +4,8 @@
 
 **Created**: 2026-06-26
 
-**Status**: PROPOSED — ⚠ **BLOCKED on a product/architecture direction decision (see Options). Do not
-implement until the direction is chosen.** Surfaced by the post-merge live verification of PR #2
-(specs 034–038).
+**Status**: **Option A chosen** (cache-backed detail pages via cache-only search reconstruction) —
+implementing. Surfaced by the post-merge live verification of PR #2 (specs 034–038).
 
 **Series**: Follow-up to **spec-032** (`Restaurants/Show.vue` CardGallery detail page) and **spec-038**
 (`Restaurant`/`LocalBusiness` JSON-LD on the Show page + sitemap). Those features are correctly
@@ -83,33 +82,49 @@ Google Maps). Drive persistence via the existing `restaurants:enrich` scheduler 
 Focus SEO on crawlable pages that exist (home, `/restaurants`, cuisine pages) + persisted venue pages.
 - **Net:** lowest effort; leaves long-tail live-result SEO on the table.
 
-## Recommendation
-- **Short term:** **Option B** — client-side preview so a live-result click is no longer a 404 dead-end.
-- **Medium term:** **Option A** — cache-backed detail pages for addressable URLs + server-rendered
-  JSON-LD, respecting the architecture. Full crawl discovery tracked separately under the deferred SSR
-  track.
-- **Option C** only if the user explicitly reopens the "no read-path write" decision.
-- **Option D** as fallback.
+## Decision: Option A
+**Chosen: Option A** — cache-backed detail pages. Realized as: a public route
+`GET /restaurants/preview/{slug}?lat=&lng=&cuisine=` that re-runs `LiveSearchService::search()` in a new
+**cache-only mode** (warm per-source `ExternalApiCache` → **zero quota**, no `restaurants` write) and
+finds the venue by slug; the card passes the **search-center** coords so the per-source cache key matches.
+(There is no per-result cache row, so the spec's literal "serve by cache key" is delivered via cache-only
+reconstruction — same properties: no DB write, no quota burn, valid while caches are warm ≈30 days.)
+- Live preview pages are **`noindex`** — their URLs are ephemeral (~30-day cache TTL) and would otherwise
+  become soft 404s in the index. The **persisted** venue pages remain the indexed JSON-LD surface.
+- `Show.vue` is reused unchanged in structure; it receives the reconstructed restaurant + a `canonicalUrl`
+  pointing at the working preview URL (not the 404ing `/restaurants/{slug}`).
 
-## User Scenarios & Testing *(to be finalized once a direction is chosen)*
-### US1 — Live result opens a detail view (Priority: P0)
-Click a live-search result → a detail view renders (CardGallery, address, rating, JSON-LD) — **not a 404.**
+## User Scenarios & Testing
+### US1 — Live result opens a real detail page (Priority: P0)
+Click a live-search result card → `GET /restaurants/preview/{slug}?lat=&lng=&cuisine=` renders the full
+`Show.vue` (CardGallery, address, rating, actions) — **not a 404, not a bounce to Google Maps.**
 ### US2 — Detail JSON-LD renders for a live result (Priority: P0)
-The detail view's initial HTML (or post-JS DOM) contains valid `Restaurant`/`LocalBusiness` JSON-LD with
-no null/hallucinated fields (spec-038 US2 extended to the live-result case).
-### US3 — Addressable URL (Option A/C only) (Priority: P1)
-The detail page has a URL that reloads to the same venue (within cache TTL for A; permanently for C).
+The preview page's server HTML contains `Restaurant` JSON-LD (via spec-038's `useSeo`) with no
+hallucinated fields; canonical/og:url point at the preview URL; the page is `noindex`.
+### US3 — Addressable within the cache window (Priority: P1)
+The preview URL reloads to the same venue while the per-source caches are warm (≈30 days); after expiry
+it 404s gracefully (does **not** burn SerpApi quota — cache-only).
+### US4 — No quota burn (Priority: P0)
+Reconstructing a preview never triggers a live SerpApi/Overpass/etc. fetch — cache-only mode skips the
+pool + Overpass name fallback.
 
-## Requirements *(placeholders — finalize after direction sign-off)*
-- **FR-001**: A live-search result opens a detail view (B/A/C) instead of 404ing.
-- **FR-002**: That detail view emits `Restaurant`/`LocalBusiness` JSON-LD (reusing spec-038's `useSeo`).
-- **FR-003 (A/C)**: Detail URL is addressable and reloads to the same venue.
+## Requirements
+- **FR-001**: `LiveSearchService::search()` gains a `bool $cacheOnly` mode that uses cache hits only
+  (no pool, no Overpass name fallback).
+- **FR-002**: Public route `GET /restaurants/preview/{slug}` (`lat`,`lng` required; `cuisine` optional)
+  reconstructs via cache-only search, matches by slug, renders `Restaurants/Show`; 404 if not found.
+- **FR-003**: The preview reuses `Show.vue` + spec-038 `useSeo`/`generateRestaurantJsonLd`; canonical
+  and og:url use the preview URL; the page is `noindex`.
+- **FR-004**: `RestaurantCard` live-result branch (`id <= 0`) links to the preview route using the
+  search-center coords/cuisine (persisted `id > 0` still links to `/restaurants/{slug}`).
+- **FR-005**: Feature test covers warm-cache → 200 (restaurant data + JSON-LD present), missing slug →
+  404, and that cache-only issues no outbound live fetch.
 
-## Success Criteria *(finalize after direction sign-off)*
+## Success Criteria
 - **SC-001**: `npm run build` + `php artisan test` green.
-- **SC-002**: Verified live on https://ipop360.vp-associates.com — a live-search result opens a detail
-  view with valid JSON-LD (no 404), per the chosen option.
+- **SC-002**: Verified live — a live-search result opens a preview detail page with `Restaurant` JSON-LD
+  and `noindex`; canonical = preview URL; cold cache → 404 (no quota burn).
 
 ## Completion
-Direction chosen → FRs finalized → implemented → build + tests green → committed + pushed → verified live.
-<!-- NR_OF_TRIES: 0 -->
+FRs met, build + tests green, committed + pushed, verified live → `<promise>DONE</promise>`.
+<!-- NR_OF_TRIES: 1 -->
