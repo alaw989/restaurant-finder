@@ -109,8 +109,8 @@ function updateSort(newSort: string) {
                 >
                     &larr; Back to categories
                 </a>
-                <div class="mt-4 flex items-center justify-between">
-                    <h1 class="text-3xl font-bold text-foreground">
+                <div class="mt-4 flex flex-wrap items-center justify-between gap-4">
+                    <h1 class="text-2xl font-bold text-foreground sm:text-3xl">
                         Top {{ (cuisineName || 'All').toLowerCase() }} Restaurants
                     </h1>
                     <!-- Sort control -->
