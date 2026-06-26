@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Search, MapPin, Utensils, X } from '@lucide/vue'
 import type { Restaurant } from '@/types/restaurant'
+import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/composables/useSeo'
 
 type Phase = 'idle' | 'searching' | 'results' | 'empty' | 'error'
 
@@ -66,6 +67,29 @@ const geolocationError = ref<string | null>(null)
 const resultCount = computed(() => restaurants.value.length)
 const isResultsPhase = computed(() => phase.value !== 'idle')
 const hasResultsOrError = computed(() => phase.value === 'results' || phase.value === 'error')
+
+// SEO
+const baseUrl = computed(() => {
+    if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.host}`
+    }
+    return 'https://ipop360.vp-associates.com'
+})
+
+const seoData = computed(() => {
+    return useSeo({
+        title: 'Find Popular Restaurants Near You | iPop360',
+        description: 'Discover top-rated restaurants near you with iPop360. Real reviews, accurate ratings, and smart rankings help you find the best dining options in your area.',
+        url: `${baseUrl.value}/`,
+        type: 'website',
+    })
+})
+
+const structuredData = computed(() => {
+    const webSite = generateWebSiteJsonLd(`${baseUrl.value}/`, 'iPop360')
+    const organization = generateOrganizationJsonLd(`${baseUrl.value}/`, 'iPop360')
+    return [webSite, organization]
+})
 
 onMounted(() => {
     // Check if we already have location from prior session
@@ -237,7 +261,28 @@ function refineSearch() {
 
 <template>
     <div class="flex min-h-screen flex-col bg-background">
-        <Head title="Find Popular Restaurants Near You" />
+        <Head>
+            <title>{{ seoData.title }}</title>
+            <meta name="description" :content="seoData.description" />
+            <link rel="canonical" :href="seoData.canonical" />
+            <meta property="og:title" :content="seoData.ogTitle" />
+            <meta property="og:description" :content="seoData.ogDescription" />
+            <meta property="og:type" :content="seoData.ogType" />
+            <meta property="og:url" :content="seoData.ogUrl" />
+            <meta property="og:site_name" :content="seoData.ogSiteName" />
+            <meta property="og:image" :content="seoData.ogImage" />
+            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
+            <meta name="twitter:card" :content="seoData.twitterCard" />
+            <meta name="twitter:title" :content="seoData.twitterTitle" />
+            <meta name="twitter:description" :content="seoData.twitterDescription" />
+            <meta name="twitter:image" :content="seoData.twitterImage" />
+            <script
+                v-for="(item, index) in structuredData"
+                :key="`jsonld-${index}`"
+                type="application/ld+json"
+                v-html="JSON.stringify(item)"
+            />
+        </Head>
 
         <!-- Visually-hidden page title for accessibility -->
         <h1 class="sr-only">Find Popular Restaurants Near You</h1>
@@ -473,5 +518,51 @@ function refineSearch() {
                 </div>
             </Transition>
         </div>
+
+        <!-- Semantic footer -->
+        <footer class="border-t border-border bg-muted/40 py-8">
+            <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div class="flex flex-col items-center justify-between gap-4 sm:flex-row">
+                    <div class="text-center sm:text-left">
+                        <h3 class="text-lg font-semibold text-foreground">iPop360</h3>
+                        <p class="text-sm text-muted-foreground">Discover great restaurants near you.</p>
+                    </div>
+                    <nav class="flex flex-wrap items-center justify-center gap-4 text-sm sm:justify-end">
+                        <a href="/" class="text-muted-foreground hover:text-foreground transition-colors">
+                            Home
+                        </a>
+                        <a href="/restaurants" class="text-muted-foreground hover:text-foreground transition-colors">
+                            Browse Restaurants
+                        </a>
+                        <Link
+                            v-if="$page.props.auth?.user"
+                            href="/favorites"
+                            class="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            Favorites
+                        </Link>
+                        <Link
+                            v-if="$page.props.auth?.user"
+                            href="/logout"
+                            method="post"
+                            class="text-muted-foreground hover:text-foreground transition-colors"
+                            as="button"
+                        >
+                            Logout
+                        </Link>
+                        <Link
+                            v-else
+                            href="/login"
+                            class="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            Login
+                        </Link>
+                    </nav>
+                </div>
+                <div class="mt-6 text-center text-xs text-muted-foreground">
+                    <p>&copy; {{ new Date().getFullYear() }} iPop360. All rights reserved.</p>
+                </div>
+            </div>
+        </footer>
     </div>
 </template>

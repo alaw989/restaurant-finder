@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cuisineGradient } from '@/lib/cuisine';
 import { Heart } from '@lucide/vue';
 import { useFavorites } from '@/composables/useFavorites';
+import { useSeo, generateRestaurantJsonLd } from '@/composables/useSeo';
 
 const props = defineProps<{
     categorySlug: string | null;
@@ -70,6 +71,52 @@ const gradient = computed(() =>
     cuisineGradient(props.restaurant.cuisines[0]?.slug),
 );
 
+// SEO
+const baseUrl = computed(() => {
+    if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.host}`
+    }
+    return 'https://ipop360.vp-associates.com'
+})
+
+const cuisineNames = computed(() =>
+    props.restaurant.cuisines.map(c => c.name).join(', ')
+)
+
+const seoData = computed(() => {
+    const title = `${props.restaurant.name} | ${cuisineNames.value} in ${props.restaurant.city || 'Your Area'} | iPop360`
+    const description = props.restaurant.description
+        ? `${props.restaurant.description.substring(0, 160)}${props.restaurant.description.length > 160 ? '...' : ''}`
+        : `Visit ${props.restaurant.name} for ${cuisineNames.value.toLowerCase()} cuisine in ${props.restaurant.city || 'your area'}. View ratings, reviews, photos, and more.`
+
+    return useSeo({
+        title,
+        description,
+        url: `${baseUrl.value}/restaurants/${props.restaurant.slug}`,
+        image: photos.value[0] || undefined,
+        type: 'restaurant',
+    })
+})
+
+const structuredData = computed(() => {
+    const restaurantData = {
+        name: props.restaurant.name,
+        url: `${baseUrl.value}/restaurants/${props.restaurant.slug}`,
+        address: props.restaurant.address,
+        city: props.restaurant.city,
+        state: props.restaurant.state,
+        latitude: props.restaurant.lat,
+        longitude: props.restaurant.lng,
+        phone: props.restaurant.phone,
+        google_rating: props.restaurant.google_rating,
+        google_review_count: props.restaurant.google_review_count,
+        cuisines: props.restaurant.cuisines,
+        price_range: props.restaurant.price_range,
+    }
+
+    return generateRestaurantJsonLd(restaurantData)
+})
+
 function callPhone(phone: string) {
     window.location.href = `tel:${phone}`;
 }
@@ -83,13 +130,30 @@ function openWebsite(url: string) {
 <template>
     <AppLayout>
         <Head>
-            <title>{{ restaurant.name }}</title>
+            <title>{{ seoData.title }}</title>
+            <meta name="description" :content="seoData.description" />
+            <link rel="canonical" :href="seoData.canonical" />
             <link
                 v-if="photos.length > 0"
                 rel="preload"
                 as="image"
                 :href="photos[0]"
                 fetchpriority="high"
+            />
+            <meta property="og:title" :content="seoData.ogTitle" />
+            <meta property="og:description" :content="seoData.ogDescription" />
+            <meta property="og:type" :content="seoData.ogType" />
+            <meta property="og:url" :content="seoData.ogUrl" />
+            <meta property="og:site_name" :content="seoData.ogSiteName" />
+            <meta property="og:image" :content="seoData.ogImage" />
+            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
+            <meta name="twitter:card" :content="seoData.twitterCard" />
+            <meta name="twitter:title" :content="seoData.twitterTitle" />
+            <meta name="twitter:description" :content="seoData.twitterDescription" />
+            <meta name="twitter:image" :content="seoData.twitterImage" />
+            <script
+                type="application/ld+json"
+                v-html="JSON.stringify(structuredData)"
             />
         </Head>
 

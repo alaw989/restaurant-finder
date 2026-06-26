@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
 import RestaurantCardSkeleton from '@/Components/RestaurantCardSkeleton.vue';
 import { Button } from '@/components/ui/button';
+import { useSeo, generateItemListJsonLd } from '@/composables/useSeo';
 
 const props = defineProps<{
     filters: {
@@ -66,6 +67,51 @@ router.on('finish', () => {
     isLoading.value = false;
 });
 
+// SEO
+const baseUrl = computed(() => {
+    if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.host}`
+    }
+    return 'https://ipop360.vp-associates.com'
+})
+
+const locationName = computed(() => {
+    const parts = []
+    if (props.filters.lat && props.filters.lng) {
+        parts.push('Near You')
+    }
+    return parts.join(' ')
+})
+
+const seoData = computed(() => {
+    const cuisine = props.cuisineName || 'All'
+    const location = locationName.value
+    const title = location
+        ? `Top ${cuisine} Restaurants ${location} | iPop360`
+        : `Top ${cuisine} Restaurants | iPop360`
+    const description = location
+        ? `Discover the best ${cuisine.toLowerCase()} restaurants near you. Real reviews, ratings, and popularity rankings to help you find great dining options.`
+        : `Browse top-rated ${cuisine.toLowerCase()} restaurants with real reviews and accurate ratings. Find the best dining options with iPop360's smart rankings.`
+
+    return useSeo({
+        title,
+        description,
+        type: 'website',
+    })
+})
+
+const structuredData = computed(() => {
+    const items = props.restaurants.data
+        .filter((r, index) => index < 10) // Schema recommends limiting to 10 items
+        .map((restaurant, index) => ({
+            name: restaurant.name,
+            url: `${baseUrl.value}/restaurants/${restaurant.slug}`,
+            position: index + 1,
+        }))
+
+    return generateItemListJsonLd(items)
+})
+
 const sortOptions = [
     { value: 'best_match', label: 'Best Match' },
     { value: 'nearest', label: 'Nearest' },
@@ -91,7 +137,26 @@ function updateSort(newSort: string) {
 
 <template>
     <AppLayout>
-        <Head :title="`Top ${cuisineName || ''} Restaurants`" />
+        <Head>
+            <title>{{ seoData.title }}</title>
+            <meta name="description" :content="seoData.description" />
+            <link rel="canonical" :href="seoData.canonical" />
+            <meta property="og:title" :content="seoData.ogTitle" />
+            <meta property="og:description" :content="seoData.ogDescription" />
+            <meta property="og:type" :content="seoData.ogType" />
+            <meta property="og:url" :content="seoData.ogUrl" />
+            <meta property="og:site_name" :content="seoData.ogSiteName" />
+            <meta property="og:image" :content="seoData.ogImage" />
+            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
+            <meta name="twitter:card" :content="seoData.twitterCard" />
+            <meta name="twitter:title" :content="seoData.twitterTitle" />
+            <meta name="twitter:description" :content="seoData.twitterDescription" />
+            <meta name="twitter:image" :content="seoData.twitterImage" />
+            <script
+                type="application/ld+json"
+                v-html="JSON.stringify(structuredData)"
+            />
+        </Head>
 
         <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
             <div class="mb-8">

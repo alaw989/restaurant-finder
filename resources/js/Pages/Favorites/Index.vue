@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
 import { Heart } from '@lucide/vue';
+import { useSeo } from '@/composables/useSeo';
 
 const props = defineProps<{
     favorites: Array<{
@@ -41,11 +43,41 @@ const props = defineProps<{
         };
     }>;
 }>();
+
+// SEO
+const baseUrl = computed(() => {
+    if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.host}`
+    }
+    return 'https://ipop360.vp-associates.com'
+})
+
+const seoData = computed(() => {
+    return useSeo({
+        title: 'My Favorites | iPop360',
+        description: 'Your saved restaurants — log in to sync across devices. View and manage your favorite dining spots all in one place.',
+        url: `${baseUrl.value}/favorites`,
+        type: 'website',
+    })
+})
 </script>
 
 <template>
     <AppLayout>
-        <Head title="My Favorites" />
+        <Head>
+            <title>{{ seoData.title }}</title>
+            <meta name="description" :content="seoData.description" />
+            <link rel="canonical" :href="seoData.canonical" />
+            <meta property="og:title" :content="seoData.ogTitle" />
+            <meta property="og:description" :content="seoData.ogDescription" />
+            <meta property="og:type" :content="seoData.ogType" />
+            <meta property="og:url" :content="seoData.ogUrl" />
+            <meta property="og:site_name" :content="seoData.ogSiteName" />
+            <meta property="og:image" :content="seoData.ogImage" />
+            <meta name="twitter:card" :content="seoData.twitterCard" />
+            <meta name="twitter:title" :content="seoData.twitterTitle" />
+            <meta name="twitter:description" :content="seoData.twitterDescription" />
+        </Head>
 
         <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
             <!-- Header -->
