@@ -2,7 +2,7 @@
 
 > Living snapshot for Claude (and humans) picking up this project. Read this
 > together with `constitution.md` and `history.md` at session start. Detailed
-> per-spec history lives in `history/`. Updated: 2026-06-25.
+> per-spec history lives in `history/`. Updated: 2026-06-26.
 
 ## What this is
 A restaurant-discovery app that ranks venues with a free-first scoring blend.
@@ -10,15 +10,17 @@ A restaurant-discovery app that ranks venues with a free-first scoring blend.
 SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
 `constitution.md`.
 
-## Current state (2026-06-25)
+## Current state (2026-06-26)
 - **Live search works and is SerpApi-rated.** Any city returns real, quality-
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–033 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
+- **Specs 001–038 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
   rewritten `RestaurantCard` + `CardGallery` hover-scrub, `RestaurantCardSkeleton`, responsive
   results grid, `Welcome.vue` idle→searching→results phase machine) — shipped to master via
-  `ralph/results-redesign` (PR #1, `3fab22f`), live; details in "What's next". **022–028**
+  `ralph/results-redesign` (PR #1, `3fab22f`), live. **034–038** (results-redesign audit: interaction/
+  loading, favorites, mobile+a11y, perf, SEO meta+JSON-LD+sitemap) — merged via PR #2 (`ba40e12`,
+  2026-06-26), deployed + verified live. Details in "What's next". **022–028**
   (backend/live-search): most recent 022 (cache/quota observability),
   023 (live-search feedback states), 024 (enrichment robustness), 025 (real
   `Http::pool` concurrency for the read-path source fetch — the old "parallel"
@@ -129,15 +131,14 @@ The DB file (`database/database.sqlite`) is gitignored — each machine has its
 own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
-## What's next (queued specs — as of 2026-06-25)
-**001–033 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign** to
-master (branch `ralph/results-redesign` → PR #1 → `3fab22f`, deployed + verified live).
+## What's next (queued specs — as of 2026-06-26)
+**001–038 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
+results-redesign audit) merged to master via **PR #2 (`ba40e12`, 2026-06-26)** — deployed + verified
+live (branch `ralph/audit-followup` merged + deleted).
 
-The **queue is specs 034–039** — the **results-redesign audit**. Authored + adversarially
-line-verified against the redesign. The queue lives on master at `7e6990f` and on branch
-**`ralph/audit-followup`** (which superseded `ralph/results-redesign-audit` — that branch was
-merged to master + deleted). Ralph implements them one-per-iteration, lowest-first, as
-`feat(spec-NNN)` commits on **`ralph/audit-followup`**:
+The **open queue is 039 (blocked) + 040 (proposed/blocked on direction).** Specs 034–039 were
+authored + adversarially line-verified against the redesign; their detail bullets are kept below as
+reference. Ralph implements specs one-per-iteration, lowest-first, as `feat(spec-NNN)` commits:
 - **034** results UI interaction + loading fixes — the blank-during-search skeleton (gate
   `isResultsPhase` excludes `'searching'`), the dead Directions `@click.prevent`, a global
   `cursor:pointer`, and search-icon = "refine" (reverse the transition). Frontend-only, no deps,
@@ -153,9 +154,14 @@ merged to master + deleted). Ralph implements them one-per-iteration, lowest-fir
   `@inertiaHead`), `WebSite`/`ItemList`/`Restaurant` JSON-LD, `seo:sitemap` command, `<footer>`.
 - **039** new logo asset — SVG vector-traced from a source image. Standalone but ⚠️ **blocked until
   the user drops the source image into `public/img/`** (ralph stops + reports if absent).
+- **040** detail-page & JSON-LD reachability for live-search results — `/restaurants/{slug}` 404s for
+  live (SerpApi) results because they're virtual/non-persisted, leaving spec-038's `Restaurant` JSON-LD
+  inert. ⚠️ **PROPOSED — blocked on a direction decision (Options A/B/C/D in the spec).** Surfaced by
+  the PR #2 live verification.
 
-**Ordering:** 034 → 035 → 036 (036 consumes 035's heart code in the restructure) → 037 → 038 → 039;
-037/038/039 are largely independent and **039 can run anytime once its source image exists**.
+**Ordering:** 034–038 are COMPLETE. Remaining: **039** (blocked on source image) then **040** (blocked on
+direction sign-off). 037/038/039 were largely independent; **039 can run anytime once its source image
+exists**.
 Forward-refs in 036 to `useFavorites`/`@click.stop` are correct under ralph's lowest-first run order.
 
 **Ralph handoff (when 034–039 are all `Status: COMPLETE`):** run
