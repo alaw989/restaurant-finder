@@ -102,7 +102,7 @@ function toggleSaved() {
         v-motion="animation"
     >
         <Card
-            class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl"
+            class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl"
         >
             <!-- Photo section with CardGallery -->
             <CardGallery
@@ -207,7 +207,7 @@ function toggleSaved() {
                         rel="noopener"
                         class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         title="Get directions"
-                        @click.prevent
+                        @click.stop
                     >
                         <Navigation class="h-3.5 w-3.5" />
                         <span>Directions</span>
@@ -216,7 +216,7 @@ function toggleSaved() {
                         v-if="restaurant.phone"
                         class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         :title="`Call ${restaurant.phone}`"
-                        @click.prevent="callPhone(restaurant.phone)"
+                        @click.stop="callPhone(restaurant.phone)"
                     >
                         <Phone class="h-3.5 w-3.5" />
                         <span>Call</span>
@@ -225,7 +225,7 @@ function toggleSaved() {
                         v-if="restaurant.website_url"
                         class="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/50 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         title="Visit website"
-                        @click.prevent="openWebsite(restaurant.website_url)"
+                        @click.stop="openWebsite(restaurant.website_url)"
                     >
                         <Globe class="h-3.5 w-3.5" />
                         <span>Website</span>

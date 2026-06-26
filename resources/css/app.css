@@ -150,4 +150,5 @@
   body {
     @apply bg-background text-foreground;
     }
+  button:not(:disabled), [role="button"], summary { cursor: pointer; }
 }
