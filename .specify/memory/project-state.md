@@ -15,7 +15,11 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–028 COMPLETE.** Most recent: 022 (cache/quota observability),
+- **Specs 001–033 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
+  rewritten `RestaurantCard` + `CardGallery` hover-scrub, `RestaurantCardSkeleton`, responsive
+  results grid, `Welcome.vue` idle→searching→results phase machine) — shipped to master via
+  `ralph/results-redesign` (PR #1, `3fab22f`), live; details in "What's next". **022–028**
+  (backend/live-search): most recent 022 (cache/quota observability),
   023 (live-search feedback states), 024 (enrichment robustness), 025 (real
   `Http::pool` concurrency for the read-path source fetch — the old "parallel"
   thunk fetch was actually serial), 026 (live-search geo-relevance distance
@@ -126,22 +130,42 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-25)
-All of 001–028 are COMPLETE. The queue is **empty**. Specs 025–028 were authored
-interactively (off-queue): 025 storified+verified a live-search concurrency
-refactor, 026 fixed geo-irrelevant results (NYC in a Mobile search), 027 fixed
-cuisine-irrelevant results from the **untrusted** source (BizData ignores cuisine,
-so a Chinese search surfaced Mexican/pizza/wings chains), 028 fixed cuisine-
-irrelevant results from the **trusted** source (SerpApi's q="… near me" leaked a
-Southern restaurant into a Chinese search; now three-valued-scrutinized via the
-newly-captured `place_types`). Candidate **follow-up specs** explicitly deferred:
-(a) drop SerpApi's `buildQuery()` `" near me"` suffix so it returns local results
-(recall; only takes full effect as the 30-day cache turns over) — deferred from
-026; (b) Socrata location-gating + its broken lat-only WHERE clause
-(`SocrataOpenDataService::buildWhereClause`) — neutralized by 026's distance
-filter; (c) expand the `cuisineNameKeywords()` map (e.g. add "panda", "chang") to
-recover more **BizData** recall — deferred from 027 (serpapi recall is now recovered
-via `place_types` in 028, but bizdata still relies on name-keyword matching);
-(d) populate serpapi's real `cuisines` field from the `place_types` captured in 028
-("Chinese restaurant" → `[['name' => 'Chinese']]`) instead of the hardcoded
-`'Restaurant'` — UI/scoring scope creep. If the queue stays empty, the constitution
-says to re-verify a random spec before signaling done.
+**001–033 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign** to
+master (branch `ralph/results-redesign` → PR #1 → `3fab22f`, deployed + verified live).
+
+The **queue is specs 034–039** — the **results-redesign audit**. Authored + adversarially
+line-verified against the redesign, on branch **`ralph/results-redesign-audit`** (based on
+`3fab22f`). Ralph implements them one-per-iteration, lowest-first, as `feat(spec-NNN)` commits
+on that branch:
+- **034** results UI interaction + loading fixes — the blank-during-search skeleton (gate
+  `isResultsPhase` excludes `'searching'`), the dead Directions `@click.prevent`, a global
+  `cursor:pointer`, and search-icon = "refine" (reverse the transition). Frontend-only, no deps,
+  **highest priority**.
+- **035** user-connected restaurant favorites (hybrid: guests → `localStorage`, logged-in →
+  server-side with merge-on-login; Breeze auth already wired). Backend+frontend.
+- **036** card & gallery mobile + accessibility — restructure the nested `<a>`-wrapping-`<button>`
+  card to a stretched-link `<article>`, `@media(hover:hover)` gating, tap-to-cycle gallery,
+  ≥44px touch targets, per-page `<h1>`.
+- **037** image & font performance — one non-blocking self-hosted font, explicit `<img>` dims +
+  `sizes`, lazy Leaflet, LCP hero preload, real favicon + `theme-color`.
+- **038** SEO meta + JSON-LD + sitemap — per-page `<Head>` (description/canonical/OG/Twitter via
+  `@inertiaHead`), `WebSite`/`ItemList`/`Restaurant` JSON-LD, `seo:sitemap` command, `<footer>`.
+- **039** new logo asset — SVG vector-traced from a source image. Standalone but ⚠️ **blocked until
+  the user drops the source image into `public/img/`** (ralph stops + reports if absent).
+
+**Ordering:** 034 → 035 → 036 (036 consumes 035's heart code in the restructure) → 037 → 038 → 039;
+037/038/039 are largely independent and **039 can run anytime once its source image exists**.
+Forward-refs in 036 to `useFavorites`/`@click.stop` are correct under ralph's lowest-first run order.
+
+**Ralph handoff (when 034–039 are all `Status: COMPLETE`):** run
+`gh pr create --base master --head ralph/results-redesign-audit` (PR body summarizing 034–039;
+**do NOT merge — leave for user review**). The binding browser-verify on
+https://ipop360.vp-associates.com then applies **after** the PR is merged to master (watch the GHA
+run for the merged SHA, then reproduce behaviorally).
+
+Earlier off-queue follow-ups (still relevant, not blocking 034–039): (a) drop SerpApi's
+`buildQuery()` `" near me"` suffix (recall; cache-turnover-gated) — from 026; (b) Socrata
+location-gating + its broken lat-only WHERE clause (`SocrataOpenDataService::buildWhereClause`) —
+neutralized by 026's distance filter; (c) expand `cuisineNameKeywords()` (e.g. "panda", "chang") for
+more BizData recall — from 027 (serpapi recall now recovered via `place_types` in 028); (d) populate
+serpapi's real `cuisines` from the `place_types` captured in 028 — UI/scoring scope creep.
