@@ -104,7 +104,7 @@ ratings from search engines (LLMs hallucinate numbers), Foursquare ratings
   cuisine/category keyword/synonym lookup goes through it; a drift-guard test asserts it covers the
   seeded DB taxonomy.
 - Config: `config/restaurant-finder.php` (weights + knobs); `config/cuisine-keywords.php` (cuisine lexicon).
-- Tests: `php artisan test` (253 tests, 927 assertions).
+- Tests: `php artisan test` (257 tests, 943 assertions).
 
 ## Working across machines / new-machine setup
 This repo is the single source of truth — `git pull` on any machine and Claude
@@ -136,13 +136,17 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-26)
-**001–041 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
+**001–042 are COMPLETE.** 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
 results-redesign audit) merged to master via **PR #2 (`ba40e12`, 2026-06-26)** — deployed + verified
 live (branch `ralph/audit-followup` merged + deleted). **041** (cuisine filter single source of truth
 + honest category search — the "All African → 100 any-cuisine" bug; new `config/cuisine-keywords.php`
 + `CuisineMatcher`/`CuisineScope`, category searches first-class, fail-honest, result bounding) —
-implemented in interactive mode, 253 tests green, verified live-locally; **pending commit/push +
-deploy-verify**.
+**SHIPPED: commit `70a4978`, deployed + GHA-green 2026-06-26.** Its post-deploy live-verify (the binding
+browser-verify step, uncatchable locally — no SerpApi key) found category searches leaked non-restaurant
+Google places → **042** is the follow-up fix: `LiveSearchService::filterNonRestaurants()` drops rows whose
+`place_types` carry no food-establishment signal (recall-protective for no-place_types rows; kill-switch
+`filters.scrutinize_place_types`). Complements the off-*cuisine* filter with off-*entity-type*. 257 tests
+green, deployed + verified live.
 
 The **open queue is 039 (blocked) + 040 (proposed/blocked on direction).** Specs 034–039 were
 authored + adversarially line-verified against the redesign; their detail bullets are kept below as

@@ -742,6 +742,160 @@ class LiveSearchScoringTest extends TestCase
         }
     }
 
+    public function test_live_search_drops_non_restaurant_place_types(): void
+    {
+        // spec-042 regression: "All African" surfaced churches, bridges, salons and
+        // grocery stores because SerpApi's q="african near me" matched NAMES and
+        // every SerpApi row is tagged cuisine=Restaurant. place_types is the real
+        // discriminator: genuine restaurants (Ethiopian/African restaurant) survive;
+        // churches/bridges/salons/groceries are dropped — even when their name
+        // contains the category word.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'State Street AME Zion Church', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => ['Methodist church', 'Church']],
+                ['name' => 'Africatown Bridge', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => ['Bridge']],
+                ['name' => 'African Braids Salon', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['Hair salon']],
+                ['name' => "Greer's Downtown Market", 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23,
+                 'place_types' => ['Grocery store', 'Bakery', 'Butcher shop', 'Deli', 'Supermarket']],
+                ['name' => 'Awash Ethiopian Restaurant', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24,
+                 'place_types' => ['Ethiopian restaurant', 'African restaurant']],
+                ['name' => 'Berber Street Food', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25,
+                 'place_types' => ['African restaurant', 'Caterer']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null, 'african');
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Awash Ethiopian Restaurant', $names);
+        $this->assertContains('Berber Street Food', $names);
+        $this->assertNotContains('State Street AME Zion Church', $names);
+        $this->assertNotContains('Africatown Bridge', $names);
+        $this->assertNotContains('African Braids Salon', $names);
+        $this->assertNotContains("Greer's Downtown Market", $names);
+    }
+
+    public function test_place_types_filter_keeps_drink_and_cafe_venues(): void
+    {
+        // Venues Google doesn't type "restaurant" but ARE food/drink: a cocktail
+        // bar, coffee shop and brewery survive. Precision guards: "bar" must NOT
+        // match "barber", a "wine bar" survives while a "wine store" is dropped,
+        // and bare "food" must NOT keep a "frozen food store".
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'The Cocktail Lounge', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => ['Cocktail bar', 'Lounge bar']],
+                ['name' => 'Bean Roasters', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => ['Coffee shop', 'Coffee roastery']],
+                ['name' => 'Hop Works Brewery', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['Brewery']],
+                ['name' => 'Vino Bar', 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23,
+                 'place_types' => ['Wine bar']],
+                ['name' => 'Downtown Barbershop', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24,
+                 'place_types' => ['Barber shop']],
+                ['name' => 'Vino Store', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25,
+                 'place_types' => ['Wine store']],
+                ['name' => 'Frozen Food Mart', 'source' => 'serpapi', 'lat' => 30.71, 'lng' => -88.26,
+                 'place_types' => ['Grocery store', 'Frozen food store']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('The Cocktail Lounge', $names);
+        $this->assertContains('Bean Roasters', $names);
+        $this->assertContains('Hop Works Brewery', $names);
+        $this->assertContains('Vino Bar', $names);
+        $this->assertNotContains('Downtown Barbershop', $names);
+        $this->assertNotContains('Vino Store', $names);
+        $this->assertNotContains('Frozen Food Mart', $names);
+    }
+
+    public function test_place_types_filter_keeps_rows_without_place_types(): void
+    {
+        // Recall-protective: non-Google sources (overpass/bizdata/socrata) carry no
+        // place_types, but they are restaurant-scoped by their own queries — so a
+        // missing place_types must never cause a drop.
+        $service = $this->makeServiceWithVenues([
+            'overpass' => [
+                ['name' => 'OSM Bistro', 'source' => 'overpass', 'lat' => 30.65, 'lng' => -88.20],
+            ],
+            'bizdata' => [
+                ['name' => 'BizData Diner', 'source' => 'bizdata', 'lat' => 30.66, 'lng' => -88.21],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('OSM Bistro', $names);
+        $this->assertContains('BizData Diner', $names);
+    }
+
+    public function test_scrutinize_place_types_kill_switch_reverts(): void
+    {
+        // With scrutinize_place_types=false the filter is a no-op, so a church
+        // (place_types with no food signal) survives again. Proves the knob
+        // (not a hardcode) drives it.
+        $original = config('restaurant-finder.filters.scrutinize_place_types');
+        Config::set('restaurant-finder.filters.scrutinize_place_types', false);
+
+        try {
+            $service = $this->makeServiceWithVenues([
+                'serpapi' => [
+                    ['name' => 'Africatown Church', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                     'place_types' => ['Church']],
+                ],
+            ]);
+
+            $results = $service->search(30.6199783, -88.1967496, null, 'african');
+            $names = array_column($results, 'name');
+
+            $this->assertContains('Africatown Church', $names);
+        } finally {
+            Config::set('restaurant-finder.filters.scrutinize_place_types', $original);
+        }
+    }
+
+    public function test_place_types_filter_keeps_food_types_and_retail_guard(): void
+    {
+        // spec-042 hardening (adversarial review): broaden recall to real food types
+        // Google emits WITHOUT "restaurant" (caterer/deli/fast food/buffet/food court/
+        // steak house/brewpub/bare Bar) AND add a retail guard so a store/market/grocery
+        // drops even when it carries a weak food type (Deli) — and "bar" matches only as
+        // the LAST word so "bar association" isn't a false-keep.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Caterer A', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20, 'place_types' => ['Caterer']],
+                ['name' => 'Deli B', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21, 'place_types' => ['Deli']],
+                ['name' => 'Fast Burger', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22, 'place_types' => ['Fast food']],
+                ['name' => 'Food Hall', 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23, 'place_types' => ['Food court']],
+                ['name' => 'Big Buffet', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24, 'place_types' => ['Buffet']],
+                ['name' => 'Steak Joint', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25, 'place_types' => ['Steak house']],
+                ['name' => 'Brew Pub', 'source' => 'serpapi', 'lat' => 30.71, 'lng' => -88.26, 'place_types' => ['Brewpub']],
+                ['name' => 'The Bar', 'source' => 'serpapi', 'lat' => 30.72, 'lng' => -88.27, 'place_types' => ['Bar']],
+                // retail guard + tail-word precision — must DROP:
+                ['name' => 'Corner Grocery', 'source' => 'serpapi', 'lat' => 30.73, 'lng' => -88.28, 'place_types' => ['Grocery store', 'Deli']],
+                ['name' => 'Supply Co', 'source' => 'serpapi', 'lat' => 30.74, 'lng' => -88.29, 'place_types' => ['Restaurant supply store']],
+                ['name' => 'State Bar Association', 'source' => 'serpapi', 'lat' => 30.75, 'lng' => -88.30, 'place_types' => ['Bar association']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        foreach (['Caterer A', 'Deli B', 'Fast Burger', 'Food Hall', 'Big Buffet', 'Steak Joint', 'Brew Pub', 'The Bar'] as $keep) {
+            $this->assertContains($keep, $names, "Expected food/drink venue kept: {$keep}");
+        }
+        foreach (['Corner Grocery', 'Supply Co', 'State Bar Association'] as $drop) {
+            $this->assertNotContains($drop, $names, "Expected non-restaurant dropped: {$drop}");
+        }
+    }
+
     /**
      * Create a cuisine (with the category row its FK requires). Cuisine
      * resolution now reads config/cuisine-keywords.php via CuisineMatcher, so a

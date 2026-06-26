@@ -47,6 +47,13 @@ class LiveSearchService
         // Filter garbage names from OSM-derived sources before dedup
         $results = $this->filterGarbageNames($results);
 
+        // Drop Google places that aren't restaurants (spec-042): a generic category
+        // search (q="african near me") matched NAMES, surfacing churches/bridges/
+        // salons. place_types is the real discriminator (SerpApi tags every row
+        // cuisine=Restaurant). Rows without place_types (non-Google sources) pass
+        // through. Runs before dedup so per-source place_types are read pristine.
+        $results = $this->filterNonRestaurants($results);
+
         // Cuisine relevance: drop off-cuisine venues. No-op when unscoped
         // (legit "any cuisine" search / cache-only preview reconstruction).
         // Runs BEFORE dedup so each row still carries its original `source`
@@ -441,6 +448,136 @@ class LiveSearchService
 
             return true;
         }));
+    }
+
+    /**
+     * Google place_type substrings that signal a food establishment (matched
+     * case-insensitively anywhere in the type string). "restaurant" is the primary
+     * signal (covers "Ethiopian restaurant", "Takeout Restaurant", "Fast food
+     * restaurant"); the rest cover drink/light-meal venues Google doesn't type
+     * "restaurant" — bars, cafes, breweries, delis, caterers, buffets, food courts,
+     * steak houses, fast food, etc. Google sends ASCII ("cafe", never "café"), so no
+     * accented entry is needed. Verified disjoint from RETAIL_TYPE_PATTERNS below
+     * (no food type contains store/market/grocery/wholesale/supplier).
+     */
+    private const FOOD_TYPE_PATTERNS = [
+        'restaurant', 'cafe', 'coffee', 'bistro', 'diner', 'brasserie', 'gastropub',
+        'brewpub', 'trattoria', 'osteria', 'eatery', 'brewery', 'distillery', 'winery',
+        'taphouse', 'pizzeria', 'steakhouse', 'steak house', 'barbecue', 'takeaway',
+        'takeout', 'fast food', 'food court', 'buffet', 'ice cream', 'creamery',
+        'tea room', 'tea house', 'juice bar', 'juicery', 'brunch', 'sandwich', 'donut',
+        'waffle', 'caterer', 'canteen', 'dhaba', 'deli',
+    ];
+
+    /**
+     * Retail/wholesale place_type substrings. If ANY of a row's place_types matches
+     * one of these, the row is a store/market/grocery — NOT a restaurant — and is
+     * dropped even if it also carries a weak food type like "Deli"/"Bakery" (a grocery
+     * with a deli counter is still a grocery). Checked BEFORE the food signal so a
+     * weak type on a retail row can't rescue it. (Adversarial review: without this,
+     * adding "deli" to keep standalone delis re-leaks "Greer's Downtown Market".)
+     */
+    private const RETAIL_TYPE_PATTERNS = ['store', 'grocery', 'market', 'wholesale', 'supplier'];
+
+    /**
+     * Ambiguous short drink-establishment words matched only as the LAST word of a
+     * place_type (drinking bars are head-initial + bar-final: "Cocktail bar", "Wine
+     * bar", "Bar") — so "bar"≠"barber", "wine bar" survives while "wine store" drops
+     * (retail guard), and "bar association" (bar-first) is not a false-keep.
+     */
+    private const FOOD_TYPE_TAIL_WORDS = ['bar', 'pub', 'tavern'];
+
+    /**
+     * Drop rows whose Google `place_types` indicate a NON-restaurant (spec-042).
+     *
+     * SerpApi's google_maps engine returns any place whose NAME matches the query,
+     * so a generic category search (q="african near me") surfaced churches, bridges,
+     * hair salons, grocery stores and museums that merely have the category word in
+     * their name (SerpApi tags every row cuisine=Restaurant, so the type is the only
+     * real discriminator). A row survives iff at least one place_type signals a food
+     * establishment.
+     *
+     * Rows WITHOUT place_types (non-Google sources — overpass/bizdata/socrata, which
+     * are already restaurant-scoped by their own queries) pass through untouched
+     * (recall-protective). Gated by `filters.scrutinize_place_types` (default true).
+     * Runs for scoped AND unscoped live searches, before dedup (reads per-source
+     * place_types before dedup's mergeVenues() can fold rows together).
+     */
+    private function filterNonRestaurants(array $results): array
+    {
+        if (! (bool) config('restaurant-finder.filters.scrutinize_place_types', true)) {
+            return $results;
+        }
+
+        $kept = [];
+        $dropped = [];
+        foreach ($results as $r) {
+            $placeTypes = $r['place_types'] ?? null;
+            // No structured Google type → trust the source (recall-protective).
+            if (! is_array($placeTypes) || empty($placeTypes)) {
+                $kept[] = $r;
+                continue;
+            }
+            if ($this->isFoodEstablishment($placeTypes)) {
+                $kept[] = $r;
+            } else {
+                $dropped[] = ['name' => $r['name'] ?? '', 'place_types' => $placeTypes];
+            }
+        }
+
+        if (! empty($dropped)) {
+            Log::info('Non-restaurant place_types filter dropped rows', [
+                'count' => count($dropped),
+                'dropped' => array_slice($dropped, 0, 20),
+            ]);
+        }
+
+        return $kept;
+    }
+
+    /**
+     * Does any of a row's Google place_types signal a food establishment? Google
+     * returns human-readable type phrases ("African restaurant", "Cocktail bar",
+     * "Coffee shop"); matched case-insensitively.
+     *
+     * @param string[] $placeTypes
+     */
+    private function isFoodEstablishment(array $placeTypes): bool
+    {
+        $types = [];
+        foreach ($placeTypes as $type) {
+            $t = strtolower((string) $type);
+            if ($t !== '') {
+                $types[] = $t;
+            }
+        }
+
+        // Retail guard: any store/market/grocery/wholesale type → not a restaurant
+        // (a grocery with a deli/bakery counter is still retail). Checked first so a
+        // weak food type on a retail row cannot rescue it.
+        foreach ($types as $t) {
+            foreach (self::RETAIL_TYPE_PATTERNS as $retail) {
+                if (str_contains($t, $retail)) {
+                    return false;
+                }
+            }
+        }
+
+        // Food signal: any restaurant/drink type, or a drink word as the last token.
+        foreach ($types as $t) {
+            foreach (self::FOOD_TYPE_PATTERNS as $pattern) {
+                if (str_contains($t, $pattern)) {
+                    return true;
+                }
+            }
+            $tokens = preg_split('/[\s\/\-]+/u', $t) ?: [];
+            $last = end($tokens) ?: '';
+            if ($last !== '' && in_array($last, self::FOOD_TYPE_TAIL_WORDS, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

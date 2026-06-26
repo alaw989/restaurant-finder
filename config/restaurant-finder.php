@@ -242,6 +242,19 @@ return [
         'scrutinize_trusted_sources' => filter_var(
             env('SCRUTINIZE_TRUSTED_SOURCES', true), FILTER_VALIDATE_BOOL
         ),
+
+        // spec-042: drop live-search rows whose Google `place_types` indicate a
+        // NON-restaurant (church, bridge, hair salon, grocery store, museum…).
+        // SerpApi's q="<category> near me" matches NAMES, so generic category
+        // searches (african/asian/american) surfaced non-food places named with
+        // the category word (Mobile/african → 14 rows, zero restaurants). A row is
+        // kept only if a place_type signals a food establishment; rows with NO
+        // place_types (non-Google sources — overpass/bizdata/socrata, already
+        // restaurant-scoped by their own queries) pass through (recall-protective).
+        // When false, the filter is a no-op (revert without redeploy).
+        'scrutinize_place_types' => filter_var(
+            env('SCRUTINIZE_PLACE_TYPES', true), FILTER_VALIDATE_BOOL
+        ),
     ],
 
 ];
