@@ -285,6 +285,7 @@ class SerpApiService
                 'lat' => $lat,
                 'lng' => $lng,
                 'photo_url' => $photo,
+                'photos' => $photo ? [$photo] : [],
                 'price_range' => $priceLevel,
                 'phone' => $r['phone'] ?? null,
                 'website_url' => $r['website'] ?? $r['links']['website'] ?? null,

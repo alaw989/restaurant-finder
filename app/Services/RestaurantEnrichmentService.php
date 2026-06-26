@@ -559,6 +559,15 @@ class RestaurantEnrichmentService
             }
         }
 
+        // Union gallery photos across sources (dedup by URL, cap 6).
+        if (!empty($source['photos'])) {
+            $unioned = array_values(array_unique(array_merge(
+                $merged['photos'] ?? [],
+                $source['photos'],
+            )));
+            $merged['photos'] = array_slice($unioned, 0, 6);
+        }
+
         return $merged;
     }
 
@@ -705,6 +714,24 @@ class RestaurantEnrichmentService
                 }
                 if (!empty($details['photos'][0]['photo_reference']) && $restaurant->photo_url === null) {
                     $updates['photo_url'] = $this->buildGooglePhotoUrl($details['photos'][0]['photo_reference']);
+                }
+
+                // Capture the full Google photo set (up to 6) for the list-card
+                // hover gallery. These references are already in the cached Places
+                // details, so this is free — no extra API call. One-time backfill.
+                if ($restaurant->photos === null && !empty($details['photos'])) {
+                    $photoUrls = [];
+                    foreach ($details['photos'] as $gp) {
+                        if (!empty($gp['photo_reference'])) {
+                            $photoUrls[] = $this->buildGooglePhotoUrl($gp['photo_reference']);
+                            if (count($photoUrls) >= 6) {
+                                break;
+                            }
+                        }
+                    }
+                    if (!empty($photoUrls)) {
+                        $updates['photos'] = $photoUrls;
+                    }
                 }
                 if (!empty($details['website']) && empty($restaurant->website_url)) {
                     $updates['website_url'] = $details['website'];

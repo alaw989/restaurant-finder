@@ -236,8 +236,16 @@ class FoursquareService
         $distance = isset($r['distance']) ? round($r['distance'] / 1000, 1) : null;
         $photos = $r['photos'] ?? [];
         $photoUrl = null;
-        if (!empty($photos) && isset($photos[0]['prefix'], $photos[0]['suffix'])) {
-            $photoUrl = $photos[0]['prefix'] . '300x300' . $photos[0]['suffix'];
+        $photoUrls = [];
+        foreach ($photos as $p) {
+            if (isset($p['prefix'], $p['suffix'])) {
+                $url = $p['prefix'] . '300x300' . $p['suffix'];
+                $photoUrl ??= $url;
+                $photoUrls[] = $url;
+                if (count($photoUrls) >= 6) {
+                    break;
+                }
+            }
         }
 
         return [
@@ -251,6 +259,7 @@ class FoursquareService
             'lat' => $geocodes['latitude'] ?? null,
             'lng' => $geocodes['longitude'] ?? null,
             'photo_url' => $photoUrl,
+            'photos' => $photoUrls,
             'price_range' => $r['price'] ?? null,
             'phone' => $r['tel'] ?? null,
             'website_url' => $r['website'] ?? null,
