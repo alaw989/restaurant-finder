@@ -92,6 +92,7 @@ jobs:
              php8.4 artisan route:cache && \
              php8.4 artisan view:cache && \
              php8.4 artisan cache:clear && \
+             (php8.4 artisan seo:sitemap || echo 'seo:sitemap failed (non-fatal)') && \
              (sudo systemctl reload php8.4-fpm 2>/dev/null || sudo systemctl restart php8.4-fpm 2>/dev/null || true) && \
              supervisorctl restart ipop360-worker:*"
 
