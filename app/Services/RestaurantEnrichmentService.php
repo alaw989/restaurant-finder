@@ -6,8 +6,10 @@ use App\Jobs\EnrichRestaurantWithAi;
 use App\Models\Cuisine;
 use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -165,165 +167,170 @@ class RestaurantEnrichmentService
     }
 
     /**
-     * Fetch and normalize all sources concurrently.
-     * Replaces sequential foreach with parallel execution.
+     * Fetch and normalize all sources using real Http::pool() concurrency.
+     * Wall time is max of sources, not sum. Isolates failures per source.
      */
     private function fetchAndNormalizeAllSources(float $lat, float $lng, string $cuisine): array
     {
-        // Create concurrent fetch thunks
-        $bizDataPromise = $this->fetchBizDataConcurrent($lat, $lng, $cuisine);
-        $foursquarePromise = $this->fetchFoursquareConcurrent($lat, $lng, $cuisine);
-        $overpassPromise = $this->fetchOverpassConcurrent($lat, $lng, $cuisine);
-        $serpApiPromise = $this->fetchSerpApiConcurrent($lat, $lng, $cuisine);
-        $socrataPromise = $this->fetchSocrataConcurrent($lat, $lng, $cuisine);
+        // Build request specs for each source (enrichment context = generous timeouts)
+        $context = ['read_path' => false];
+        $specs = [
+            'bizdata' => $this->bizData->poolRequestsFor($lat, $lng, $cuisine, $context),
+            'foursquare' => $this->foursquareService->poolRequestsFor($lat, $lng, $cuisine, $context),
+            'overpass' => $this->overpass->poolRequestsFor($lat, $lng, $cuisine, $context),
+            'serpapi' => $this->serpApiService->poolRequestsFor($lat, $lng, $cuisine, $context),
+            'socrata' => $this->socrataService->poolRequestsFor($lat, $lng, $cuisine, $context),
+        ];
 
-        // Execute all concurrently
-        $bizDataVenues = $bizDataPromise();
-        $foursquareVenues = $foursquarePromise();
-        $overpassVenues = $overpassPromise();
-        $serpApiVenues = $serpApiPromise();
-        $socrataVenues = $socrataPromise();
-
-        return array_merge($bizDataVenues, $foursquareVenues, $overpassVenues, $serpApiVenues, $socrataVenues);
-    }
-
-    /**
-     * Wrap BizData fetch for concurrent execution.
-     */
-    private function fetchBizDataConcurrent(float $lat, float $lng, string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->bizData->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
-
-                $businesses = $raw['data'] ?? [];
-                $normalized = $this->bizData->normalizeRaw($businesses, $lat, $lng, $cuisine);
-
-                // Convert to enrichment venue shape
-                return array_map(fn ($r) => $this->normalizeBizDataVenue($r), $normalized);
-            } catch (\Throwable $e) {
-                Log::warning('BizData backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-
-                return [];
+        // Flatten to composite keys for the pool
+        $flat = [];
+        $owner = [];
+        foreach ($specs as $label => $labelSpecs) {
+            foreach ($labelSpecs as $i => $spec) {
+                $composite = "{$label}.{$i}";
+                $flat[$composite] = $spec;
+                $owner[$composite] = $label;
             }
-        };
-    }
+        }
 
-    /**
-     * Wrap Foursquare fetch for concurrent execution.
-     */
-    private function fetchFoursquareConcurrent(float $lat, float $lng, string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->foursquareService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
+        if (empty($flat)) {
+            return [];
+        }
+
+        // Execute all requests concurrently
+        $responses = Http::pool(function (Pool $pool) use ($flat) {
+            $requests = [];
+            foreach ($flat as $key => $spec) {
+                $request = $pool->as($key)->timeout($spec->timeout);
+                if (! empty($spec->headers)) {
+                    $request = $request->withHeaders($spec->headers);
                 }
-
-                $results = $raw['data'] ?? [];
-                $normalized = $this->foursquareService->normalizeRaw($results);
-
-                return array_map(fn ($r) => $this->normalizeFoursquareVenue($r), $normalized);
-            } catch (\Throwable $e) {
-                Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-
-                return [];
+                if ($spec->method === 'POST') {
+                    $requests[] = $spec->asForm
+                        ? $request->asForm()->post($spec->url, $spec->body)
+                        : $request->post($spec->url, $spec->body);
+                } else {
+                    $requests[] = $request->get($spec->url, $spec->query);
+                }
             }
-        };
+
+            return $requests;
+        });
+
+        // Group results back by source label
+        $grouped = [];
+        foreach ($responses as $composite => $result) {
+            $label = $owner[$composite] ?? null;
+            if ($label === null) {
+                continue;
+            }
+            $index = (int) substr($composite, strlen($label) + 1);
+            $grouped[$label][$index] = $result;
+        }
+
+        // Normalize responses to enrichment venue shape
+        $venues = [];
+        foreach ($grouped as $label => $responses) {
+            $venues = array_merge($venues, $this->normalizePoolResponses($label, $responses, $lat, $lng, $cuisine));
+        }
+
+        return $venues;
     }
 
     /**
-     * Wrap Overpass fetch for concurrent execution with name-based fallback.
+     * Normalize pooled responses for a source into enrichment venue shape.
+     * Uses each service's consumePoolResponses to parse, cache, and normalize.
+     * Handles failures (throwables) by skipping the source.
      */
-    private function fetchOverpassConcurrent(float $lat, float $lng, string $cuisine): callable
+    private function normalizePoolResponses(string $label, array $responses, float $lat, float $lng, string $cuisine): array
     {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->overpass->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
+        try {
+            $cacheKey = $this->buildCacheKey($label, $lat, $lng, $cuisine);
+            $normalized = match ($label) {
+                'bizdata' => $this->bizData->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                'foursquare' => $this->foursquareService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                'serpapi' => $this->serpApiService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                'socrata' => $this->socrataService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                'overpass' => $this->consumeOverpassResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                default => [],
+            };
 
-                $elements = $raw['data'] ?? [];
-                $normalized = $this->overpass->normalizeRaw($elements, $lat, $lng);
+            $venues = [];
+            foreach ($normalized as $r) {
+                $venues[] = match ($label) {
+                    'bizdata' => $this->normalizeBizDataVenue($r),
+                    'foursquare' => $this->normalizeFoursquareVenue($r),
+                    'serpapi' => $this->normalizeSerpApiVenue($r),
+                    'socrata' => $this->normalizeSocrataVenue($r),
+                    'overpass' => $this->normalizeOverpassVenue($r),
+                    default => [],
+                };
+            }
 
-                if (! empty($normalized)) {
-                    return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $normalized);
-                }
+            return $venues;
+        } catch (\Throwable $e) {
+            Log::warning("{$label} pool response consumption failed", ['message' => $e->getMessage()]);
 
-                // Try name-based fallback
-                $keywords = $this->cuisineMatcher->keywordsFor([$cuisine]);
-                if (empty($keywords)) {
-                    return [];
-                }
+            return [];
+        }
+    }
 
+    /**
+     * Build cache key for a source request.
+     */
+    private function buildCacheKey(string $label, float $lat, float $lng, string $cuisine): string
+    {
+        return "{$label}:".md5(serialize(compact('lat', 'lng', 'cuisine')));
+    }
+
+    /**
+     * Consume Overpass responses with name-based fallback if no results.
+     * Overpass needs special handling because of the fallback path.
+     */
+    private function consumeOverpassResponses(array $responses, float $lat, float $lng, string $cuisine, string $cacheKey): array
+    {
+        $normalized = $this->overpass->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey);
+
+        // If no results, try name-based fallback
+        if (empty($normalized)) {
+            $keywords = $this->cuisineMatcher->keywordsFor([$cuisine]);
+            if (! empty($keywords)) {
                 $nameRaw = $this->overpass->fetchByNameRaw($lat, $lng, $keywords);
-                if ($nameRaw === null) {
-                    return [];
+                if ($nameRaw !== null) {
+                    $elements = $nameRaw['data'] ?? [];
+                    $normalized = $this->overpass->normalizeRaw($elements, $lat, $lng);
                 }
-
-                $nameElements = $nameRaw['data'] ?? [];
-                $nameNormalized = $this->overpass->normalizeRaw($nameElements, $lat, $lng);
-
-                return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $nameNormalized);
-            } catch (\Throwable $e) {
-                Log::warning('Overpass backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-
-                return [];
             }
-        };
+        }
+
+        return $normalized;
     }
 
     /**
-     * Wrap SerpApi fetch for concurrent execution.
+     * Normalize Overpass results with name-based fallback if cuisine query yields nothing.
      */
-    private function fetchSerpApiConcurrent(float $lat, float $lng, string $cuisine): callable
+    private function normalizeOverpassWithFallback(array $data, float $lat, float $lng, string $cuisine): array
     {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->serpApiService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
+        $normalized = $this->overpass->normalizeRaw($data, $lat, $lng);
 
-                $localResults = $raw['data'] ?? [];
-                $normalized = $this->serpApiService->normalizeRaw($localResults, $lat, $lng);
+        if (! empty($normalized)) {
+            return $normalized;
+        }
 
-                return array_map(fn ($r) => $this->normalizeSerpApiVenue($r), $normalized);
-            } catch (\Throwable $e) {
-                Log::warning('SerpApi backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+        // Try name-based fallback
+        $keywords = $this->cuisineMatcher->keywordsFor([$cuisine]);
+        if (empty($keywords)) {
+            return [];
+        }
 
-                return [];
-            }
-        };
-    }
+        $nameRaw = $this->overpass->fetchByNameRaw($lat, $lng, $keywords);
+        if ($nameRaw === null) {
+            return [];
+        }
 
-    /**
-     * Wrap Socrata fetch for concurrent execution.
-     */
-    private function fetchSocrataConcurrent(float $lat, float $lng, string $cuisine): callable
-    {
-        return function () use ($lat, $lng, $cuisine) {
-            try {
-                $raw = $this->socrataService->fetchRaw($lat, $lng, $cuisine);
-                if ($raw === null) {
-                    return [];
-                }
+        $nameElements = $nameRaw['data'] ?? [];
 
-                $socrataData = $raw['data'] ?? [];
-                $normalized = $this->socrataService->normalizeRaw($socrataData, $lat, $lng);
-
-                return array_map(fn ($r) => $this->normalizeSocrataVenue($r), $normalized);
-            } catch (\Throwable $e) {
-                Log::warning('Socrata backfill failed (non-fatal)', ['message' => $e->getMessage()]);
-
-                return [];
-            }
-        };
+        return $this->overpass->normalizeRaw($nameElements, $lat, $lng);
     }
 
     /**
@@ -872,39 +879,11 @@ class RestaurantEnrichmentService
             'real_calls_this_month' => $realCallsThisMonth,
         ]);
 
-        // Build all city×cuisine combos
-        $combos = [];
-        foreach ($cities as $cityName => [$lat, $lng]) {
-            foreach ($cuisines as $cuisine) {
-                $combos[] = [
-                    'city' => $cityName,
-                    'lat' => $lat,
-                    'lng' => $lng,
-                    'cuisine' => $cuisine,
-                ];
-            }
-        }
-
-        // Shuffle for fair rotation across runs
-        shuffle($combos);
+        $combos = $this->buildCityCuisineGrid($cities, $cuisines);
 
         foreach ($combos as $combo) {
-            // Check monthly budget
-            if ($realCallsThisMonth >= $monthlyBudget) {
-                Log::info('Monthly budget exhausted, stopping enrichment', [
-                    'real_calls_this_month' => $realCallsThisMonth,
-                    'monthly_budget' => $monthlyBudget,
-                ]);
+            if (! $this->withinBudget($realCallsThisMonth, $realCallsThisRun, $monthlyBudget, $perRunCap)) {
                 $quotaExhausted = true;
-                break;
-            }
-
-            // Check per-run cap
-            if ($realCallsThisRun >= $perRunCap) {
-                Log::info('Per-run cap reached, stopping enrichment', [
-                    'real_calls_this_run' => $realCallsThisRun,
-                    'per_run_cap' => $perRunCap,
-                ]);
                 break;
             }
 
@@ -913,32 +892,15 @@ class RestaurantEnrichmentService
             $lng = $combo['lng'];
             $cuisine = $combo['cuisine'];
 
-            // Skip if cache is fresh (no real call needed)
-            if ($this->isSerpApiCacheFresh($lat, $lng, $cuisine->name)) {
+            if ($this->shouldSkipCombo($lat, $lng, $cuisine->name, $cityName)) {
                 $cacheHitsSkipped++;
-                Log::debug('Skipping cache-fresh combo', [
-                    'city' => $cityName,
-                    'cuisine' => $cuisine->name,
-                ]);
 
                 continue;
             }
 
-            // Check if we have budget for this call
-            if ($realCallsThisMonth + 1 > $monthlyBudget) {
-                Log::info('Monthly budget would be exceeded, skipping', [
-                    'city' => $cityName,
-                    'cuisine' => $cuisine->name,
-                ]);
+            // Check if we have budget for this call (pre-increment check)
+            if ($realCallsThisMonth + 1 > $monthlyBudget || $realCallsThisRun + 1 > $perRunCap) {
                 $quotaExhausted = true;
-                break;
-            }
-
-            if ($realCallsThisRun + 1 > $perRunCap) {
-                Log::info('Per-run cap would be exceeded, skipping', [
-                    'city' => $cityName,
-                    'cuisine' => $cuisine->name,
-                ]);
                 break;
             }
 
@@ -976,5 +938,72 @@ class RestaurantEnrichmentService
             'cache_hits_skipped' => $cacheHitsSkipped,
             'quota_exhausted' => $quotaExhausted,
         ];
+    }
+
+    /**
+     * Build all city×cuisine combos and shuffle for fair rotation.
+     *
+     * @return array<array{city:string, lat:float, lng:float, cuisine:Cuisine}>
+     */
+    private function buildCityCuisineGrid(array $cities, Collection $cuisines): array
+    {
+        $combos = [];
+        foreach ($cities as $cityName => [$lat, $lng]) {
+            foreach ($cuisines as $cuisine) {
+                $combos[] = [
+                    'city' => $cityName,
+                    'lat' => $lat,
+                    'lng' => $lng,
+                    'cuisine' => $cuisine,
+                ];
+            }
+        }
+
+        shuffle($combos);
+
+        return $combos;
+    }
+
+    /**
+     * Check if we're within budget (both monthly and per-run caps).
+     */
+    private function withinBudget(int $realCallsThisMonth, int $realCallsThisRun, int $monthlyBudget, int $perRunCap): bool
+    {
+        if ($realCallsThisMonth >= $monthlyBudget) {
+            Log::info('Monthly budget exhausted, stopping enrichment', [
+                'real_calls_this_month' => $realCallsThisMonth,
+                'monthly_budget' => $monthlyBudget,
+            ]);
+
+            return false;
+        }
+
+        if ($realCallsThisRun >= $perRunCap) {
+            Log::info('Per-run cap reached, stopping enrichment', [
+                'real_calls_this_run' => $realCallsThisRun,
+                'per_run_cap' => $perRunCap,
+            ]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if a combo should be skipped (cache is fresh).
+     */
+    private function shouldSkipCombo(float $lat, float $lng, string $cuisine, string $cityName): bool
+    {
+        if ($this->isSerpApiCacheFresh($lat, $lng, $cuisine)) {
+            Log::debug('Skipping cache-fresh combo', [
+                'city' => $cityName,
+                'cuisine' => $cuisine,
+            ]);
+
+            return true;
+        }
+
+        return false;
     }
 }

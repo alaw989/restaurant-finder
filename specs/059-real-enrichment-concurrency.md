@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: **COMPLETE** (2026-06-27)
 
 **Series**: Tier 3 — Code health. Backend. **Write path only** (scheduled job).
 

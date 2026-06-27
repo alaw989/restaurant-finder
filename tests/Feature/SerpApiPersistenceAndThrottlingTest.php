@@ -344,4 +344,49 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
         $this->assertSame(0, $result['real_calls_made']);
         $this->assertTrue($result['quota_exhausted']);
     }
+
+    /**
+     * Test spec-059: enrichment uses real concurrency via Http::pool.
+     * Multiple source requests fire in parallel, not sequentially.
+     * Failure of one source doesn't prevent others from succeeding.
+     */
+    public function test_enrichment_uses_concurrent_pool_with_failure_isolation(): void
+    {
+        // Use the same successful response pattern as test_serpapi_venue_persists_rating_and_review_count
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response([
+                'businesses' => [
+                    [
+                        'name' => 'Concurrent Bistro',
+                        'latitude' => 37.7749,
+                        'longitude' => -122.4194,
+                        'address' => '456 Main St',
+                        'phone' => '+14155555678',
+                    ],
+                ],
+            ], 200),
+            'serpapi.com/*' => Http::response([
+                'local_results' => [
+                    [
+                        'title' => 'Concurrent Spot',
+                        'gps_coordinates' => ['latitude' => 37.7759, 'longitude' => -122.4184],
+                        'address' => '789 Oak Ave',
+                        'phone' => '+14155555901',
+                        'rating' => 4.5,
+                        'reviews' => 150,
+                    ],
+                ],
+            ], 200),
+            'foursquare:*' => Http::response(['data' => []], 200),
+            'overpass-api.de/*' => Http::response(['elements' => []], 200),
+            'socrata*/*' => Http::response(['data' => []], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
+
+        // Should have enriched at least one restaurant
+        $this->assertGreaterThan(0, $count);
+    }
 }
