@@ -257,6 +257,7 @@ class RestaurantController extends Controller
         $coords = $this->geolocationService->resolveCoordinates($request);
 
         // Build the shared query with cuisine/category filtering
+        /** @var \Illuminate\Database\Eloquent\Builder $query */
         $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
@@ -273,9 +274,10 @@ class RestaurantController extends Controller
         $items = $restaurants->getCollection();
         $allItems = $items; // Keep for score_breakdown fallback
 
+        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
         // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->each(fn ($resource) => $resource->withAllRestaurants($allItems));
+        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
 
         $formattedArray = $formatted->resolve();
 
@@ -346,6 +348,7 @@ class RestaurantController extends Controller
         $coords = $this->geolocationService->resolveCoordinates($request);
 
         // Build the shared query with cuisine/category filtering
+        /** @var \Illuminate\Database\Eloquent\Builder $query */
         $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
@@ -396,9 +399,10 @@ class RestaurantController extends Controller
         $allItems = $items; // Keep for score_breakdown fallback
 
         // Format using RestaurantResource (collection)
+        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
         // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->each(fn ($resource) => $resource->withAllRestaurants($allItems));
+        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
 
         return response()->json([
             'data' => $formatted->resolve(),

@@ -28,5 +28,6 @@ parameters:
         - '#Variable.*in isset\(\) always exists#'
         - '#Strict comparison using !== between array and null#'
         - '#DOMNameSpaceNode\|DOMNode::getAttribute\(\)#'
+        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder::nearby\(\)#'
     # Don't fail on unmatched ignore patterns (future-proof)
     reportUnmatchedIgnoredErrors: false

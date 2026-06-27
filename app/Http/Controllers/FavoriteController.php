@@ -19,9 +19,10 @@ class FavoriteController extends Controller
         $favorites = $user->favorites()->with('cuisines')->get();
 
         // Format using RestaurantResource (collection)
+        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($favorites);
         // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->each(fn ($resource) => $resource->withAllRestaurants($favorites));
+        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($favorites));
 
         return Inertia::render('Favorites/Index', [
             'favorites' => $formatted->resolve(),
