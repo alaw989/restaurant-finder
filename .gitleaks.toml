@@ -8,27 +8,37 @@ title = "iPop360 Secret Scanning"
 useDefault = true
 
 # Allow the placeholder keys in .env.example (these are documentation, not secrets)
-[allowlist]
+[[allowlist]]
 description = "Allow documented placeholder keys in .env.example"
 paths = [
   '''\.env\.example$'''
 ]
 
 # Allow specific patterns that are placeholders (empty values or documented examples)
-[allowlist.regexes]
+[[allowlist.regexes]]
 description = "Allow empty placeholder values and documented examples"
-regexes = [
-  '''^[\w_]+=$''',                  # Empty values like "API_KEY="
-  '''^[\w_]+=["']?localhost["']?$''', # Localhost placeholders
-  '''^[\w_]+=["']?hello@example\.com["']?$''', # Example email
-  '''^[\w_]+=["']?\$\{[\w_]+\}["']?$''', # Variable references like "${APP_NAME}"
-  '''^[\w_]+=["']?127\.0\.0\.1["']?$''', # Localhost IPs
-  '''^[\w_]+=["']?0\.0["']?$''',    # Zero values
-]
+regex = '''^[\w_]+=$'''
 
-# Ignore comments in .env files
-[allowlist.comments]
-description = "Allow comment lines starting with #"
-regexes = [
-  '''^#'''
-]
+[[allowlist.regexes]]
+description = "Allow localhost placeholders"
+regex = '''^[\w_]+=["']?localhost["']?$'''
+
+[[allowlist.regexes]]
+description = "Allow example email placeholder"
+regex = '''^[\w_]+=["']?hello@example\.com["']?$'''
+
+[[allowlist.regexes]]
+description = "Allow variable references"
+regex = '''^[\w_]+=["']?\$\{[\w_]+\}["']?$'''
+
+[[allowlist.regexes]]
+description = "Allow localhost IPs"
+regex = '''^[\w_]+=["']?127\.0\.0\.1["']?$'''
+
+[[allowlist.regexes]]
+description = "Allow zero values"
+regex = '''^[\w_]+=["']?0\.0["']?$'''
+
+[[allowlist.regexes]]
+description = "Allow comment lines"
+regex = '''^#'''
