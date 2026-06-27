@@ -9,6 +9,16 @@ use Illuminate\Support\Facades\Log;
 
 class GeolocationService
 {
+    /*
+     * NOTE: This service uses Laravel's Cache facade (Cache::remember) rather than
+     * ExternalApiCache because geocoding results are NOT quota-bound (free APIs like
+     * Nominatim/Photon have no monthly limits) and have different invalidation needs
+     * (city coordinates rarely change, so we cache for weeks). This separation is
+     * intentional — do NOT unify with ExternalApiCache, as cache misses here do NOT
+     * burn SerpApi quota. See config/restaurant-finder.php cache section for the
+     * full explanation of the two-store architecture.
+     */
+
     public function resolveCoordinates(Request $request): ?array
     {
         // Explicit URL params take priority

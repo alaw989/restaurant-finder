@@ -48,7 +48,9 @@ class SocrataOpenDataService
         try {
             $results = $this->fetchAllEndpoints($lat, $lng, $query);
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.socrata_ttl_hours', 24)
+            ));
 
             return $results;
         } catch (\Throwable $e) {
@@ -82,7 +84,9 @@ class SocrataOpenDataService
         try {
             $results = $this->fetchAllEndpoints($lat, $lng, $query);
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.socrata_ttl_hours', 24)
+            ));
 
             return ['cached' => false, 'data' => $results];
         } catch (\Throwable $e) {
@@ -198,7 +202,9 @@ class SocrataOpenDataService
         }
 
         $all = $this->deduplicateByName($all);
-        ExternalApiCache::storeByKey($cacheKey, $all, now()->addHours(24));
+        ExternalApiCache::storeByKey($cacheKey, $all, now()->addHours(
+            (int) config('restaurant-finder.cache.socrata_ttl_hours', 24)
+        ));
 
         return $all;
     }

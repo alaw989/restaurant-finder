@@ -4,14 +4,35 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE — 2026-06-27
+
+## Implementation notes
+
+- Added 6 new TTL config keys to `config/restaurant-finder.php`:
+  - `cache.outscraper_ttl_hours` (168h = 7 days)
+  - `cache.google_ttl_hours` (24h)
+  - `cache.overpass_ttl_hours` (24h)
+  - `cache.bizdata_ttl_hours` (24h)
+  - `cache.foursquare_ttl_hours` (24h)
+  - `cache.socrata_ttl_hours` (24h)
+- Updated 6 source services to read TTLs from config instead of hardcoded values:
+  - `OutscraperService.php:56` — 1 occurrence
+  - `GooglePlacesService.php:73,151` — 2 occurrences
+  - `OverpassService.php:37,58,109,188,574` — 5 occurrences
+  - `BizDataApiService.php:50,150,243` — 3 occurrences
+  - `FoursquareService.php:67,128,226` — 3 occurrences
+  - `SocrataOpenDataService.php:51,87,205` — 3 occurrences
+- Added documentation comment in `config/restaurant-finder.php` explaining the two-cache-store architecture (ExternalApiCache vs Laravel Cache facade)
+- Added inline comments in `GeolocationService.php` and `RestaurantWebsiteScraperService.php` explaining why they use Laravel Cache facade (not quota-bound, different invalidation needs)
+- Added 6 new env keys to `.env.example`: OUTSCRAPER_CACHE_TTL_HOURS, GOOGLE_CACHE_TTL_HOURS, OVERPASS_CACHE_TTL_HOURS, BIZDATA_CACHE_TTL_HOURS, FOURSQUARE_CACHE_TTL_HOURS, SOCRATA_CACHE_TTL_HOURS
+- Verified: 293 tests pass, `config:cache` succeeds, all 37 env() keys from restaurant-finder.php are documented in .env.example
 
 **Series**: Tier 3 — Code health. Backend. Config hygiene.
 
 ## The problem
 
-Cache TTLs are hardcoded magic numbers scattered across the source services, and
-only SerpApi's is configurable:
+Cache TTLs were hardcoded magic numbers scattered across the source services, and
+only SerpApi's was configurable:
 - SerpApi: `config('restaurant-finder.cache.serpapi_ttl_hours', 720)` (~30d) —
   `SerpApiService.php:69,121`. ✓ configurable.
 - Outscraper: `addHours(168)` (7d) hardcoded — `OutscraperService.php:54`.

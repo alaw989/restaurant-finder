@@ -47,7 +47,9 @@ class BizDataApiService
 
             $results = $this->normalizeResults($businesses, $lat, $lng, $cuisine);
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.bizdata_ttl_hours', 24)
+            ));
 
             return $results;
         } catch (\Throwable $e) {
@@ -145,7 +147,9 @@ class BizDataApiService
             $data = $response->json();
             $businesses = $data['businesses'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(
+                (int) config('restaurant-finder.cache.bizdata_ttl_hours', 24)
+            ));
 
             return ['cached' => false, 'data' => $businesses];
         } catch (\Throwable $e) {
@@ -236,7 +240,9 @@ class BizDataApiService
                 continue;
             }
 
-            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $businesses, now()->addHours(
+                (int) config('restaurant-finder.cache.bizdata_ttl_hours', 24)
+            ));
 
             return $this->normalizeRaw($businesses, $lat, $lng, $cuisine);
         }

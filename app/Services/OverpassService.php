@@ -34,7 +34,9 @@ class OverpassService
 
         $results = $this->executeSearch($lat, $lng, $cuisine, $radius, $limit);
 
-        ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+        ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+            (int) config('restaurant-finder.cache.overpass_ttl_hours', 24)
+        ));
 
         return $results;
     }
@@ -53,7 +55,9 @@ class OverpassService
 
         $results = $this->executeSearchByName($lat, $lng, $keywords, $radius, $limit);
 
-        ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+        ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+            (int) config('restaurant-finder.cache.overpass_ttl_hours', 24)
+        ));
 
         return $results;
     }
@@ -102,7 +106,9 @@ class OverpassService
                     $elements = $data['elements'] ?? [];
 
                     // Cache the raw elements for reuse
-                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(
+                        (int) config('restaurant-finder.cache.overpass_ttl_hours', 24)
+                    ));
 
                     return ['cached' => false, 'data' => $elements];
                 } catch (\Throwable $e) {
@@ -181,7 +187,9 @@ class OverpassService
                     $data = $response->json();
                     $elements = $data['elements'] ?? [];
 
-                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+                    ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(
+                        (int) config('restaurant-finder.cache.overpass_ttl_hours', 24)
+                    ));
 
                     return ['cached' => false, 'data' => $elements];
                 } catch (\Throwable $e) {
@@ -567,7 +575,9 @@ class OverpassService
                 continue;
             }
 
-            ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $elements, now()->addHours(
+                (int) config('restaurant-finder.cache.overpass_ttl_hours', 24)
+            ));
 
             return $this->normalizeRaw($elements, $lat, $lng);
         }

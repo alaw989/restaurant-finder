@@ -15,6 +15,14 @@ use Illuminate\Support\Facades\Log;
  * Scrapes ONLY the venue's own website (via website_url), honors robots.txt,
  * uses per-domain Cache::lock, caches for 7 days, and stores opening_hours as JSON.
  * Uses PHP's native DOM extension for parsing (no external dependencies).
+ *
+ * NOTE: This service uses Laravel's Cache facade (Cache::remember/Cache::lock)
+ * rather than ExternalApiCache because website scraping is NOT quota-bound
+ * (no API limits) and has different invalidation needs (robots.txt changes
+ * frequently, scraped data is opportunistic). This separation is intentional —
+ * do NOT unify with ExternalApiCache, as cache misses here do NOT burn SerpApi
+ * quota. See config/restaurant-finder.php cache section for the full explanation
+ * of the two-store architecture.
  */
 class RestaurantWebsiteScraperService
 {

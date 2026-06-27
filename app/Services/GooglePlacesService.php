@@ -70,7 +70,9 @@ class GooglePlacesService
 
             $results = $data['results'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.google_ttl_hours', 24)
+            ));
 
             return $results;
         } catch (\Throwable $e) {
@@ -146,7 +148,9 @@ class GooglePlacesService
 
             $result = $data['result'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $result, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $result, now()->addHours(
+                (int) config('restaurant-finder.cache.google_ttl_hours', 24)
+            ));
 
             return $result;
         } catch (\Throwable $e) {

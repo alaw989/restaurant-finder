@@ -64,7 +64,9 @@ class FoursquareService
             $data = $response->json();
             $results = $data['results'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.foursquare_ttl_hours', 24)
+            ));
 
             return $results;
         } catch (\Throwable $e) {
@@ -123,7 +125,9 @@ class FoursquareService
             $data = $response->json();
             $results = $data['results'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.foursquare_ttl_hours', 24)
+            ));
 
             return ['cached' => false, 'data' => $results];
         } catch (\Throwable $e) {
@@ -219,7 +223,9 @@ class FoursquareService
                 continue;
             }
 
-            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(24));
+            ExternalApiCache::storeByKey($cacheKey, $results, now()->addHours(
+                (int) config('restaurant-finder.cache.foursquare_ttl_hours', 24)
+            ));
 
             return $this->normalizeRaw($results);
         }

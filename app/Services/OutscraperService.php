@@ -53,7 +53,9 @@ class OutscraperService
             $data = $response->json();
             $popularTimes = $data[0]['popular_times'] ?? $data['popular_times'] ?? [];
 
-            ExternalApiCache::storeByKey($cacheKey, $popularTimes, now()->addHours(168));
+            ExternalApiCache::storeByKey($cacheKey, $popularTimes, now()->addHours(
+                (int) config('restaurant-finder.cache.outscraper_ttl_hours', 168)
+            ));
 
             return $popularTimes;
         } catch (\Throwable $e) {

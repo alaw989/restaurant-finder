@@ -156,6 +156,16 @@ return [
     | each unique city/query costs one outbound call per TTL window, then it's
     | served from cache. ~30 days reflects that Google Maps ratings move slowly.
     | Other sources are free/unlimited and stay at their per-service defaults.
+    |
+    | NOTE: Two cache stores exist:
+    | 1. ExternalApiCache table (all 7 source services: SerpApi, Google Places,
+    |    Foursquare, BizData, Overpass, Socrata, Outscraper) — quota-bound sources,
+    |    stored centrally with uniform TTLs.
+    | 2. Laravel Cache facade (GeolocationService via Cache::remember,
+    |    RestaurantWebsiteScraperService via Cache::get/put/lock) — NOT quota-bound,
+    |    different invalidation needs. Geocoding results rarely change; robots.txt
+    |    has its own TTL constant. This separation is intentional — do NOT unify
+    |    them, as cache misses on the ExternalApiCache path would burn quota.
     */
     'cache' => [
         'serpapi_ttl_hours' => (int) env('SERPAPI_CACHE_TTL_HOURS', 24 * 30),
@@ -169,6 +179,15 @@ return [
         // expiry the preview 404s gracefully (ExternalApiCache.findByKey honors
         // expires_at). See spec-040.
         'preview_snapshot_days' => (int) env('PREVIEW_SNAPSHOT_DAYS', 7),
+
+        // Other external sources — free/unlimited, shorter TTLs are fine.
+        // Defaults match prior hardcoded values (all 24h except Outscraper at 168h).
+        'outscraper_ttl_hours' => (int) env('OUTSCRAPER_CACHE_TTL_HOURS', 168), // 7 days (popular_times)
+        'google_ttl_hours' => (int) env('GOOGLE_CACHE_TTL_HOURS', 24),
+        'overpass_ttl_hours' => (int) env('OVERPASS_CACHE_TTL_HOURS', 24),
+        'bizdata_ttl_hours' => (int) env('BIZDATA_CACHE_TTL_HOURS', 24),
+        'foursquare_ttl_hours' => (int) env('FOURSQUARE_CACHE_TTL_HOURS', 24),
+        'socrata_ttl_hours' => (int) env('SOCRATA_CACHE_TTL_HOURS', 24),
     ],
 
     /*
