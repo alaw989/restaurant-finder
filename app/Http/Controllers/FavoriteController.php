@@ -82,16 +82,9 @@ class FavoriteController extends Controller
 
         $user = $request->user();
 
-        // Toggle the favorite relationship
-        $isFavorited = $user->favorites()->where('restaurant_id', $restaurant->id)->exists();
-
-        if ($isFavorited) {
-            $user->favorites()->detach($restaurant->id);
-            $favorited = false;
-        } else {
-            $user->favorites()->attach($restaurant->id);
-            $favorited = true;
-        }
+        // Toggle the favorite relationship using Eloquent's toggle()
+        $toggleResult = $user->favorites()->toggle([$restaurant->id]);
+        $favorited = isset($toggleResult['attached']) && count($toggleResult['attached']) > 0;
 
         // Return the updated list of favorited restaurant IDs
         $favoriteIds = $user->favorites()->pluck('restaurants.id')->all();
@@ -118,16 +111,17 @@ class FavoriteController extends Controller
         $existingIds = $validated['ids'] ?? [];
         $unpersistedVenues = $validated['venues'] ?? [];
 
-        // Attach already-persisted restaurants by ID
-        foreach ($existingIds as $id) {
-            $user->favorites()->syncWithoutDetachment([$id]);
-        }
+        // Collect all target IDs (existing + newly-persisted) into one array
+        $allIds = $existingIds;
 
-        // Persist and attach unpersisted venues
+        // Persist unpersisted venues and collect their IDs
         foreach ($unpersistedVenues as $venueData) {
             $restaurant = $this->ensurePersisted($venueData);
-            $user->favorites()->syncWithoutDetachment([$restaurant->id]);
+            $allIds[] = $restaurant->id;
         }
+
+        // Sync all IDs in one batch query
+        $user->favorites()->syncWithoutDetaching($allIds);
 
         // Return the merged list of favorited restaurant IDs
         $favoriteIds = $user->favorites()->pluck('restaurants.id')->all();
