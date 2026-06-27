@@ -302,4 +302,32 @@ class FoursquareService
                 'slug' => Str::slug($c['name'] ?? ''),
             ])->values()->all();
     }
+
+    /**
+     * Normalize a Foursquare venue result to the enrichment venue shape.
+     * This converts the rich live-search format to the simpler DB-persistence format
+     * used by RestaurantEnrichmentService.
+     */
+    public function normalizeForEnrichment(array $r): array
+    {
+        $geocodes = $r['geocodes']['main'] ?? $r;
+
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($geocodes['latitude']) ? (float) $geocodes['latitude'] : null,
+            'lng' => isset($geocodes['longitude']) ? (float) $geocodes['longitude'] : null,
+            'address' => $r['address'] ?? $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
+            'city' => $r['city'] ?? $r['location']['locality'] ?? null,
+            'state' => $r['state'] ?? $r['location']['region'] ?? null,
+            'postal_code' => $r['postal_code'] ?? $r['location']['postcode'] ?? null,
+            'country' => $r['country'] ?? $r['location']['country'] ?? null,
+            'phone' => $r['phone'] ?? $r['tel'] ?? null,
+            'price_range' => $r['price_range'] ?? $r['price'] ?? null,
+            'photo_url' => $r['photo_url'] ?? null,
+            'yelp_rating' => $r['yelp_rating'] ?? $r['rating'] ?? null,
+            'yelp_review_count' => 0,
+            'source' => 'foursquare',
+        ];
+    }
 }

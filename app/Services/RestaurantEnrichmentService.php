@@ -240,6 +240,7 @@ class RestaurantEnrichmentService
     /**
      * Normalize pooled responses for a source into enrichment venue shape.
      * Uses each service's consumePoolResponses to parse, cache, and normalize.
+     * Then delegates to each service's normalizeForEnrichment for the enrichment format.
      * Handles failures (throwables) by skipping the source.
      */
     private function normalizePoolResponses(string $label, array $responses, float $lat, float $lng, string $cuisine): array
@@ -258,11 +259,11 @@ class RestaurantEnrichmentService
             $venues = [];
             foreach ($normalized as $r) {
                 $venues[] = match ($label) {
-                    'bizdata' => $this->normalizeBizDataVenue($r),
-                    'foursquare' => $this->normalizeFoursquareVenue($r),
-                    'serpapi' => $this->normalizeSerpApiVenue($r),
-                    'socrata' => $this->normalizeSocrataVenue($r),
-                    'overpass' => $this->normalizeOverpassVenue($r),
+                    'bizdata' => $this->bizData->normalizeForEnrichment($r),
+                    'foursquare' => $this->foursquareService->normalizeForEnrichment($r),
+                    'serpapi' => $this->serpApiService->normalizeForEnrichment($r),
+                    'socrata' => $this->socrataService->normalizeForEnrichment($r),
+                    'overpass' => $this->overpass->normalizeForEnrichment($r),
                     default => [],
                 };
             }
@@ -331,121 +332,6 @@ class RestaurantEnrichmentService
         $nameElements = $nameRaw['data'] ?? [];
 
         return $this->overpass->normalizeRaw($nameElements, $lat, $lng);
-    }
-
-    /**
-     * Build a common venue shape from an Overpass (OSM) normalized result.
-     */
-    private function normalizeOverpassVenue(array $r): array
-    {
-        return [
-            'yelp_business_id' => null,
-            'name' => $r['name'] ?? 'Unknown',
-            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
-            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
-            'address' => $r['address'] ?? null,
-            'city' => $r['city'] ?? null,
-            'state' => null,
-            'postal_code' => null,
-            'country' => null,
-            'phone' => null,
-            'price_range' => $r['price_range'] ?? null,
-            'photo_url' => null,
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'source' => 'overpass',
-        ];
-    }
-
-    private function normalizeBizDataVenue(array $r): array
-    {
-        return [
-            'yelp_business_id' => null,
-            'name' => $r['name'] ?? 'Unknown',
-            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
-            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
-            'address' => $r['address'] ?? null,
-            'city' => null,
-            'state' => null,
-            'postal_code' => null,
-            'country' => null,
-            'phone' => $r['phone'] ?? null,
-            'price_range' => null,
-            'photo_url' => null,
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'source' => 'bizdata',
-        ];
-    }
-
-    private function normalizeFoursquareVenue(array $r): array
-    {
-        $geocodes = $r['geocodes']['main'] ?? $r;
-
-        return [
-            'yelp_business_id' => null,
-            'name' => $r['name'] ?? 'Unknown',
-            'lat' => isset($geocodes['latitude']) ? (float) $geocodes['latitude'] : null,
-            'lng' => isset($geocodes['longitude']) ? (float) $geocodes['longitude'] : null,
-            'address' => $r['address'] ?? $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
-            'city' => $r['city'] ?? $r['location']['locality'] ?? null,
-            'state' => $r['state'] ?? $r['location']['region'] ?? null,
-            'postal_code' => $r['postal_code'] ?? $r['location']['postcode'] ?? null,
-            'country' => $r['country'] ?? $r['location']['country'] ?? null,
-            'phone' => $r['phone'] ?? $r['tel'] ?? null,
-            'price_range' => $r['price_range'] ?? $r['price'] ?? null,
-            'photo_url' => $r['photo_url'] ?? null,
-            'yelp_rating' => $r['yelp_rating'] ?? $r['rating'] ?? null,
-            'yelp_review_count' => 0,
-            'source' => 'foursquare',
-        ];
-    }
-
-    private function normalizeSerpApiVenue(array $r): array
-    {
-        $rating = $r['google_rating'] ?? null;
-        $reviewCount = $r['google_review_count'] ?? 0;
-
-        return [
-            'yelp_business_id' => null,
-            'name' => $r['name'] ?? 'Unknown',
-            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
-            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
-            'address' => $r['address'] ?? null,
-            'city' => $r['city'] ?? null,
-            'state' => $r['state'] ?? null,
-            'postal_code' => $r['postal_code'] ?? null,
-            'country' => $r['country'] ?? null,
-            'phone' => $r['phone'] ?? null,
-            'price_range' => $r['price_range'] ?? null,
-            'photo_url' => $r['photo_url'] ?? null,
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'google_rating' => isset($rating) && is_numeric($rating) ? (float) $rating : null,
-            'google_review_count' => isset($reviewCount) && is_numeric($reviewCount) ? (int) $reviewCount : 0,
-            'source' => 'serpapi',
-        ];
-    }
-
-    private function normalizeSocrataVenue(array $r): array
-    {
-        return [
-            'yelp_business_id' => null,
-            'name' => $r['name'] ?? 'Unknown',
-            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
-            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
-            'address' => $r['address'] ?? null,
-            'city' => $r['city'] ?? null,
-            'state' => $r['state'] ?? null,
-            'postal_code' => $r['postal_code'] ?? null,
-            'country' => $r['country'] ?? 'US',
-            'phone' => $r['phone'] ?? null,
-            'price_range' => null,
-            'photo_url' => null,
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'source' => 'socrata',
-        ];
     }
 
     /**

@@ -584,4 +584,30 @@ class OverpassService
 
         return [];
     }
+
+    /**
+     * Normalize an Overpass venue result to the enrichment venue shape.
+     * This converts the rich live-search format to the simpler DB-persistence format
+     * used by RestaurantEnrichmentService.
+     */
+    public function normalizeForEnrichment(array $r): array
+    {
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
+            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
+            'address' => $r['address'] ?? null,
+            'city' => $r['city'] ?? null,
+            'state' => null,
+            'postal_code' => null,
+            'country' => null,
+            'phone' => null,
+            'price_range' => $r['price_range'] ?? null,
+            'photo_url' => null,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'source' => 'overpass',
+        ];
+    }
 }

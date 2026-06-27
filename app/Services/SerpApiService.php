@@ -409,4 +409,35 @@ class SerpApiService
 
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
+
+    /**
+     * Normalize a SerpApi venue result to the enrichment venue shape.
+     * This converts the rich live-search format to the simpler DB-persistence format
+     * used by RestaurantEnrichmentService.
+     */
+    public function normalizeForEnrichment(array $r): array
+    {
+        $rating = $r['google_rating'] ?? null;
+        $reviewCount = $r['google_review_count'] ?? 0;
+
+        return [
+            'yelp_business_id' => null,
+            'name' => $r['name'] ?? 'Unknown',
+            'lat' => isset($r['lat']) ? (float) $r['lat'] : null,
+            'lng' => isset($r['lng']) ? (float) $r['lng'] : null,
+            'address' => $r['address'] ?? null,
+            'city' => $r['city'] ?? null,
+            'state' => $r['state'] ?? null,
+            'postal_code' => $r['postal_code'] ?? null,
+            'country' => $r['country'] ?? null,
+            'phone' => $r['phone'] ?? null,
+            'price_range' => $r['price_range'] ?? null,
+            'photo_url' => $r['photo_url'] ?? null,
+            'yelp_rating' => null,
+            'yelp_review_count' => 0,
+            'google_rating' => isset($rating) && is_numeric($rating) ? (float) $rating : null,
+            'google_review_count' => isset($reviewCount) && is_numeric($reviewCount) ? (int) $reviewCount : 0,
+            'source' => 'serpapi',
+        ];
+    }
 }
