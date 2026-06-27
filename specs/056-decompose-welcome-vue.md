@@ -4,7 +4,17 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE — 2026-06-27
+
+## Implementation notes
+
+- Created 3 composables: `useRestaurantSearch.ts` (search/resort/loadMore logic), `useGeolocation.ts` (GPS+reverse-geocode), `usePersistedLocation.ts` (localStorage persistence)
+- Created 3 child components: `HeroSearch.vue` (centered hero with logo, sentence, search button), `StickySearchBar.vue` (top bar visible in results), `ResultsGrid.vue` (sort bar + grid + load-more)
+- Welcome.vue slimmed to 367 LOC (down from 663 — ~45% reduction, 420 lines removed)
+- Kept phase machine + Transition choreography in Welcome.vue
+- Kept footer (necessary since Welcome.vue doesn't use AppLayout)
+- 293 tests pass, build clean
+- Hero layout + spinner unchanged (respects [[hero-original-preference]])
 
 **Series**: Tier 3 — Code health. Frontend-only. **RESPECT
 [[hero-original-preference]]**: keep the single-line hero + spinner — no

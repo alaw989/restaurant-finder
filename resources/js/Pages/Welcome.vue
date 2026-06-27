@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
-import { ref, onMounted, computed, nextTick } from 'vue'
-import CuisinePicker from '@/Components/CuisinePicker.vue'
-import LocationPicker from '@/Components/LocationPicker.vue'
-import RestaurantCard from '@/Components/RestaurantCard.vue'
-import { Button } from '@/components/ui/button'
+import { ref, computed, onMounted } from 'vue'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Search, MapPin, Utensils, X } from '@lucide/vue'
-import type { Restaurant } from '@/types/restaurant'
-import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/composables/useSeo'
+import { X } from '@lucide/vue'
 import JsonLd from '@/Components/JsonLd.vue'
-import BrandLogo from '@/Components/BrandLogo.vue'
+import HeroSearch from '@/Components/HeroSearch.vue'
+import StickySearchBar from '@/Components/StickySearchBar.vue'
+import ResultsGrid from '@/Components/ResultsGrid.vue'
+
+import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/composables/useSeo'
+import { useRestaurantSearch } from '@/composables/useRestaurantSearch'
+import { useGeolocation } from '@/composables/useGeolocation'
+import { usePersistedLocation } from '@/composables/usePersistedLocation'
 
 type Phase = 'idle' | 'searching' | 'results' | 'empty' | 'error'
 
@@ -41,14 +43,23 @@ const props = defineProps<{
     fallbackCoords: { lat: number; lng: number } | null
 }>()
 
+// Phase machine
+const phase = ref<Phase>('idle')
+function setPhase(newPhase: Phase) {
+    phase.value = newPhase
+}
+function getPhase(): Phase {
+    return phase.value
+}
+const isResultsPhase = computed(() => phase.value !== 'idle')
+
+// Cuisine selection state
 const selectedCategory = ref('')
 const selectedCuisine = ref<string | undefined>()
 const selectedLabel = ref<string | null>(null)
-const location = ref<Location>(props.location ?? { city: null, state: null })
-const lat = ref<number | null>(props.fallbackCoords?.lat ?? null)
-const lng = ref<number | null>(props.fallbackCoords?.lng ?? null)
-const sort = ref<string>('best_match')
 
+// Sort state
+const sort = ref<string>('best_match')
 const sortOptions = [
     { value: 'best_match', label: 'Best Match' },
     { value: 'nearest', label: 'Nearest' },
@@ -57,22 +68,28 @@ const sortOptions = [
     { value: 'price', label: 'Price' },
 ]
 
-const restaurants = ref<Restaurant[]>([])
-const phase = ref<Phase>('idle')
-// Drives the one-shot card stagger: armed in search() right before results
-// render, disarmed on the next tick so a re-sort (resort()) doesn't replay it.
-const shouldStagger = ref(false)
-// Brief grid dim while a re-sort fetch is in flight (no spinner, no stagger).
-const isResorting = ref(false)
-const nextPageUrl = ref<string | null>(null)
-const detectingLocation = ref(false)
-const searchError = ref<string | null>(null)
-const loadMoreError = ref<string | null>(null)
-const geolocationError = ref<string | null>(null)
+// Persisted location (city/state/coords from localStorage)
+const { location: persistedLocation, lat, lng, persistLocation, restore: restorePersistedLocation } = usePersistedLocation(props.location, props.fallbackCoords)
 
+// Geolocation (GPS + reverse geocode)
+const { detectingLocation, geolocationError, detectLocation } = useGeolocation(persistLocation)
+
+// Restaurant search (search/resort/loadMore)
+const {
+    restaurants,
+    shouldStagger,
+    isResorting,
+    nextPageUrl,
+    searchError,
+    loadMoreError,
+    search,
+    resort,
+    loadMore,
+    resetState,
+} = useRestaurantSearch(setPhase, getPhase)
+
+// Result count for display
 const resultCount = computed(() => restaurants.value.length)
-const isResultsPhase = computed(() => phase.value !== 'idle')
-const hasResultsOrError = computed(() => phase.value === 'results' || phase.value === 'error')
 
 // SEO
 const baseUrl = computed(() => {
@@ -97,230 +114,49 @@ const structuredData = computed(() => {
     return [webSite, organization]
 })
 
-// Persist city/state AND coords together so a reload restores the exact spot the
-// user searched. Previously the city came from localStorage but the coords came
-// from the server's IP guess → a reload recentred the search on the wrong place.
-function persistLocation() {
-    localStorage.setItem('foodrank_location', JSON.stringify({
-        city: location.value.city,
-        state: location.value.state,
-        lat: lat.value,
-        lng: lng.value,
-    }))
-}
-
-onMounted(() => {
-    // Check if we already have location from prior session
-    const savedLocation = localStorage.getItem('foodrank_location')
-    if (savedLocation) {
-        try {
-            const parsed = JSON.parse(savedLocation)
-            // Assign city/state explicitly — NOT the whole blob, which now also
-            // carries lat/lng (don't leak those onto the Location ref).
-            location.value = {
-                city: parsed.city ?? null,
-                state: parsed.state ?? null,
-            }
-            // Restore saved coords too (closes the reload city/coords desync).
-            // Legacy city-only saves simply keep the IP-guess coords.
-            if (parsed.lat != null && parsed.lng != null) {
-                lat.value = parsed.lat
-                lng.value = parsed.lng
-            }
-            if (parsed.city) return // Don't re-prompt if user already has a saved location
-        } catch {}
-    }
-
-    // Auto-detect via GPS — always try on first visit, overrides IP-based guess
-    if (navigator.geolocation) {
-        detectingLocation.value = true
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                lat.value = position.coords.latitude
-                lng.value = position.coords.longitude
-
-                try {
-                    const res = await fetch(
-                        `/api/geocode?lat=${lat.value}&lng=${lng.value}`
-                    )
-                    const data = await res.json()
-                    if (data.city || data.state) {
-                        location.value = {
-                            city: data.city ?? null,
-                            state: data.state ?? null,
-                        }
-                        persistLocation()
-                    }
-                } catch {
-                    // Keep IP-based fallback
-                }
-                detectingLocation.value = false
-            },
-            () => {
-                detectingLocation.value = false
-                geolocationError.value = 'Unable to detect your location. Please enter it manually.'
-            },
-            { timeout: 10000, enableHighAccuracy: false }
-        )
-    }
-})
-
-function detectLocation() {
-    if (!navigator.geolocation) return
-    detectingLocation.value = true
-    navigator.geolocation.getCurrentPosition(
-        async (position) => {
-            lat.value = position.coords.latitude
-            lng.value = position.coords.longitude
-            try {
-                const res = await fetch(`/api/geocode?lat=${lat.value}&lng=${lng.value}`)
-                const data = await res.json()
-                if (data.city || data.state) {
-                    location.value = { city: data.city ?? null, state: data.state ?? null }
-                    persistLocation()
-                }
-            } catch {
-                // Keep existing coordinates
-            }
-            detectingLocation.value = false
-        },
-        () => {
-            detectingLocation.value = false
-            geolocationError.value = 'Unable to detect your location. Please enter it manually.'
-        },
-        { timeout: 10000, enableHighAccuracy: false }
-    )
-}
-
+// Event handlers from child components
 function onCuisineSelect(payload: { category: string; cuisine?: string; label: string }) {
     selectedCategory.value = payload.category
     selectedCuisine.value = payload.cuisine
     selectedLabel.value = payload.label
 }
 
-// Sync now: coords arrive in the same selectResult() call via @coords (emitted
-// right after @update), so the async forward-geocode is redundant — and it raced
-// (a slow/failing fetch silently kept the OLD coords on a city change). Both
-// this and onCoords persist city+coords together.
 function onLocationUpdate(newLocation: Location) {
-    location.value = newLocation
-    persistLocation()
+    persistedLocation.value = newLocation
 }
 
 function onCoords(lt: number, lg: number) {
     lat.value = lt
     lng.value = lg
-    persistLocation()
+    persistLocation(persistedLocation.value.city, persistedLocation.value.state, lt, lg)
 }
 
-async function search() {
-    phase.value = 'searching'
-    searchError.value = null
-    loadMoreError.value = null
-    geolocationError.value = null // Dismiss geolocation banner on search
-
-    const params = new URLSearchParams()
-    if (selectedCuisine.value) {
-        params.set('cuisine', selectedCuisine.value)
-    } else if (selectedCategory.value) {
-        params.set('category', selectedCategory.value)
-    }
-    if (lat.value !== null) params.set('lat', lat.value.toString())
-    if (lng.value !== null) params.set('lng', lng.value.toString())
-    params.set('sort', sort.value)
-
-    try {
-        const response = await fetch(`/api/restaurants?${params}`)
-        if (!response.ok) {
-            throw new Error('Search failed')
-        }
-        const data = await response.json()
-        restaurants.value = data.data ?? []
-        nextPageUrl.value = data.next_page_url
-
-        if (restaurants.value.length === 0) {
-            phase.value = 'empty'
-        } else {
-            shouldStagger.value = true
-            phase.value = 'results'
-            nextTick(() => {
-                shouldStagger.value = false
-            })
-        }
-        searchError.value = null
-    } catch {
-        searchError.value = 'Couldn\'t reach the listing service. Please try again.'
-        restaurants.value = []
-        nextPageUrl.value = null
-        phase.value = 'error'
-    }
+function onSearch() {
+    search({
+        selectedCuisine: selectedCuisine.value,
+        selectedCategory: selectedCategory.value,
+        lat,
+        lng,
+        sort,
+    })
 }
 
-// Re-fetch on sort change WITHOUT the spinner + full card stagger. Same
-// endpoint + query as search(); only the UX wrapper differs (a brief grid dim,
-// no phase flip to 'searching', no re-armed stagger). Falls back to a full
-// search if somehow invoked before we have results.
-async function resort() {
-    if (phase.value !== 'results' && phase.value !== 'empty') {
-        return search()
-    }
-
-    isResorting.value = true
-    searchError.value = null
-    loadMoreError.value = null
-
-    const params = new URLSearchParams()
-    if (selectedCuisine.value) {
-        params.set('cuisine', selectedCuisine.value)
-    } else if (selectedCategory.value) {
-        params.set('category', selectedCategory.value)
-    }
-    if (lat.value !== null) params.set('lat', lat.value.toString())
-    if (lng.value !== null) params.set('lng', lng.value.toString())
-    params.set('sort', sort.value)
-
-    try {
-        const response = await fetch(`/api/restaurants?${params}`)
-        if (!response.ok) {
-            throw new Error('Resort failed')
-        }
-        const data = await response.json()
-        restaurants.value = data.data ?? []
-        nextPageUrl.value = data.next_page_url
-        if (restaurants.value.length === 0) {
-            phase.value = 'empty'
-        } else {
-            phase.value = 'results'
-        }
-    } catch {
-        searchError.value = 'Couldn\'t reach the listing service. Please try again.'
-        restaurants.value = []
-        nextPageUrl.value = null
-        phase.value = 'error'
-    } finally {
-        isResorting.value = false
-    }
+function onResort() {
+    resort({
+        selectedCuisine: selectedCuisine.value,
+        selectedCategory: selectedCategory.value,
+        lat,
+        lng,
+        sort,
+    })
 }
 
-async function loadMore() {
-    if (!nextPageUrl.value || phase.value !== 'results') return
-
-    try {
-        const response = await fetch(nextPageUrl.value)
-        if (!response.ok) {
-            throw new Error('Load more failed')
-        }
-        const data = await response.json()
-        restaurants.value.push(...(data.data ?? []))
-        nextPageUrl.value = data.next_page_url
-        loadMoreError.value = null
-    } catch {
-        loadMoreError.value = 'Couldn\'t load more results. Please try again.'
-    }
+function onLoadMore() {
+    loadMore()
 }
 
 function resetToIdle() {
-    phase.value = 'idle'
+    setPhase('idle')
     // Fresh slate: clear the cuisine selection so the remounted CuisinePicker's
     // "any cuisine" label is honest (it owns its own selectedLabel, which resets
     // on remount — clearing the parent stops the old cuisine being silently
@@ -328,16 +164,12 @@ function resetToIdle() {
     selectedCategory.value = ''
     selectedCuisine.value = undefined
     selectedLabel.value = null
-    restaurants.value = []
-    nextPageUrl.value = null
-    searchError.value = null
-    loadMoreError.value = null
-    shouldStagger.value = false
-    isResorting.value = false
+    geolocationError.value = null
+    resetState()
 }
 
 function refineSearch() {
-    phase.value = 'idle'
+    setPhase('idle')
     // Fresh slate on back/refine: clear cuisine (same reason as resetToIdle).
     // City/coords/sort are kept so the user can just re-search.
     selectedCategory.value = ''
@@ -345,6 +177,22 @@ function refineSearch() {
     selectedLabel.value = null
     geolocationError.value = null
 }
+
+function dismissGeolocationError() {
+    geolocationError.value = null
+}
+
+function dismissLoadMoreError() {
+    loadMoreError.value = null
+}
+
+// Mount: restore persisted location or auto-detect via GPS
+onMounted(() => {
+    restorePersistedLocation(() => {
+        // No saved location — auto-detect via GPS
+        detectLocation()
+    })
+})
 </script>
 
 <template>
@@ -408,7 +256,7 @@ function refineSearch() {
                         <Badge variant="destructive">Location Error</Badge>
                         <span class="text-sm text-destructive">{{ geolocationError }}</span>
                     </div>
-                    <Button variant="ghost" size="sm" aria-label="Dismiss" @click="geolocationError = null">
+                    <Button variant="ghost" size="sm" aria-label="Dismiss" @click="dismissGeolocationError">
                         <X class="h-4 w-4" />
                     </Button>
                 </CardContent>
@@ -417,38 +265,11 @@ function refineSearch() {
 
         <!-- Sticky compact search bar (visible in results phases) -->
         <Transition name="bar-in">
-            <div
+            <StickySearchBar
                 v-if="isResultsPhase"
-                class="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
-            >
-                <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:gap-4">
-                    <!-- Logo mark -->
-                    <Link href="/" @click="resetToIdle" class="flex items-center" aria-label="iPop360 home">
-                        <BrandLogo class="text-[2rem]" />
-                    </Link>
-
-                    <!-- Location (compact cuisine picker removed in spec-044 —
-                         it never re-searched; refine via the search icon). -->
-                    <div class="flex flex-1 items-center gap-1 text-sm text-muted-foreground">
-                        <MapPin class="h-3.5 w-3.5" />
-                        <span>{{ location.city || location.state || 'Everywhere' }}</span>
-                    </div>
-
-                    <!-- Favorites link (authed users) -->
-                    <Link
-                        v-if="$page.props.auth?.user"
-                        href="/favorites"
-                        class="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-                    >
-                        Favorites
-                    </Link>
-
-                    <!-- Search icon -->
-                    <Button size="icon" variant="ghost" aria-label="Refine search" @click="refineSearch">
-                        <Search class="h-5 w-5" />
-                    </Button>
-                </div>
-            </div>
+                :location="persistedLocation"
+                @refine-search="refineSearch"
+            />
         </Transition>
 
         <!-- Main content area. `relative` anchors the absolute-positioned leaving
@@ -457,160 +278,43 @@ function refineSearch() {
         <div class="relative flex flex-1 flex-col">
             <!-- Centered hero (idle phase) -->
             <Transition name="hero-out">
-                <div v-if="phase === 'idle'" class="flex flex-1 flex-col items-center justify-center px-4">
-                    <div class="w-full max-w-4xl text-center">
-                        <!-- Logo -->
-                        <Link href="/" class="mb-8 inline-block" aria-label="iPop360 home">
-                            <BrandLogo stacked class="text-[3.75rem]" />
-                        </Link>
-
-                        <!-- Dynamic sentence -->
-                        <div class="mt-8 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-medium leading-relaxed sm:text-4xl">
-                            <span>Find the most Popular</span>
-                            <CuisinePicker :categories="categories" @select="onCuisineSelect" />
-                            <span>Restaurants in</span>
-                            <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="onCoords" @detect="detectLocation" />
-                        </div>
-
-                        <!-- Search button -->
-                        <div class="mt-8">
-                            <Button
-                                size="lg"
-                                :disabled="detectingLocation"
-                                @click="search"
-                                class="relative px-8 transition-all hover:scale-105 active:scale-95"
-                            >
-                                <span v-if="detectingLocation" class="inline-flex items-center gap-2">
-                                    <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                    Detecting location...
-                                </span>
-                                <span v-else>Search</span>
-                            </Button>
-                        </div>
-                    </div>
-                </div>
+                <HeroSearch
+                    v-if="phase === 'idle'"
+                    :categories="categories"
+                    :location="persistedLocation"
+                    :detecting-location="detectingLocation"
+                    @cuisine-select="onCuisineSelect"
+                    @location-update="onLocationUpdate"
+                    @coords="onCoords"
+                    @detect="detectLocation"
+                    @search="onSearch"
+                />
             </Transition>
 
             <!-- Results area (all non-idle phases) -->
             <Transition name="results-in">
-                <div v-if="isResultsPhase" class="mx-auto w-full px-4 pb-8 pt-6">
-                    <!-- Max width only when in results phase. `relative` anchors
-                         the absolute-positioned spinner leave (state-swap). -->
-                    <div class="mx-auto max-w-7xl relative">
-                        <!-- Inner state swap: spinner↔grid crossfade (no
-                             mode="out-in" → no blank beat between phases). -->
-                        <Transition name="state-swap">
-                            <!-- Loading spinner (searching phase) -->
-                            <div v-if="phase === 'searching'" key="loading" class="loading-block">
-                                <!-- `.spinner-enter` (entrance pop) wraps the ring so it does NOT
-                                     share an element with `animate-spin`. Both set the `animation`
-                                     shorthand, so on one node only one survives — putting them
-                                     together made the ring fade in and never rotate. -->
-                                <span class="spinner-enter">
-                                    <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                                </span>
-                                <p class="animate-pulse text-sm text-muted-foreground">Finding the best spots...</p>
-                            </div>
-
-                            <!-- Error state -->
-                            <Card v-else-if="phase === 'error'" key="error" class="border-destructive bg-destructive/10">
-                                <CardContent class="flex flex-col items-center gap-4 py-8 text-center">
-                                    <div class="flex items-center gap-2">
-                                        <Badge variant="destructive">Search Error</Badge>
-                                        <span class="text-muted-foreground">{{ searchError }}</span>
-                                    </div>
-                                    <div class="flex gap-2">
-                                        <Button variant="outline" @click="resetToIdle">
-                                            Start Over
-                                        </Button>
-                                        <Button @click="search">
-                                            <Search class="mr-2 h-4 w-4" />
-                                            Try Again
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <!-- Empty state -->
-                            <div v-else-if="phase === 'empty'" key="empty" class="py-16 text-center">
-                                <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                                    <Utensils class="h-8 w-8 text-muted-foreground" />
-                                </div>
-                                <h3 class="text-lg font-semibold">No restaurants found</h3>
-                                <p class="mt-2 text-sm text-muted-foreground">Try a different cuisine or location.</p>
-                                <Button variant="outline" class="mt-4" @click="resetToIdle">
-                                    Start Over
-                                </Button>
-                            </div>
-
-                            <!-- Results grid -->
-                            <div v-else key="results">
-                                <!-- Sort & count bar -->
-                                <div class="mb-4 flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-                                    <div class="text-sm text-muted-foreground">
-                                        {{ resultCount }} result{{ resultCount !== 1 ? 's' : '' }}
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <label for="sort-select" class="text-sm text-muted-foreground">Sort:</label>
-                                        <select
-                                            id="sort-select"
-                                            v-model="sort"
-                                            @change="resort()"
-                                            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                        >
-                                            <option v-for="option in sortOptions" :key="option.value" :value="option.value">
-                                                {{ option.label }}
-                                            </option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- Card grid -->
-                                <div
-                                    class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 transition-opacity duration-150"
-                                    :class="isResorting ? 'opacity-40' : 'opacity-100'"
-                                >
-                                    <RestaurantCard
-                                        v-for="(restaurant, index) in restaurants"
-                                        :key="restaurant.id"
-                                        :restaurant="restaurant"
-                                        :rank="index + 1"
-                                        :search-lat="lat"
-                                        :search-lng="lng"
-                                        :cuisine="selectedCuisine"
-                                        :stagger="shouldStagger"
-                                    />
-                                </div>
-
-                                <!-- Load more -->
-                                <div v-if="nextPageUrl || loadMoreError" class="mt-8 flex flex-col items-center gap-3">
-                                    <Button
-                                        v-if="nextPageUrl"
-                                        variant="outline"
-                                        @click="loadMore"
-                                        class="rounded-full px-8"
-                                    >
-                                        Load More
-                                    </Button>
-                                    <Card v-if="loadMoreError" class="border-destructive bg-destructive/10">
-                                        <CardContent class="flex items-center gap-3 py-3">
-                                            <Badge variant="destructive" class="text-xs">Load Error</Badge>
-                                            <span class="text-sm text-muted-foreground">{{ loadMoreError }}</span>
-                                            <div class="ml-auto flex gap-2">
-                                                <Button variant="ghost" size="sm" aria-label="Dismiss" @click="loadMoreError = null">
-                                                    <X class="h-4 w-4" />
-                                                </Button>
-                                                <Button size="sm" @click="loadMore">
-                                                    Retry
-                                                </Button>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </div>
-                            </div>
-                        </Transition>
-                    </div>
-                </div>
+                <ResultsGrid
+                    v-if="isResultsPhase"
+                    :phase="phase"
+                    :restaurants="restaurants"
+                    :result-count="resultCount"
+                    :sort="sort"
+                    :sort-options="sortOptions"
+                    :next-page-url="nextPageUrl"
+                    :search-error="searchError"
+                    :load-more-error="loadMoreError"
+                    :lat="lat"
+                    :lng="lng"
+                    :selected-cuisine="selectedCuisine"
+                    :should-stagger="shouldStagger"
+                    :is-resorting="isResorting"
+                    @update:sort="sort = $event"
+                    @resort="onResort"
+                    @load-more="onLoadMore"
+                    @reset-to-idle="resetToIdle"
+                    @dismiss-load-more-error="dismissLoadMoreError"
+                    @search="onSearch"
+                />
             </Transition>
         </div>
 
