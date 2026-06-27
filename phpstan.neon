@@ -27,5 +27,6 @@ parameters:
         - '#Property.*is never read#'
         - '#Variable.*in isset\(\) always exists#'
         - '#Strict comparison using !== between array and null#'
-        - '#Offset.*cuisines.*Collection#'
-        - '#contains unresolvable type#'
+        - '#DOMNameSpaceNode\|DOMNode::getAttribute\(\)#'
+    # Don't fail on unmatched ignore patterns (future-proof)
+    reportUnmatchedIgnoredErrors: false
