@@ -2,7 +2,7 @@
 
 > Living snapshot for Claude (and humans) picking up this project. Read this
 > together with `constitution.md` and `history.md` at session start. Detailed
-> per-spec history lives in `history/`. Updated: 2026-06-26.
+> per-spec history lives in `history/`. Updated: 2026-06-27.
 
 ## What this is
 A restaurant-discovery app that ranks venues with a free-first scoring blend.
@@ -15,7 +15,7 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–038 + 041–044 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
+- **Specs 001–038 + 041–045 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
   rewritten `RestaurantCard` + `CardGallery` hover-scrub, `RestaurantCardSkeleton`, responsive
   results grid, `Welcome.vue` idle→searching→results phase machine) — shipped to master via
   `ralph/results-redesign` (PR #1, `3fab22f`), live. **034–038** (results-redesign audit: interaction/
@@ -135,16 +135,34 @@ The DB file (`database/database.sqlite`) is gitignored — each machine has its
 own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
-## What's next (queued specs — as of 2026-06-26)
+## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-26):** master is clean at `d26c1b7`; spec-044 (search→results motion polish)
-shipped + verified live. Specs **001–038 + 041–044 are COMPLETE**. The ONLY open specs are **039**
-(new SVG logo — ⚠️ blocked until you drop a source image into `public/img/`) and **040** (live-result
-detail page + JSON-LD reachability — ⚠️ PROPOSED, blocked on a direction decision; Options A/B/C/D in
-its spec). No ralph batch is in flight (`ralph/audit-followup` → PR #2 already merged + deleted). The
-next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a new task.
+**▶ Resume point (2026-06-27):** master is clean at `9f4caeb`; spec-045 (spinner centering/fade +
+back-transition + search-state reset — the spec-044 follow-up) shipped + verified live. Specs
+**001–038 + 041–045 are COMPLETE**. The ONLY open specs are **039** (new SVG logo — ⚠️ blocked until
+you drop a source image into `public/img/`) and **040** (live-result detail page + JSON-LD reachability
+— ⚠️ PROPOSED, blocked on a direction decision; Options A/B/C/D in its spec). No ralph batch is in
+flight. The next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a
+new task.
 
-**Most recent shipments:** **044** (search→results motion polish — refined overlapping
+**Most recent shipments:** **045** (spinner centering/fade + back-transition + search-state reset — the
+spec-044 follow-up: fixed the loading spinner DRIFTING down as it crossfaded into results
+(`.state-swap-leave-active` `inset:0` stretched the leaving box to the grid-tall parent so the centered
+ring slid to the grid's vertical center; pinned to top/left/right only + `pointer-events:none`);
+added the missing back-transition reverse classes (`.hero-out-enter-*`, `.bar-in-leave-*`,
+`.results-in-leave-*` — results leaves `position:absolute` so the re-entering hero flex-1 claims full
+height from frame 1, no double-height flash) so results→idle FADES instead of hard-snapping; the content
+wrapper gained `relative` to anchor that absolute leave; `resetToIdle()`/`refineSearch()` now clear cuisine
+(fresh slate, keep city/coords/sort — was silently reusing the old cuisine because CuisinePicker resets
+its own label on remount but the parent kept `selectedCuisine`); removed the async `/api/geocode/forward`
+race in `onLocationUpdate` (coords arrive synchronously via `@coords`); new `persistLocation()` stores
+city+coords and `onMounted` restores both, closing the reload desync where the city came from localStorage
+but coords from the server's IP guess; `prefers-reduced-motion` block extended to the 6 new classes) —
+**SHIPPED: commit `9f4caeb`, deployed + GHA-green + VERIFIED LIVE 2026-06-27** (Mobile/ethiopian → 1
+result; refine → city change to Austin → 20 results with the request carrying NO `cuisine=` + Austin
+coords and NO `/api/geocode/forward` call; localStorage now `{city,state,lat,lng}`; reload → search used
+the restored Austin coords, not an IP guess; zero console errors; hardened by a 5-dimension adversarial
+review, 0 findings). **044** (search→results motion polish — refined overlapping
 hero/bar/results transitions with matched exit/enter vectors so the idle→results swap reads as one
 gesture; replaced the `mode="out-in"` blank-beat + height-snap with a `state-swap` crossfade whose
 spinner leaves out-of-flow (absolute) UNDER the grid entering + a `.loading-block` stable height; new
