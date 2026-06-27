@@ -5,52 +5,16 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import RestaurantCard from '@/Components/RestaurantCard.vue';
 import { Heart } from '@lucide/vue';
 import { useSeo } from '@/composables/useSeo';
+import { useBaseUrl } from '@/composables/useBaseUrl';
+import SeoMeta from '@/Components/SeoMeta.vue';
+import type { Restaurant } from '@/types/restaurant';
 
 const props = defineProps<{
-    favorites: Array<{
-        id: number;
-        name: string;
-        slug: string;
-        description: string | null;
-        address: string | null;
-        city: string | null;
-        state: string | null;
-        lat: number | null;
-        lng: number | null;
-        photo_url: string | null;
-        photos?: string[];
-        price_range: string | null;
-        phone: string | null;
-        website_url: string | null;
-        google_rating: number | null;
-        google_review_count: number;
-        yelp_rating: number | null;
-        yelp_review_count: number;
-        popular_times_avg_busyness: number | null;
-        has_award: boolean;
-        popularity_score: number;
-        distance: null;
-        cuisines: Array<{ id: number; name: string; slug: string }>;
-        source: string | null;
-        score_breakdown?: {
-            signals: Array<{
-                label: string;
-                weight: number;
-                normalized: number;
-                contribution: number;
-            }>;
-            total: number;
-        };
-    }>;
+    favorites: Restaurant[];
 }>();
 
 // SEO
-const baseUrl = computed(() => {
-    if (typeof window !== 'undefined') {
-        return `${window.location.protocol}//${window.location.host}`
-    }
-    return 'https://ipop360.vp-associates.com'
-})
+const baseUrl = useBaseUrl()
 
 const seoData = computed(() => {
     return useSeo({
@@ -64,20 +28,7 @@ const seoData = computed(() => {
 
 <template>
     <AppLayout>
-        <Head>
-            <title>{{ seoData.title }}</title>
-            <meta name="description" :content="seoData.description" />
-            <link rel="canonical" :href="seoData.canonical" />
-            <meta property="og:title" :content="seoData.ogTitle" />
-            <meta property="og:description" :content="seoData.ogDescription" />
-            <meta property="og:type" :content="seoData.ogType" />
-            <meta property="og:url" :content="seoData.ogUrl" />
-            <meta property="og:site_name" :content="seoData.ogSiteName" />
-            <meta property="og:image" :content="seoData.ogImage" />
-            <meta name="twitter:card" :content="seoData.twitterCard" />
-            <meta name="twitter:title" :content="seoData.twitterTitle" />
-            <meta name="twitter:description" :content="seoData.twitterDescription" />
-        </Head>
+        <SeoMeta :seoData="seoData" />
 
         <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
             <!-- Header -->

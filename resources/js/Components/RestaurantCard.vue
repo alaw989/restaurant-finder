@@ -8,6 +8,7 @@ import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import type { Restaurant } from '@/types/restaurant';
 import { cuisineGradient, FOOD_FALLBACK_GRADIENT } from '@/lib/cuisine';
+import { callPhone, openWebsite, mapsUrl } from '@/lib/restaurant';
 import { Phone, Globe, Navigation, Heart } from '@lucide/vue';
 import { useFavorites } from '@/composables/useFavorites';
 
@@ -82,20 +83,6 @@ const mapCoords = computed(() => {
 // Entrance is now a CSS fade on the first screenful only (see .card-enter in
 // app.css). Replaces the old v-motion directive — one IntersectionObserver/card
 // misfires under content-visibility, so we dropped it.
-
-function mapsUrl(name: string, city: string | null): string {
-    const q = city ? `${name}, ${city}` : name;
-    return `https://www.google.com/maps/search/${encodeURIComponent(q)}`;
-}
-
-function callPhone(phone: string) {
-    window.location.href = `tel:${phone}`;
-}
-
-function openWebsite(url: string) {
-    if (!url.startsWith('http')) url = 'https://' + url;
-    window.open(url, '_blank');
-}
 
 const saved = computed(() => isFavorited(props.restaurant));
 

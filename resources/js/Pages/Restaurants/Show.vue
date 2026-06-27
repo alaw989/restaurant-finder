@@ -9,55 +9,25 @@ import CardGallery from '@/Components/CardGallery.vue';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cuisineGradient } from '@/lib/cuisine';
-import { Heart } from '@lucide/vue';
+import { callPhone, openWebsite, directionsUrl } from '@/lib/restaurant';
+import { Heart, ArrowLeft, MapPin, Navigation, Phone, Globe } from '@lucide/vue';
 import { useFavorites } from '@/composables/useFavorites';
 import { useSeo, generateRestaurantJsonLd } from '@/composables/useSeo';
+import { useBaseUrl } from '@/composables/useBaseUrl';
 import JsonLd from '@/Components/JsonLd.vue';
+import SeoMeta from '@/Components/SeoMeta.vue';
+import type { Restaurant } from '@/types/restaurant';
 
 const props = defineProps<{
     categorySlug: string | null;
     canonicalUrl?: string | null;
     isLivePreview?: boolean;
-    restaurant: {
-        id: number;
-        name: string;
-        slug: string;
-        description: string | null;
-        address: string | null;
-        city: string | null;
-        state: string | null;
-        postal_code: string | null;
-        lat: number | null;
-        lng: number | null;
-        photo_url: string | null;
-        photos?: Array<string | null>;
-        price_range: string | null;
-        phone: string | null;
-        website_url: string | null;
-        google_rating: number | null;
-        google_review_count: number;
-        yelp_rating: number | null;
-        yelp_review_count: number;
-        popular_times_avg_busyness: number | null;
-        has_award: boolean;
-        popularity_score: number;
-        cuisines: Array<{ id: number; name: string; slug: string }>;
-        source: string | null;
-        score_breakdown: {
-            signals: Array<{
-                label: string;
-                weight: number;
-                normalized: number;
-                contribution: number;
-            }>;
-            total: number;
-        };
-    };
+    restaurant: Restaurant;
 }>();
 
 const { isFavorited, toggle } = useFavorites();
 
-const saved = computed(() => isFavorited(props.restaurant as any));
+const saved = computed(() => isFavorited(props.restaurant));
 const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
 const photos = computed(() =>
@@ -75,12 +45,7 @@ const gradient = computed(() =>
 );
 
 // SEO
-const baseUrl = computed(() => {
-    if (typeof window !== 'undefined') {
-        return `${window.location.protocol}//${window.location.host}`
-    }
-    return 'https://ipop360.vp-associates.com'
-})
+const baseUrl = useBaseUrl()
 
 const cuisineNames = computed(() =>
     props.restaurant.cuisines.map(c => c.name).join(', ')
@@ -122,43 +87,18 @@ const structuredData = computed(() => {
 
     return generateRestaurantJsonLd(restaurantData)
 })
-
-function callPhone(phone: string) {
-    window.location.href = `tel:${phone}`;
-}
-
-function openWebsite(url: string) {
-    if (!url.startsWith('http')) url = 'https://' + url;
-    window.open(url, '_blank');
-}
 </script>
 
 <template>
     <AppLayout>
-        <Head>
-            <title>{{ seoData.title }}</title>
-            <meta name="description" :content="seoData.description" />
-            <meta v-if="seoData.noindex" name="robots" content="noindex" />
-            <link rel="canonical" :href="seoData.canonical" />
-            <link
-                v-if="photos.length > 0"
-                rel="preload"
-                as="image"
-                :href="photos[0]"
-                fetchpriority="high"
-            />
-            <meta property="og:title" :content="seoData.ogTitle" />
-            <meta property="og:description" :content="seoData.ogDescription" />
-            <meta property="og:type" :content="seoData.ogType" />
-            <meta property="og:url" :content="seoData.ogUrl" />
-            <meta property="og:site_name" :content="seoData.ogSiteName" />
-            <meta property="og:image" :content="seoData.ogImage" />
-            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
-            <meta name="twitter:card" :content="seoData.twitterCard" />
-            <meta name="twitter:title" :content="seoData.twitterTitle" />
-            <meta name="twitter:description" :content="seoData.twitterDescription" />
-            <meta name="twitter:image" :content="seoData.twitterImage" />
-        </Head>
+        <SeoMeta :seoData="seoData" />
+        <link
+            v-if="photos.length > 0"
+            rel="preload"
+            as="image"
+            :href="photos[0]"
+            fetchpriority="high"
+        />
 
         <!-- Structured data — Inertia <Head> drops <script> tags, so inject via JsonLd -->
         <JsonLd :data="structuredData" />
@@ -170,7 +110,7 @@ function openWebsite(url: string) {
                 :href="`/restaurants?cuisine=${restaurant.cuisines[0]?.slug ?? ''}`"
                 class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                <ArrowLeft :size="14" />
                 Back to results
             </a>
             <a
@@ -178,7 +118,7 @@ function openWebsite(url: string) {
                 href="/restaurants"
                 class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                <ArrowLeft :size="14" />
                 Back to results
             </a>
 
@@ -209,7 +149,7 @@ function openWebsite(url: string) {
                             class="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted/50 text-foreground shadow-md ring-2 ring-white/50 transition-all hover:bg-muted hover:scale-110"
                             :class="{ 'text-red-500 fill-red-500': saved }"
                             :aria-label="ariaLabel"
-                            @click="() => toggle(restaurant as any)"
+                            @click="() => toggle(restaurant)"
                         >
                             <Heart
                                 class="h-5 w-5"
@@ -258,7 +198,7 @@ function openWebsite(url: string) {
                     <!-- Details -->
                     <div class="mt-5 space-y-2.5">
                         <div v-if="restaurant.address" class="flex items-start gap-2.5 text-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 text-muted-foreground"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <MapPin :size="16" class="mt-0.5 shrink-0 text-muted-foreground" />
                             <span class="text-muted-foreground">
                                 {{ restaurant.address }}<span v-if="restaurant.city">, {{ restaurant.city }}</span><span v-if="restaurant.state">, {{ restaurant.state }}</span><span v-if="restaurant.postal_code"> {{ restaurant.postal_code }}</span>
                             </span>
@@ -266,30 +206,30 @@ function openWebsite(url: string) {
 
                         <a
                             v-if="restaurant.lat && restaurant.lng"
-                            :href="`https://www.google.com/maps/dir/?api=1&destination=${restaurant.lat},${restaurant.lng}`"
+                            :href="directionsUrl(restaurant.lat, restaurant.lng)"
                             target="_blank"
                             rel="noopener"
                             class="flex items-center gap-2.5 text-sm text-muted-foreground hover:text-primary transition-colors"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                            <Navigation :size="16" class="shrink-0" />
                             Get directions
                         </a>
 
                         <button
                             v-if="restaurant.phone"
                             class="flex w-full items-center gap-2.5 text-sm text-muted-foreground hover:text-primary transition-colors"
-                            @click="callPhone(restaurant.phone)"
+                            @click="() => callPhone(restaurant.phone!)"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <Phone :size="16" class="shrink-0" />
                             {{ restaurant.phone }}
                         </button>
 
                         <button
                             v-if="restaurant.website_url"
                             class="flex w-full items-center gap-2.5 text-sm text-muted-foreground hover:text-primary transition-colors"
-                            @click="openWebsite(restaurant.website_url)"
+                            @click="() => openWebsite(restaurant.website_url!)"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                            <Globe :size="16" class="shrink-0" />
                             {{ restaurant.website_url.replace(/^https?:\/\//, '') }}
                         </button>
                     </div>

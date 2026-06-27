@@ -4,7 +4,27 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE — 2026-06-27
+
+## Implementation notes
+
+- Created `resources/js/lib/api.ts` — typed fetch wrapper with get/post/put/patch/del helpers, buildParams utility, getBaseUrl SSR-safe function
+- Created `resources/js/lib/restaurant.ts` — callPhone, openWebsite, mapsUrl, directionsUrl utilities
+- Created `resources/js/Components/SeoMeta.vue` — renders Head meta block from seoData prop with ComputedRef unwrapping support
+- Created `resources/js/composables/useBaseUrl.ts` — SSR-safe base URL composable
+- Updated `Restaurants/Index.vue`, `Restaurants/Show.vue`, `Favorites/Index.vue`, `Welcome.vue` to:
+  - Import and use canonical `Restaurant` type from `@/types/restaurant.ts`
+  - Use `useBaseUrl()` composable instead of inline baseUrl computed
+  - Use `<SeoMeta>` component instead of inline `<Head>` meta dumps
+- Updated `RestaurantCard.vue` to:
+  - Import `callPhone`, `openWebsite`, `mapsUrl` from `lib/restaurant.ts`
+  - Remove duplicate inline function definitions
+- Updated `Restaurants/Show.vue` to:
+  - Import `callPhone`, `openWebsite`, `directionsUrl` from `lib/restaurant.ts`
+  - Import lucide icons `ArrowLeft`, `MapPin`, `Navigation`, `Phone`, `Globe`
+  - Replace inline SVGs with lucide components
+  - Use non-null assertions for phone/website_url (already guarded by v-if)
+- All 293 tests pass, `npm run build` clean, `vendor/bin/pint --test` clean
 
 **Series**: Tier 3 — Code health. Frontend-only. Pairs with 056 (composables
 there use the `api.ts` client here).

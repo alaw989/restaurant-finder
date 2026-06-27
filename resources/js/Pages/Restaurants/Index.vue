@@ -6,7 +6,10 @@ import RestaurantCard from '@/Components/RestaurantCard.vue';
 import RestaurantCardSkeleton from '@/Components/RestaurantCardSkeleton.vue';
 import { Button } from '@/components/ui/button';
 import { useSeo, generateItemListJsonLd } from '@/composables/useSeo';
+import { useBaseUrl } from '@/composables/useBaseUrl';
 import JsonLd from '@/Components/JsonLd.vue';
+import SeoMeta from '@/Components/SeoMeta.vue';
+import type { Restaurant, ScoreBreakdown } from '@/types/restaurant';
 
 const props = defineProps<{
     filters: {
@@ -18,39 +21,7 @@ const props = defineProps<{
     cuisineName: string | null;
     categorySlug: string | null;
     restaurants: {
-        data: Array<{
-            id: number;
-            name: string;
-            slug: string;
-            description: string | null;
-            address: string | null;
-            city: string | null;
-            state: string | null;
-            lat: number | null;
-            lng: number | null;
-            photo_url: string | null;
-            price_range: string | null;
-            phone: string | null;
-            website_url: string | null;
-            google_rating: number | null;
-            google_review_count: number;
-            yelp_rating: number | null;
-            yelp_review_count: number;
-            has_award: boolean;
-            popularity_score: number;
-            distance: number | null;
-            cuisines: Array<{ id: number; name: string; slug: string }>;
-            source: string | null;
-            score_breakdown: {
-                signals: Array<{
-                    label: string;
-                    weight: number;
-                    normalized: number;
-                    contribution: number;
-                }>;
-                total: number;
-            };
-        }>;
+        data: Restaurant[];
         current_page: number;
         last_page: number;
         prev_page_url: string | null;
@@ -69,12 +40,7 @@ router.on('finish', () => {
 });
 
 // SEO
-const baseUrl = computed(() => {
-    if (typeof window !== 'undefined') {
-        return `${window.location.protocol}//${window.location.host}`
-    }
-    return 'https://ipop360.vp-associates.com'
-})
+const baseUrl = useBaseUrl()
 
 const locationName = computed(() => {
     const parts = []
@@ -138,22 +104,7 @@ function updateSort(newSort: string) {
 
 <template>
     <AppLayout>
-        <Head>
-            <title>{{ seoData.title }}</title>
-            <meta name="description" :content="seoData.description" />
-            <link rel="canonical" :href="seoData.canonical" />
-            <meta property="og:title" :content="seoData.ogTitle" />
-            <meta property="og:description" :content="seoData.ogDescription" />
-            <meta property="og:type" :content="seoData.ogType" />
-            <meta property="og:url" :content="seoData.ogUrl" />
-            <meta property="og:site_name" :content="seoData.ogSiteName" />
-            <meta property="og:image" :content="seoData.ogImage" />
-            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
-            <meta name="twitter:card" :content="seoData.twitterCard" />
-            <meta name="twitter:title" :content="seoData.twitterTitle" />
-            <meta name="twitter:description" :content="seoData.twitterDescription" />
-            <meta name="twitter:image" :content="seoData.twitterImage" />
-        </Head>
+        <SeoMeta :seoData="seoData" />
 
         <!-- Structured data — Inertia <Head> drops <script> tags, so inject via JsonLd -->
         <JsonLd :data="structuredData" />

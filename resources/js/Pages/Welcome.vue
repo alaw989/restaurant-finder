@@ -14,6 +14,8 @@ import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/com
 import { useRestaurantSearch } from '@/composables/useRestaurantSearch'
 import { useGeolocation } from '@/composables/useGeolocation'
 import { usePersistedLocation } from '@/composables/usePersistedLocation'
+import { useBaseUrl } from '@/composables/useBaseUrl'
+import SeoMeta from '@/Components/SeoMeta.vue'
 
 type Phase = 'idle' | 'searching' | 'results' | 'empty' | 'error'
 
@@ -92,12 +94,7 @@ const {
 const resultCount = computed(() => restaurants.value.length)
 
 // SEO
-const baseUrl = computed(() => {
-    if (typeof window !== 'undefined') {
-        return `${window.location.protocol}//${window.location.host}`
-    }
-    return 'https://ipop360.vp-associates.com'
-})
+const baseUrl = useBaseUrl()
 
 const seoData = computed(() => {
     return useSeo({
@@ -197,22 +194,7 @@ onMounted(() => {
 
 <template>
     <div class="flex min-h-screen flex-col bg-background">
-        <Head>
-            <title>{{ seoData.title }}</title>
-            <meta name="description" :content="seoData.description" />
-            <link rel="canonical" :href="seoData.canonical" />
-            <meta property="og:title" :content="seoData.ogTitle" />
-            <meta property="og:description" :content="seoData.ogDescription" />
-            <meta property="og:type" :content="seoData.ogType" />
-            <meta property="og:url" :content="seoData.ogUrl" />
-            <meta property="og:site_name" :content="seoData.ogSiteName" />
-            <meta property="og:image" :content="seoData.ogImage" />
-            <meta property="og:image:alt" :content="seoData.ogImageAlt" />
-            <meta name="twitter:card" :content="seoData.twitterCard" />
-            <meta name="twitter:title" :content="seoData.twitterTitle" />
-            <meta name="twitter:description" :content="seoData.twitterDescription" />
-            <meta name="twitter:image" :content="seoData.twitterImage" />
-        </Head>
+        <SeoMeta :seoData="seoData" />
 
         <!-- Structured data — Inertia <Head> drops <script> tags, so inject via JsonLd -->
         <JsonLd :data="structuredData" />
