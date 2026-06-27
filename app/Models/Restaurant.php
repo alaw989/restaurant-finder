@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
 
 /**
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Cuisine> $cuisines
+ * @property-read Collection<int, Cuisine> $cuisines
+ *
  * @method static Builder|Restaurant nearby(float $lat, float $lng, float $radiusKm = 25)
  * @method static Builder|Restaurant active()
  */

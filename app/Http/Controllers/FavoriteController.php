@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Resources\RestaurantResource;
 use App\Models\Restaurant;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
@@ -19,7 +20,7 @@ class FavoriteController extends Controller
         $favorites = $user->favorites()->with('cuisines')->get();
 
         // Format using RestaurantResource (collection)
-        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
+        /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($favorites);
         // Attach the full collection to each resource for score_breakdown fallback
         $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($favorites));

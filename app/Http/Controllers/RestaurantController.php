@@ -13,6 +13,7 @@ use App\Services\LiveSearchService;
 use App\Services\PriceLevelNormalizer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -257,7 +258,7 @@ class RestaurantController extends Controller
         $coords = $this->geolocationService->resolveCoordinates($request);
 
         // Build the shared query with cuisine/category filtering
-        /** @var \Illuminate\Database\Eloquent\Builder $query */
+        /** @var Builder $query */
         $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
@@ -274,7 +275,7 @@ class RestaurantController extends Controller
         $items = $restaurants->getCollection();
         $allItems = $items; // Keep for score_breakdown fallback
 
-        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
+        /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
         // Attach the full collection to each resource for score_breakdown fallback
         $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
@@ -348,7 +349,7 @@ class RestaurantController extends Controller
         $coords = $this->geolocationService->resolveCoordinates($request);
 
         // Build the shared query with cuisine/category filtering
-        /** @var \Illuminate\Database\Eloquent\Builder $query */
+        /** @var Builder $query */
         $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
@@ -399,7 +400,7 @@ class RestaurantController extends Controller
         $allItems = $items; // Keep for score_breakdown fallback
 
         // Format using RestaurantResource (collection)
-        /** @var \Illuminate\Http\Resources\Json\AnonymousResourceCollection $formatted */
+        /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
         // Attach the full collection to each resource for score_breakdown fallback
         $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
