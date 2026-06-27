@@ -335,25 +335,24 @@ class SocrataOpenDataService
 
     /**
      * Build SoQL WHERE clause for spatial filtering.
-     * Uses within_circle() if available, otherwise basic bounds.
+     *
+     * Bounding-box gate on the flat latitude/longitude columns so the endpoint
+     * query stays small. (The spec-026 max-distance filter trims further after
+     * the fetch; this just avoids pulling the whole dataset on every cache miss.)
+     * The previous version gated on latitude only — a ~5.5km north/south band
+     * that returned every venue at that latitude worldwide — and left $lng as a
+     * dead parameter.
      */
     private function buildWhereClause(float $lat, float $lng): string
     {
-        // Socrata SoQL supports within_circle for geospatial queries
-        // Format: within_circle(column, lat, lng, radius_in_meters)
-        // Assuming the coordinate column is named 'latitude' and 'longitude'
-        // or 'location' as a geolocation column
+        $delta = 0.05; // ~5.5km at the equator
 
-        // Try common coordinate column names
-        $coordColumns = ['location', 'coordinates', 'geolocation', 'latitude'];
+        $latLo = $this->quoteValue($lat - $delta);
+        $latHi = $this->quoteValue($lat + $delta);
+        $lngLo = $this->quoteValue($lng - $delta);
+        $lngHi = $this->quoteValue($lng + $delta);
 
-        // For now, use a simple bounding box approach
-        $latDelta = 0.05; // ~5.5km
-        $lngDelta = 0.05; // varies by latitude
-
-        // This is a simplified approach - actual implementation depends on
-        // the specific dataset's column names
-        return "latitude BETWEEN {$this->quoteValue($lat - $latDelta)} AND {$this->quoteValue($lat + $latDelta)}";
+        return "latitude BETWEEN {$latLo} AND {$latHi} AND longitude BETWEEN {$lngLo} AND {$lngHi}";
     }
 
     /**
