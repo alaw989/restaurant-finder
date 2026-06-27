@@ -9,13 +9,22 @@
 ## Implementation notes
 
 - Added `larastan/larastan` to `require-dev` in `composer.json`
-- Created `phpstan.neon` at level 5 with `app/` path scan and `phpstan-baseline.neon` baseline
-- Created empty baseline file (will be populated by CI run)
+- Created `phpstan.neon` at level 5 with `app/` path scan
 - Fixed high-value type issues:
   - `RestaurantEnrichmentService.php:615-616`: bare array access for `lat`/`lng` → added `?? null`
   - `EnrichRestaurantWithAi.php:29`: no-op `$this->onQueue('default')` → proper `public $queue = 'default'` property
-- Added `vendor/bin/phpstan analyze --memory-limit=2G` to CI quality job (after Pint)
-- Verified: 277 tests pass, Pint passes
+- Added `vendor/bin/phpstan analyze` to CI quality gate (after Pint)
+- Configured `ignoreErrors` baseline (18 patterns) to absorb pre-existing findings
+- Set `reportUnmatchedIgnoredErrors: false` for future-proofing
+- Iteratively fixed CI configuration errors (memoryLimit, baselineFile, regex patterns)
+- Final CI run: green (quality job passed, deploy succeeded, site verified live)
+
+All acceptance criteria met:
+- `vendor/bin/phpstan analyze` exits 0 ✓ (CI verified)
+- `vendor/bin/pint --test` exits 0 ✓
+- 277 tests pass ✓
+- Both run in CI (047's quality job) ✓
+- Named high-value findings fixed ✓
 
 **Series**: Tier 1 — Safety / tooling foundation. Depends on 047 (CI gate) to be
 wired into CI. `laravel/pint` is already installed but unused; this pairs a
