@@ -27,6 +27,10 @@
 - Verified: every `env('KEY'…)` in config/ has a corresponding `.env.example` entry
 - Verified: 277 tests pass, `config:cache` succeeds on fresh `.env`
 - NOTE: BIZDATA_URL and OVERPASS_URL are hardcoded in services (not env-based) — not added
+- Fixed gitleaks config issues (3 attempts): TOML syntax errors, then false positives
+  - Removed real-looking SERPAPI_API_KEY from docs/ranking-improvements.md
+  - Added 'ipop360_favorites' to gitleaks allowlist (localStorage key, not a secret)
+- CI verified green: quality job passed, deploy succeeded, site verified live
 
 **Series**: Tier 1 — Safety / tooling foundation. Pairs with 047 (CI gate).
 
