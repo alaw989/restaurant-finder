@@ -103,19 +103,59 @@ class RestaurantEnrichmentService
         $this->enrichWithAi($restaurants);
 
         // Score the persisted set together (uses the now-bonus-enriched models)
+        // Compute all breakdowns first, then batch-update using CASE WHEN
+        $scoresByRestaurant = [];
+        $updatedAt = now()->toDateTimeString();
+
         foreach ($restaurants as $restaurant) {
             try {
                 $breakdown = $this->popularityScore->calculateBreakdown($restaurant, $restaurants);
-                $restaurant->update([
+                $scoresByRestaurant[$restaurant->id] = [
                     'popularity_score' => $breakdown['total'],
-                    'score_breakdown' => $breakdown,
-                ]);
+                    'score_breakdown' => json_encode($breakdown),
+                ];
             } catch (\Throwable $e) {
                 Log::error('Failed to compute popularity score', [
                     'restaurant_id' => $restaurant->id,
                     'message' => $e->getMessage(),
                 ]);
             }
+        }
+
+        // Batch update using raw CASE WHEN to reduce N UPDATEs to ceil(N/100) queries
+        // This is significantly faster than individual model updates
+        if (! empty($scoresByRestaurant)) {
+            DB::transaction(function () use ($scoresByRestaurant, $updatedAt) {
+                collect(array_keys($scoresByRestaurant))->chunk(100)->each(function ($chunk) use ($scoresByRestaurant, $updatedAt) {
+                    $caseScore = 'CASE id';
+                    $caseBreakdown = 'CASE id';
+                    $chunkIds = [];
+
+                    foreach ($chunk as $id) {
+                        $data = $scoresByRestaurant[$id] ?? null;
+                        if ($data === null) {
+                            continue;
+                        }
+                        $chunkIds[] = $id;
+                        $escapedScore = (float) $data['popularity_score'];
+                        $escapedBreakdown = addslashes($data['score_breakdown']);
+                        $caseScore .= " WHEN {$id} THEN {$escapedScore}";
+                        $caseBreakdown .= " WHEN {$id} THEN '{$escapedBreakdown}'";
+                    }
+
+                    $caseScore .= ' END';
+                    $caseBreakdown .= ' END';
+                    $idsIn = implode(',', $chunkIds);
+
+                    DB::update("
+                        UPDATE restaurants
+                        SET popularity_score = ({$caseScore}),
+                            score_breakdown = ({$caseBreakdown}),
+                            updated_at = ?
+                        WHERE id IN ({$idsIn})
+                    ", [$updatedAt]);
+                });
+            });
         }
 
         Log::info('Restaurant enrichment complete', [
