@@ -2,8 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Services\LiveSearchService;
-use App\Services\RestaurantEnrichmentService;
+use App\Services\VenuePipeline;
 use Tests\TestCase;
 
 class GarbageNameFilterTest extends TestCase
@@ -16,11 +15,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => '0', 'source' => 'overpass', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertEmpty($filtered, 'Numeric-only names should be filtered out');
     }
@@ -36,11 +32,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'grill', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertEmpty($filtered, 'Generic cuisine words should be filtered out');
     }
@@ -53,11 +46,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => '"cafe"', 'source' => 'overpass', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertEmpty($filtered, 'Quote-wrapped names should be filtered out');
     }
@@ -70,11 +60,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => '£10 Lunch Special', 'source' => 'overpass', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertEmpty($filtered, 'Price-leading fragments should be filtered out');
     }
@@ -88,11 +75,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'K', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(4, $filtered, 'Legitimate short names should survive filtering');
     }
@@ -106,11 +90,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'Cafe Milano', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(4, $filtered, 'Names containing generic words should survive filtering');
     }
@@ -128,11 +109,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'Diner 24', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(4, $filtered, 'Only legitimate names should survive');
 
@@ -143,7 +121,7 @@ class GarbageNameFilterTest extends TestCase
         $this->assertContains('Diner 24', $names);
     }
 
-    public function test_enrichment_service_filters_garbage_names(): void
+    public function test_shared_pipeline_filters_garbage_names(): void
     {
         $venues = [
             ['name' => '$1.50 Fresh Pizza', 'source' => 'overpass', 'lat' => 37.77, 'lng' => -122.41],
@@ -152,11 +130,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'Pi', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(RestaurantEnrichmentService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(2, $filtered);
 
@@ -174,11 +149,8 @@ class GarbageNameFilterTest extends TestCase
             ['name' => 'Joe\'s Pizza', 'source' => 'bizdata', 'lat' => 37.77, 'lng' => -122.41],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(1, $filtered);
         $this->assertSame('Joe\'s Pizza', $filtered[0]['name']);
@@ -199,11 +171,8 @@ class GarbageNameFilterTest extends TestCase
             ],
         ];
 
-        $service = app(LiveSearchService::class);
-        $method = new \ReflectionMethod($service, 'filterGarbageNames');
-        $method->setAccessible(true);
-
-        $filtered = $method->invoke($service, $venues);
+        $pipeline = app(VenuePipeline::class);
+        $filtered = $pipeline->filterGarbageNames($venues);
 
         $this->assertCount(1, $filtered);
         $this->assertSame('Joe\'s Pizza', $filtered[0]['name']);

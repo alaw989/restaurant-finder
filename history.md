@@ -1,5 +1,7 @@
 # iPop360 History
 
+2026-06-27 — Spec 054: Shared venue pipeline (dedup the two 1k-LOC services) — Created `app/Services/VenuePipeline.php` (~250 LOC) containing shared venue-processing primitives: filterGarbageNames, crossSourceDedup, venuesMatch, mergeVenues, haversineKm, namesMatch, MATCH_RADIUS_KM. Updated LiveSearchService and RestaurantEnrichmentService to inject and delegate to VenuePipeline. Fixed LiveSearchScoringTest to include VenuePipeline in service instantiation. All 293 tests pass; behavior is byte-identical (delegates to same pure functions). Config reads (dedup.match_radius_km, dedup.name_similarity_threshold) now flow through VenuePipeline.
+
 2026-06-19 — Kill Dead Yelp Weights: Set Yelp ranking weights to 0 after Yelp removal, all tests pass
 2026-06-20 — Parallel Source Fetch: Implemented concurrent fetching for BizData/Foursquare/Overpass sources, reducing live-search latency from sum to slowest source only
 2026-06-20 — Scoring Schedule & Cache GC: Chunked ScoreRestaurants (500/chunk, transactional batch updates), added apicache:gc command with --dry-run, scheduled daily scoring (02:00 UTC) and nightly GC (03:00 UTC), expanded enrichment to all configured cities

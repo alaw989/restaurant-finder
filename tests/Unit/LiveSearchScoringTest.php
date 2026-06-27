@@ -13,6 +13,7 @@ use App\Services\OverpassService;
 use App\Services\PopularityScoreService;
 use App\Services\SerpApiService;
 use App\Services\SocrataOpenDataService;
+use App\Services\VenuePipeline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -295,6 +296,7 @@ class LiveSearchScoringTest extends TestCase
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
             $this->app->make(CuisineMatcher::class),
+            $this->app->make(VenuePipeline::class),
         );
 
         $results = $service->search(37.7749, -122.4194, null);
@@ -375,6 +377,7 @@ class LiveSearchScoringTest extends TestCase
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
             $this->app->make(CuisineMatcher::class),
+            $this->app->make(VenuePipeline::class),
         );
     }
 
