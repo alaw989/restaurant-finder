@@ -10,5 +10,3 @@ parameters:
         - tests/
     # Generate a baseline on first run to absorb pre-existing findings
     baselineFile: phpstan-baseline.neon
-    # Increase memory limit for large codebase analysis
-    memoryLimit: 2G
