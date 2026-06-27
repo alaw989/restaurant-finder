@@ -503,7 +503,13 @@ function refineSearch() {
                         <Transition name="state-swap">
                             <!-- Loading spinner (searching phase) -->
                             <div v-if="phase === 'searching'" key="loading" class="loading-block">
-                                <span class="spinner-enter inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                <!-- `.spinner-enter` (entrance pop) wraps the ring so it does NOT
+                                     share an element with `animate-spin`. Both set the `animation`
+                                     shorthand, so on one node only one survives — putting them
+                                     together made the ring fade in and never rotate. -->
+                                <span class="spinner-enter">
+                                    <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                </span>
                                 <p class="animate-pulse text-sm text-muted-foreground">Finding the best spots...</p>
                             </div>
 

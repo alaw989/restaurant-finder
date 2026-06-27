@@ -233,6 +233,15 @@
         justify-content: center;
         gap: 0.75rem;
     }
+    /* Spinner entrance pop. MUST be on its OWN element — never on the same
+       node as `animate-spin`. Both declare the `animation` shorthand, so they
+       collide and only one survives: `.spinner-enter` on the spinning ring
+       overrode `animate-spin` and the ring faded in but never rotated
+       (regression from spec-044). The markup wraps the ring in a
+       `.spinner-enter` element so the entrance and the infinite spin live on
+       separate nodes. (The spin is a status indicator, not decoration, so the
+       `prefers-reduced-motion` block neutralizes this entrance but keeps the
+       spin — which only works once they're separated.) */
     @keyframes spinnerEnter {
         from { opacity: 0; transform: scale(0.92); }
         to { opacity: 1; transform: none; }
