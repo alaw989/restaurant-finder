@@ -145,11 +145,6 @@ export function useFavorites() {
                 console.error('Failed to save favorites to localStorage', e);
             }
 
-            // Show login hint on first favorite
-            if (localFavorites.value.length === 1 && idx < 0) {
-                // Optionally show a toast or hint here
-                console.log('Log in to save favorites across devices');
-            }
         }
     }
 

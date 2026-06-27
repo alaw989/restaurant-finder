@@ -64,8 +64,6 @@ return [
     */
     'ranking' => [
         'weights' => [
-            'yelp_rating' => env('RANK_WEIGHT_YELP_RATING', 0),
-            'yelp_review_count' => env('RANK_WEIGHT_YELP_REVIEW_COUNT', 0),
             'quality' => env('RANK_WEIGHT_QUALITY', 0.60),
             'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.20),
             'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.05),

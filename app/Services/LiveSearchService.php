@@ -14,9 +14,6 @@ class LiveSearchService
     /** Haversine match threshold (km) for cross-source dedup. */
     private const MATCH_RADIUS_KM = 0.2;
 
-    /** OSM-derived source identifiers for garbage filtering. */
-    private const OSM_SOURCES = ['overpass', 'bizdata'];
-
     public function __construct(
         private OverpassService $overpassService,
         private BizDataApiService $bizDataService,
@@ -939,26 +936,5 @@ class LiveSearchService
         }
 
         return $merged;
-    }
-
-    /**
-     * Legacy simple dedup (exact name + distance bucket).
-     *
-     * @deprecated Use crossSourceDedup instead.
-     */
-    private function deduplicate(array $results): array
-    {
-        $seen = [];
-        $deduped = [];
-
-        foreach ($results as $r) {
-            $key = strtolower($r['name']).':'.round($r['distance'] ?? 0, 1);
-            if (! isset($seen[$key])) {
-                $seen[$key] = true;
-                $deduped[] = $r;
-            }
-        }
-
-        return $deduped;
     }
 }
