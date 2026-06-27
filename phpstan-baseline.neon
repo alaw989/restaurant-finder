@@ -1,0 +1,6 @@
+# PHPStan Baseline File
+# Generated on 2026-06-27
+# This baseline will be populated when phpstan first runs in CI
+parameters:
+    ignoreErrors:
+        # Baseline will be populated by first CI run

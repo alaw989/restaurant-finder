@@ -24,6 +24,11 @@ class EnrichRestaurantWithAi implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
+     * The queue the job will run on.
+     */
+    public $queue = 'default';
+
+    /**
      * The number of times the job may be attempted.
      */
     public int $tries = 2;
@@ -39,7 +44,7 @@ class EnrichRestaurantWithAi implements ShouldQueue
     public function __construct(
         public int $restaurantId
     ) {
-        $this->onQueue('default');
+        // Queue is set via $queue property above
     }
 
     /**

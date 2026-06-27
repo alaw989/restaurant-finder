@@ -47,6 +47,9 @@ jobs:
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test
 
+      - name: Run PHPStan (static analysis)
+        run: vendor/bin/phpstan analyze --memory-limit=2G
+
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15

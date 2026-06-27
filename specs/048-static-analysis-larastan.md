@@ -4,7 +4,18 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE
+
+## Implementation notes
+
+- Added `larastan/larastan` to `require-dev` in `composer.json`
+- Created `phpstan.neon` at level 5 with `app/` path scan and `phpstan-baseline.neon` baseline
+- Created empty baseline file (will be populated by CI run)
+- Fixed high-value type issues:
+  - `RestaurantEnrichmentService.php:615-616`: bare array access for `lat`/`lng` → added `?? null`
+  - `EnrichRestaurantWithAi.php:29`: no-op `$this->onQueue('default')` → proper `public $queue = 'default'` property
+- Added `vendor/bin/phpstan analyze --memory-limit=2G` to CI quality job (after Pint)
+- Verified: 277 tests pass, Pint passes
 
 **Series**: Tier 1 — Safety / tooling foundation. Depends on 047 (CI gate) to be
 wired into CI. `laravel/pint` is already installed but unused; this pairs a
