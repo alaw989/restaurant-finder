@@ -4,7 +4,8 @@
 
 **Created**: 2026-06-27
 
-**Status**: **IMPLEMENTED** — 274 tests green (266 + 8 new). Deploy + live-verify PENDING.
+**Status**: **SHIPPED** — 274 tests green; commit `2617cfe`, deployed GHA-green, live-verified
+2026-06-27 (Austin/brazilian → 7 all-restaurant results, wax salons gone).
 
 **Series**: Follow-up to **spec-042** (`filterNonRestaurants`). Surfaced live by the user
 on prod: a "brazilian food in Austin, Texas" search ranked two waxing salons.
@@ -114,9 +115,16 @@ no-food-signal) and shrinking the NAME list to the substring-safe `wax`/`waxing`
 substring matching on free-text names/types collides with real food venues; verify against
 the cuisine lexicon, not just the test fixtures.
 
-**Live (prod, post-deploy): PENDING.** Austin/brazilian → European Wax Center & reWAXation
-**gone**; Fogo de Chão / Estância / Casa do Brasil / Espetos / Fogueira Gaúcha **present**;
-console clean. (Austin/brazilian is a warm cache hit → zero quota.)
+**Live (prod, post-deploy): VERIFIED 2026-06-27.** Commit `2617cfe`, GHA deploy green (all
+steps ✓ incl. the cache-cold "Verify deployment" gate). `GET /api/restaurants?cuisine=brazilian`
+in Austin → **7 results, ALL real restaurants** (J-Prime, Taqueria De Diez, Fogo de Chão,
+Espetos, Casa do Brasil, Estância, Fogueira Gaúcha), each carrying food place_types
+(`Brazilian restaurant`/`Steak house`/`Restaurant`/`Bar`/…) — **European Wax Center &
+reWAXation Austin gone**, `is_live=true`, HTTP 200, no errors. The returned rows carry
+SerpApi's human-readable `type`/`types` (no snake_case enum present), confirming Change 1 is a
+defensive no-op for `google_maps` and the salons were dropped by Change 3's name-denylist +
+the existing no-food-signal path. (Fresh search vs the user's exact coords → result count
+differs from the original 10, but no food-typed restaurant is ever dropped by the filter.)
 
 ## Files
 - `app/Services/SerpApiService.php` — `normalizeResults()` captures the `place_types` enum.

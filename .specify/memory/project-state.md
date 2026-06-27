@@ -137,17 +137,32 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-27):** master is clean at `b0d2bf9`; spec-045 + a loading-spinner
-spin-regression fix both shipped + verified live (the loading ring never rotated until `b0d2bf9` —
-see Most recent shipments). spec-045 (spinner centering/fade +
-back-transition + search-state reset — the spec-044 follow-up) shipped + verified live. Specs
-**001–038 + 041–045 are COMPLETE**. The ONLY open specs are **039** (new SVG logo — ⚠️ blocked until
+**▶ Resume point (2026-06-27):** master is clean at `2617cfe`; spec-046 (stop "Brazilian wax"
+salons leaking into cuisine searches) shipped + verified live. Specs **001–038 + 041–046 are
+COMPLETE**. The ONLY open specs are **039** (new SVG logo — ⚠️ blocked until
 you drop a source image into `public/img/`) and **040** (live-result detail page + JSON-LD reachability
 — ⚠️ PROPOSED, blocked on a direction decision; Options A/B/C/D in its spec). No ralph batch is in
 flight. The next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a
 new task.
 
-**Most recent shipments:** **045-spin-fix** (the loading spinner ring NEVER SPUN — a regression where it
+**Most recent shipments:** **046** (stop non-restaurant places leaking into cuisine searches — a user's
+"brazilian food in Austin" search ranked two **waxing salons** [European Wax Center, reWAXation Austin]
+matching "brazilian" via *Brazilian wax*; spec-042's `filterNonRestaurants` kept them because its
+recall-protective escape hatch passes any row with empty `place_types`, and SerpApi returns some
+name-match rows with NO type). Fix (recall-protective, 2 services): `SerpApiService::normalizeResults`
+also captures SerpApi's snake_case `place_types` enum (merged/deduped) alongside `type`/`types`;
+`isFoodEstablishment` gained a `NON_RESTAURANT_PATTERNS` denylist (2nd pass, after retail, before food)
++ `_`→space normalization so patterns match both human phrases and snake_case enums; the escape hatch is
+now source-aware — an UNTYPED serpapi row drops only if `nameLooksNonRestaurant()` matches
+(`NAME_NON_RESTAURANT_PATTERNS` = `wax`/`waxing` only); non-Google sources still pass through. A first
+draft dropped ALL untyped serpapi rows and broke 6 tests. An adversarial review (5-dim, 11 agents, 6
+confirmed) caught a **HIGH-severity recall bug**: `'spa'` is a substring of `'spanish'` (a registered
+cuisine) → a `'spa'` denylist entry silently dropped every typed Spanish restaurant, invisible to the
+green suite (no Spanish test). Fixed by removing `'spa'` (typed spas still drop via no-food-signal) +
+shrinking the NAME list to substring-safe `wax`/`waxing`; added `brow`/`lash`/`eyebrow` for "Eyebrows
+bar". 274 tests green (266+8) — **SHIPPED: commit `2617cfe`, GHA-green, live-verified 2026-06-27**
+(Austin/brazilian → 7 all-restaurant results, salons gone). Lesson → [[substring-denylist-collides-with-cuisines]].
+**045-spin-fix** (the loading spinner ring NEVER SPUN — a regression where it
 was ONE `<span>` carrying both `.spinner-enter` (entrance pop) and Tailwind's `.animate-spin`; both set
 the `animation` shorthand, and in the compiled CSS `.spinner-enter` lands AFTER `.animate-spin` (byte
 81123 vs 19960) so it won the cascade and wiped the spin — the ring ran the 260ms entrance and stopped
