@@ -30,9 +30,6 @@ class RestaurantController extends Controller
      *
      * This query builder is used by both index() and apiIndex() to ensure
      * consistent filtering behavior and avoid drift between the two endpoints.
-     *
-     * @param  Request  $request
-     * @return Builder
      */
     private function buildRestaurantQuery(Request $request): Builder
     {

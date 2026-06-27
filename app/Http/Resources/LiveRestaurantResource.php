@@ -19,9 +19,6 @@ class LiveRestaurantResource extends JsonResource
 {
     /**
      * Transform a live-search result array into the API response shape.
-     *
-     * @param  Request  $request
-     * @return array
      */
     public function toArray(Request $request): array
     {

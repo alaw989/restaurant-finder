@@ -23,16 +23,11 @@ class RestaurantResource extends JsonResource
 {
     /**
      * The collection of all restaurants (for score breakdown fallback).
-     *
-     * @var Collection|null
      */
-    private Collection|null $allRestaurants = null;
+    private ?Collection $allRestaurants = null;
 
     /**
      * Transform a single Restaurant model into the API response shape.
-     *
-     * @param  Request  $request
-     * @return array
      */
     public function toArray(Request $request): array
     {
@@ -76,7 +71,6 @@ class RestaurantResource extends JsonResource
      * so that score_breakdown can be computed on-the-fly for legacy rows (rows
      * scored before the score_breakdown column existed).
      *
-     * @param  Collection  $allRestaurants
      * @return $this
      */
     public function withAllRestaurants(Collection $allRestaurants): self
@@ -91,10 +85,8 @@ class RestaurantResource extends JsonResource
      *
      * Prefers the stored value (most efficient). Falls back to computation for
      * legacy rows using PopularityScoreService.
-     *
-     * @return array|null
      */
-    private function getScoreBreakdown(): array|null
+    private function getScoreBreakdown(): ?array
     {
         // Prefer the stored breakdown (most efficient)
         if ($this->resource->score_breakdown !== null) {
