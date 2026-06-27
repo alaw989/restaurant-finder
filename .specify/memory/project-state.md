@@ -15,7 +15,7 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–038 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
+- **Specs 001–044 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
   rewritten `RestaurantCard` + `CardGallery` hover-scrub, `RestaurantCardSkeleton`, responsive
   results grid, `Welcome.vue` idle→searching→results phase machine) — shipped to master via
   `ralph/results-redesign` (PR #1, `3fab22f`), live. **034–038** (results-redesign audit: interaction/
@@ -136,7 +136,16 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-26)
-**001–043 are COMPLETE.** **043** (apply the sort dropdown to live-search results — the dropdown was inert because `apiIndex` applied sort only to the empty DB query, never to the live-search fallback it always hits; new `RestaurantController::sortLiveResults()` mirrors `applySortMode` on a PHP array and reuses the injected-but-dead `PriceLevelNormalizer`; zero quota — sort runs after the cache read) shipped direct to master (`a5bf6d9`, deployed + verified live). 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
+**001–044 are COMPLETE.** **044** (search→results motion polish — refined overlapping
+hero/bar/results transitions with matched exit/enter vectors so the idle→results swap reads as one
+gesture; replaced the `mode="out-in"` blank-beat + height-snap with a `state-swap` crossfade whose
+spinner leaves out-of-flow (absolute) UNDER the grid entering + a `.loading-block` stable height; new
+`resort()` so the sort dropdown drops the spinner + replayed card stagger — a `shouldStagger` flag
+armed once per real search then `nextTick`-disarmed, grid does a 150ms opacity dim instead;
+bold/snappy card stagger tuned (cap 8, 28ms) via a new `stagger?` prop; new `prefers-reduced-motion`
+block; removed the dead compact CuisinePicker) — **SHIPPED: commit `2f5bde5`, deployed + GHA-green +
+VERIFIED LIVE 2026-06-26** (Mobile→30 results with the new transition; compact cuisine dropdown gone;
+re-sort to Rating reordered the top-3 with no spinner; zero console errors). **043** (apply the sort dropdown to live-search results — the dropdown was inert because `apiIndex` applied sort only to the empty DB query, never to the live-search fallback it always hits; new `RestaurantController::sortLiveResults()` mirrors `applySortMode` on a PHP array and reuses the injected-but-dead `PriceLevelNormalizer`; zero quota — sort runs after the cache read) shipped direct to master (`a5bf6d9`, deployed + verified live). 029–033 shipped the **Airbnb-style results redesign**; **034–038** (the
 results-redesign audit) merged to master via **PR #2 (`ba40e12`, 2026-06-26)** — deployed + verified
 live (branch `ralph/audit-followup` merged + deleted). **041** (cuisine filter single source of truth
 + honest category search — the "All African → 100 any-cuisine" bug; new `config/cuisine-keywords.php`
