@@ -6,6 +6,25 @@
 
 **Status**: COMPLETE
 
+## Implementation notes
+
+- Added `quality` job to `.github/workflows/deploy.yml` with steps:
+  1. Setup PHP 8.4 + Node 22 (parallel)
+  2. composer install (with dev deps for phpunit/pint)
+  3. npm ci
+  4. npm run build
+  5. php artisan test
+  6. vendor/bin/pint --test
+- Created `.github/workflows/ci.yml` for PR-only quality gate
+- Deploy job now has `needs: ["quality"]` so failing tests/lint/build blocks deployment
+- Fixed issues discovered during implementation:
+  1. `--no-interaction` flag not supported by `php artisan test`
+  2. Missing APP_KEY in phpunit.xml (added test key for CI)
+  3. GarbageCollectApiCache.php syntax error (arithmetic in string interpolation not allowed)
+  4. Frontend build must run before tests (tests render views requiring Vite manifest)
+- Ran Pint to fix 50+ linting issues across Models/Services/Controllers/Commands/tests
+- Verified: red test → quality fails → deploy skipped; green → quality passes → deploy proceeds
+
 **Series**: Tier 1 — Safety / tooling foundation. This spec MUST land before the
 refactor-heavy specs (054+) so every later change is test-gated.
 
