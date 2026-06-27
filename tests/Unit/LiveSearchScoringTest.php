@@ -817,9 +817,11 @@ class LiveSearchScoringTest extends TestCase
 
     public function test_place_types_filter_keeps_rows_without_place_types(): void
     {
-        // Recall-protective: non-Google sources (overpass/bizdata/socrata) carry no
-        // place_types, but they are restaurant-scoped by their own queries — so a
-        // missing place_types must never cause a drop.
+        // Recall-protective for NON-GOOGLE sources: overpass/bizdata/socrata carry no
+        // place_types, but they are restaurant-scoped by their own queries — so a missing
+        // place_types must never drop them. (spec-046 narrowed this to non-Google sources
+        // only; a serpapi row with empty place_types IS dropped — see
+        // test_place_types_filter_drops_serpapi_rows_without_place_types.)
         $service = $this->makeServiceWithVenues([
             'overpass' => [
                 ['name' => 'OSM Bistro', 'source' => 'overpass', 'lat' => 30.65, 'lng' => -88.20],
@@ -894,6 +896,230 @@ class LiveSearchScoringTest extends TestCase
         foreach (['Corner Grocery', 'Supply Co', 'State Bar Association'] as $drop) {
             $this->assertNotContains($drop, $names, "Expected non-restaurant dropped: {$drop}");
         }
+    }
+
+    public function test_place_types_filter_drops_waxing_salon_with_enum_types(): void
+    {
+        // spec-046 regression: a "brazilian food" search surfaced European Wax Center
+        // and reWAXation Austin — waxing salons matching "Brazilian wax". They arrive
+        // from SerpApi carrying Google's snake_case place_types enum but often NO
+        // human-readable type, so before spec-046 their place_types was [] and they
+        // slipped through the recall-protective escape hatch. Now the enum is captured
+        // (Change 1) → non-empty → no food signal → dropped. A real restaurant stays.
+        // Unscoped search isolates the non-restaurant filter from the cuisine filter.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
+                ['name' => 'reWAXation Austin', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => ['waxing_hair_removal_service', 'spa', 'establishment', 'point_of_interest']],
+                ['name' => 'Casa do Brasil', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['Brazilian restaurant', 'restaurant', 'establishment', 'point_of_interest']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Casa do Brasil', $names);
+        $this->assertNotContains('European Wax Center', $names);
+        $this->assertNotContains('reWAXation Austin', $names);
+    }
+
+    public function test_place_types_filter_denylist_beats_weak_food_type(): void
+    {
+        // spec-046 defense-in-depth (Change 2): a POSITIVE non-restaurant signal
+        // (salon/spa/wax/...) drops a row even when a weak food type is also present —
+        // a waxing salon with a stray "Cafe" tag is still a salon. A plain hair salon
+        // still drops (regression guard for the spec-042 path under the new denylist),
+        // and a genuine cafe is kept.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Glow Wax & Cafe', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => ['Waxing hair removal service', 'Cafe']],
+                ['name' => 'African Braids Salon', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => ['Hair salon']],
+                ['name' => 'The Real Cafe', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['Cafe']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertNotContains('Glow Wax & Cafe', $names);
+        $this->assertNotContains('African Braids Salon', $names);
+        $this->assertContains('The Real Cafe', $names);
+    }
+
+    public function test_place_types_filter_drops_untyped_serpapi_row_by_name_denylist(): void
+    {
+        // spec-046 (Change 3 — recall-protective): SerpApi is name-match-scoped and
+        // returns some rows with NO type at all — e.g. a waxing salon that matched
+        // "brazilian" via "Brazilian wax" (European Wax Center, surfaced in production).
+        // Such a row can't be classified by place_types, so a conservative NAME check
+        // drops obvious non-restaurants. An UNTYPED row with a restaurant-y name is KEPT
+        // (recall: real restaurants are sometimes untyped too) — a blanket "drop all
+        // untyped serpapi rows" was rejected because it nuked legitimate bare fixtures.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => []],
+                ['name' => 'Mystery Brazilian Grill', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => []],
+                ['name' => 'Typed Bistro', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['Bistro']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertNotContains('European Wax Center', $names);    // 'wax' → dropped
+        $this->assertContains('Mystery Brazilian Grill', $names);  // recall: untyped, restaurant-y name → kept
+        $this->assertContains('Typed Bistro', $names);             // typed food → kept
+    }
+
+    public function test_place_types_filter_still_keeps_untyped_non_google_rows(): void
+    {
+        // spec-046: the Change-3 drop is SOURCE-SCOPED. Non-Google sources
+        // (overpass/bizdata/socrata) are restaurant-scoped by their own queries and
+        // structurally never carry place_types — they must still pass through untouched.
+        // (Sister to test_place_types_filter_keeps_rows_without_place_types, pinning socrata.)
+        $service = $this->makeServiceWithVenues([
+            'overpass' => [
+                ['name' => 'OSM Bistro', 'source' => 'overpass', 'lat' => 30.65, 'lng' => -88.20],
+            ],
+            'socrata' => [
+                ['name' => 'Socrata Diner', 'source' => 'socrata', 'lat' => 30.66, 'lng' => -88.21],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('OSM Bistro', $names);
+        $this->assertContains('Socrata Diner', $names);
+    }
+
+    public function test_serpapi_normalize_results_merges_place_types_enum(): void
+    {
+        // spec-046 (Change 1): normalizeResults must capture Google's snake_case
+        // `place_types` enum (beauty_salon, hair_care, establishment, ...) alongside the
+        // human-readable type/types — deduped case-insensitively, human form preserved.
+        // This gives the non-restaurant filter real data when a row's human type is absent
+        // (the waxing-salon case). normalizeResults is private → reflection.
+        $service = $this->app->make(SerpApiService::class);
+        $method = new \ReflectionMethod($service, 'normalizeResults');
+        $method->setAccessible(true);
+
+        // type absent, enum present → enum captured (the core waxing-salon scenario).
+        $rows = $method->invoke($service, [[
+            'title' => 'European Wax Center',
+            'gps_coordinates' => ['latitude' => 30.26, 'longitude' => -97.74],
+            'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest'],
+        ]], 30.26, -97.74);
+        $this->assertCount(1, $rows);
+        $this->assertSame('serpapi', $rows[0]['source']);
+        $typesLower = array_map('strtolower', $rows[0]['place_types']);
+        $this->assertContains('beauty_salon', $typesLower);
+        $this->assertContains('hair_care', $typesLower);
+        $this->assertContains('establishment', $typesLower);
+
+        // type present + enum present → both kept, case-insensitively deduped
+        // ("Restaurant" human + "restaurant" enum collapse to one).
+        $rows = $method->invoke($service, [[
+            'title' => 'Casa do Brasil',
+            'gps_coordinates' => ['latitude' => 30.27, 'longitude' => -97.74],
+            'type' => 'Restaurant',
+            'place_types' => ['restaurant', 'food', 'establishment', 'point_of_interest'],
+        ]], 30.27, -97.74);
+        $typesLower = array_map('strtolower', $rows[0]['place_types']);
+        $this->assertContains('restaurant', $typesLower);
+        $this->assertContains('food', $typesLower);
+        $this->assertSame(
+            1,
+            count(array_filter($rows[0]['place_types'], fn ($t) => strtolower($t) === 'restaurant')),
+            'human "Restaurant" and enum "restaurant" must dedupe to a single entry'
+        );
+    }
+
+    public function test_place_types_filter_keeps_spanish_restaurant(): void
+    {
+        // spec-046 adversarial-review catch (HIGH): 'spa' is a substring of 'spanish',
+        // and 'spanish' is a registered cuisine — so NON_RESTAURANT_PATTERNS must NOT
+        // contain 'spa', or every typed Spanish restaurant is dropped. Guards BOTH the
+        // human phrase ("Spanish restaurant") and the snake_case enum ("spanish_restaurant",
+        // reached after the _→space normalization).
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Tapas Spanish Restaurant', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
+                 'place_types' => ['Spanish restaurant', 'restaurant', 'establishment', 'point_of_interest']],
+                ['name' => 'Casa Espanola', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
+                 'place_types' => ['spanish_restaurant', 'mediterranean_restaurant', 'establishment']],
+                ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
+                 'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        $this->assertContains('Tapas Spanish Restaurant', $names);  // human phrase → kept
+        $this->assertContains('Casa Espanola', $names);             // snake_case enum → kept
+        $this->assertNotContains('European Wax Center', $names);    // salon still dropped
+    }
+
+    public function test_name_denylist_keeps_restaurants_with_colliding_substrings(): void
+    {
+        // spec-046 adversarial-review catch: the NAME denylist (untyped serpapi rows) must
+        // NOT contain broad substrings that collide with real restaurant names. Each of
+        // these is a legitimate food venue whose name contains a substring a naive
+        // denylist would drop ('spa','salon','gym','pharmacy','hospital') — it must
+        // survive, while the actual waxing-salon target still drops on 'wax'.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Spain Restaurant', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20, 'place_types' => []],
+                ['name' => 'Spaghetti Warehouse', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21, 'place_types' => []],
+                ['name' => 'Salon de Thé Lulu', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22, 'place_types' => []],
+                ['name' => 'Gymkhana', 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23, 'place_types' => []],
+                ['name' => 'The Pharmacy Burger', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24, 'place_types' => []],
+                ['name' => 'Hospitality Cafe', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25, 'place_types' => []],
+                ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.71, 'lng' => -88.26, 'place_types' => []],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        foreach (['Spain Restaurant', 'Spaghetti Warehouse', 'Salon de Thé Lulu', 'Gymkhana', 'The Pharmacy Burger', 'Hospitality Cafe'] as $keep) {
+            $this->assertContains($keep, $names, "Name-denylist must not false-drop a real venue: {$keep}");
+        }
+        $this->assertNotContains('European Wax Center', $names);  // 'wax' still drops the leak target
+    }
+
+    public function test_place_types_filter_drops_brow_lash_bar_studios(): void
+    {
+        // spec-046 hardening: brow/lash studios typed "... bar" (Eyebrows bar, Brow bar,
+        // Lash bar) would otherwise be rescued by the FOOD_TYPE_TAIL_WORDS 'bar' check —
+        // the NON_RESTAURANT denylist runs first and drops them on 'brow'/'lash'/'eyebrow'.
+        // A genuine 'Juice bar' is still kept (food signal).
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Brow Art 23', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20, 'place_types' => ['Eyebrows bar']],
+                ['name' => 'Bombshell Lash', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21, 'place_types' => ['Lash bar']],
+                ['name' => 'The Brow Bar', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22, 'place_types' => ['Brow bar']],
+                ['name' => 'Juice Joint', 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23, 'place_types' => ['Juice bar']],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+        $names = array_column($results, 'name');
+
+        foreach (['Brow Art 23', 'Bombshell Lash', 'The Brow Bar'] as $drop) {
+            $this->assertNotContains($drop, $names, "Brow/lash studio should drop: {$drop}");
+        }
+        $this->assertContains('Juice Joint', $names);  // genuine juice bar kept
     }
 
     /**

@@ -488,6 +488,53 @@ class LiveSearchService
     private const FOOD_TYPE_TAIL_WORDS = ['bar', 'pub', 'tavern'];
 
     /**
+     * Non-restaurant place_type substrings (spec-046). A POSITIVE match here drops a
+     * row even if it also carries a weak/ambiguous food type — e.g. a waxing salon
+     * tagged "Waxing hair removal service" + a stray "Cafe" still drops on "wax"/"salon".
+     * Matched case-insensitively as a substring against BOTH SerpApi's human phrases
+     * ("Hair salon") and Google's snake_case enums (hair_care→"hair care"→matches "hair")
+     * — see the _→space normalization in isFoodEstablishment().
+     *
+     * Recall caveat: 'spa' is deliberately ABSENT — it is a substring of 'spanish', and
+     * 'spanish' is a registered cuisine, so matching it would drop every typed Spanish
+     * restaurant (caught by an adversarial review). The other entries were verified
+     * disjoint from every cuisine adjective and every FOOD_TYPE_PATTERN. A typed 'Spa' /
+     * 'Day spa' still drops via the no-food-signal fallthrough. Lodging (hotel/motel) is
+     * also excluded — hotels host real restaurants Google tags restaurant/bar.
+     */
+    private const NON_RESTAURANT_PATTERNS = [
+        // Personal care / beauty (the "Brazilian wax" salon leak this targets)
+        'salon', 'beauty', 'hair', 'barber', 'wax', 'nail', 'tanning',
+        // Brow/lash studios typed "... bar" — without these, FOOD_TYPE_TAIL_WORDS 'bar'
+        // would rescue "Eyebrows bar"/"Brow bar"/"Lash bar" as a drink venue.
+        'brow', 'lash', 'eyebrow',
+        // Worship / civic / education
+        'church', 'mosque', 'temple', 'synagogue', 'school', 'university', 'museum',
+        // Health (non-food) / fitness
+        'gym', 'fitness', 'clinic', 'pharmacy', 'hospital', 'dentist', 'doctor',
+        // Transit / infrastructure / civic
+        'bridge', 'parking', 'gas station', 'fuel', 'association', 'library',
+    ];
+
+    /**
+     * Non-restaurant NAME substrings (spec-046), applied ONLY to SerpApi rows that arrive
+     * with NO place_types at all (the waxing-salon case: SerpApi matched the name but
+     * returned no type — e.g. "European Wax Center" / "reWAXation" on a "brazilian"
+     * search). Intentionally MINIMAL: the leak is fully caught by 'wax'/'waxing' (matched
+     * as a substring because "reWAXation" has no standalone 'wax' token — and 'wax' is a
+     * substring that never occurs in a real restaurant name). Broader words (salon/spa/
+     * gym/pharmacy/hospital/...) were TRIED and removed: as NAME substrings they collide
+     * with real food-venue names — 'spa'→Spain/Spaghetti/Spartan, 'salon'→"Salon de thé"
+     * tea room, 'gym'→Gymkhana, 'pharmacy'→"The Pharmacy" burger parlor, 'hospital'→
+     * Hospitality. Typed non-restaurants are caught by NON_RESTAURANT_PATTERNS (place_types);
+     * this NAME fallback covers only the rare untyped row, so recall safety wins over
+     * breadth. See nameLooksNonRestaurant().
+     */
+    private const NAME_NON_RESTAURANT_PATTERNS = [
+        'wax', 'waxing',
+    ];
+
+    /**
      * Drop rows whose Google `place_types` indicate a NON-restaurant (spec-042).
      *
      * SerpApi's google_maps engine returns any place whose NAME matches the query,
@@ -497,11 +544,16 @@ class LiveSearchService
      * real discriminator). A row survives iff at least one place_type signals a food
      * establishment.
      *
-     * Rows WITHOUT place_types (non-Google sources — overpass/bizdata/socrata, which
-     * are already restaurant-scoped by their own queries) pass through untouched
-     * (recall-protective). Gated by `filters.scrutinize_place_types` (default true).
-     * Runs for scoped AND unscoped live searches, before dedup (reads per-source
-     * place_types before dedup's mergeVenues() can fold rows together).
+     * Rows WITHOUT place_types: non-Google sources (overpass/bizdata/socrata, which are
+     * already restaurant-scoped by their own queries) pass through untouched
+     * (recall-protective). A SERPAPI row with empty place_types is dropped only if its
+     * NAME carries a high-confidence non-restaurant word (spec-046): SerpApi is
+     * name-match-scoped, not restaurant-scoped, and a waxing salon frequently arrives with
+     * no type at all (the "Brazilian wax"-salon leak) — an untyped row whose name lacks
+     * those words is still kept, since real restaurants are sometimes untyped too. Gated
+     * by `filters.scrutinize_place_types` (default true). Runs for scoped AND unscoped
+     * live searches, before dedup (reads per-source place_types before dedup's
+     * mergeVenues() can fold rows together).
      */
     private function filterNonRestaurants(array $results): array
     {
@@ -513,8 +565,22 @@ class LiveSearchService
         $dropped = [];
         foreach ($results as $r) {
             $placeTypes = $r['place_types'] ?? null;
-            // No structured Google type → trust the source (recall-protective).
+            $source = (string) ($r['source'] ?? '');
+            // No structured Google type. Non-Google sources (overpass/bizdata/socrata)
+            // are restaurant-scoped by their own queries, so trust them (recall-protective).
+            // SerpApi (google_maps) is name-match-scoped, NOT restaurant-scoped — and it
+            // returns some rows with NO type at all (e.g. a waxing salon that matched
+            // "brazilian" via "Brazilian wax", surfaced in production as European Wax
+            // Center). Those can't be classified by place_types, so a conservative NAME
+            // check drops obvious non-restaurants (spec-046). Recall-protective: an
+            // untyped serpapi row whose name lacks these words is KEPT — real restaurants
+            // are sometimes untyped too, which is why a blanket "drop all untyped serpapi"
+            // was rejected (it dropped legitimate venues that simply lack a type).
             if (! is_array($placeTypes) || empty($placeTypes)) {
+                if ($source === 'serpapi' && $this->nameLooksNonRestaurant($r['name'] ?? '')) {
+                    $dropped[] = ['name' => $r['name'] ?? '', 'place_types' => $placeTypes, 'source' => $source, 'reason' => 'untyped non-restaurant name'];
+                    continue;
+                }
                 $kept[] = $r;
                 continue;
             }
@@ -546,7 +612,11 @@ class LiveSearchService
     {
         $types = [];
         foreach ($placeTypes as $type) {
-            $t = strtolower((string) $type);
+            // Normalize to lowercase with underscores→spaces so the same patterns match
+            // BOTH SerpApi's human phrases ("Cocktail bar", "Hair salon") AND Google's
+            // snake_case enums ("cocktail_bar", "hair_care"). The tail-word check splits
+            // on spaces, so "cocktail_bar" must become "cocktail bar" to surface its "bar".
+            $t = strtolower(str_replace('_', ' ', (string) $type));
             if ($t !== '') {
                 $types[] = $t;
             }
@@ -563,6 +633,19 @@ class LiveSearchService
             }
         }
 
+        // Non-restaurant guard (spec-046): a POSITIVE salon/spa/wax/church/gym/... type
+        // → not a restaurant, dropped even if a weak food type is also present (a waxing
+        // salon with a stray "Cafe" tag is still a salon). Recall-protective: a real
+        // restaurant's types never contain these. Lodging is excluded (hotels host
+        // restaurants) — see NON_RESTAURANT_PATTERNS.
+        foreach ($types as $t) {
+            foreach (self::NON_RESTAURANT_PATTERNS as $non) {
+                if (str_contains($t, $non)) {
+                    return false;
+                }
+            }
+        }
+
         // Food signal: any restaurant/drink type, or a drink word as the last token.
         foreach ($types as $t) {
             foreach (self::FOOD_TYPE_PATTERNS as $pattern) {
@@ -573,6 +656,26 @@ class LiveSearchService
             $tokens = preg_split('/[\s\/\-]+/u', $t) ?: [];
             $last = end($tokens) ?: '';
             if ($last !== '' && in_array($last, self::FOOD_TYPE_TAIL_WORDS, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * For an UNTYPED SerpApi row, does its name signal an obvious non-restaurant?
+     * (spec-046 fallback for the waxing-salon leak, where SerpApi matched the name but
+     * returned no place type to classify by.) See NAME_NON_RESTAURANT_PATTERNS.
+     */
+    private function nameLooksNonRestaurant(string $name): bool
+    {
+        $name = strtolower($name);
+        if ($name === '') {
+            return false;
+        }
+        foreach (self::NAME_NON_RESTAURANT_PATTERNS as $pattern) {
+            if (str_contains($name, $pattern)) {
                 return true;
             }
         }

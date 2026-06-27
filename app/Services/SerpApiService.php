@@ -263,17 +263,33 @@ class SerpApiService
             // See sizeGoogleThumbnail(): only lh[3-6].googleusercontent.com URLs are touched.
             $photo = $this->sizeGoogleThumbnail($r['thumbnail'] ?? null);
 
-            // Capture Google's structured cuisine classification. SerpApi's
+            // Capture Google's structured place classification. SerpApi's
             // q="<cuisine> near me" still leaks off-cuisine rows (spec-028), so the
-            // cuisine-relevance filter inspects this against a rival-cuisine set.
-            // 'type' is the primary field (string); 'types' is the alternate array form.
+            // cuisine-relevance filter inspects this against a rival-cuisine set; and
+            // spec-042's filterNonRestaurants() drops non-food places (churches, salons,
+            // groceries). 'type' is the primary field (string); 'types' is the alternate
+            // array form. SerpApi *also* returns a snake_case `place_types` enum array on
+            // some rows (beauty_salon, hair_care, restaurant, establishment, ...) — the
+            // authoritative Google type. Capture it too (spec-046): a waxing salon often
+            // arrives with NO human-readable type/types but a populated enum, so without
+            // this its place_types is [] and it slips through the non-restaurant filter.
             $rawType = $r['type'] ?? null;
             $rawTypes = $r['types'] ?? null;
+            $rawEnums = $r['place_types'] ?? null;
             $placeTypes = [];
             if (is_array($rawTypes)) {
                 $placeTypes = array_values(array_filter($rawTypes, 'is_string'));
             } elseif (is_string($rawType) && $rawType !== '') {
                 $placeTypes = [$rawType];
+            }
+            if (is_array($rawEnums)) {
+                $existingLower = array_map('strtolower', $placeTypes);
+                foreach ($rawEnums as $enum) {
+                    if (is_string($enum) && $enum !== '' && ! in_array(strtolower($enum), $existingLower, true)) {
+                        $placeTypes[] = $enum;
+                        $existingLower[] = strtolower($enum);
+                    }
+                }
             }
 
             $results[] = [
