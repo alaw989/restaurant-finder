@@ -144,3 +144,25 @@ into `document.head` (used on Welcome/Index/Show). Google executes JS so the JSO
 in prod today — `config/inertia.php` absent, deploy never starts `inertia:start-ssr`). `<JsonLd>`
 guards `document` so enabling SSR later won't crash it. Lesson → [[inertia-head-drops-script-tags]].
 <!-- NR_OF_TRIES: 2 -->
+
+## Follow-up (2026-06-27, commit `d0e42b8`): reconstruction → per-slug snapshot
+
+The Option-A **reconstruction** shipped above was **retired** by a follow-up fix. It 404'd on
+category searches (the card carried `cuisine` but never `category`), Overpass name-fallback venues,
+coord drift, and cache expiry — the per-source cache keys
+(`md5(serialize(compact('lat','lng','cuisine',…)))`, raw floats) meant any URL that couldn't
+reproduce the *exact* original search missed the warm cache. Reported as "clicking a result opens
+404."
+
+Fix: `apiIndex()` now **snapshots** each shown live result under `preview:{slug}` in
+`ExternalApiCache` (TTL `cache.preview_snapshot_days`, default 7d; stored after sort+bound so it's
+exactly what the user saw), and `preview()` reads it back by slug directly — **no live search at
+all** (stronger zero-quota guarantee; 404 only on TTL expiry, which `findByKey` honors via
+`scopeFresh`). The card's live-result URL is now param-free `/restaurants/preview/{slug}` (old
+`?lat=&lng=&cuisine=` links still resolve — params ignored). Writes only to `external_api_cache`
+(already written on the read path; the no-`restaurants`-write constraint stands). This is the
+literal Option A the spec described but deferred ("There is no per-result cache row") — the fix
+creates that row. `RestaurantPreviewTest` rewritten (3 reconstruction tests → 5 snapshot tests) +
+1 new `RestaurantControllerTest`; 277 tests green. Verified live (curl + headless browser): cuisine
+and **category** live results resolve 200 with full Show.vue + zero console errors. Full detail in
+`history/2026-06-27--spec-040-preview-snapshot.md`.

@@ -144,10 +144,23 @@ bug: Inertia `<Head>` was silently dropping every JSON-LD `<script>` → new `Js
 Welcome/Index/Show), and off-queue follow-ups **a** (drop SerpApi ' near me' — quota-neutral), **b**
 (Socrata WHERE now gates longitude too), **c** (chinese += 'panda' keyword). **No open specs. No ralph
 batch in flight. The queue is empty** — next move is a new task or idea. (d) populate serpapi `cuisines`
-from `place_types` — deferred. The **SSR track** (server-rendered JSON-LD/meta in initial HTML) is the
+from `place_types` — deferred. **Latest hotfix (2026-06-27):** spec-040 "click result → 404" fixed via
+per-slug snapshot cache (`d0e42b8`, verified live) — see **Most recent shipments**. The **SSR track** (server-rendered JSON-LD/meta in initial HTML) is the
 biggest deferred SEO lever — see spec-040's US2 caveat + [[inertia-head-drops-script-tags]].
 
-**Most recent shipments:** **046** (stop non-restaurant places leaking into cuisine searches — a user's
+**Most recent shipments:** **spec-040 preview fix** (`d0e42b8`, 2026-06-27 — fixed "clicking a result → 404".
+The Option-A cache-only **reconstruction** in `preview()` was retired: it 404'd every category-search
+result (card carried `cuisine` but never `category`), Overpass name-fallback venues, and on coord
+drift/cache-expiry, because per-source cache keys are `md5(serialize(compact('lat','lng','cuisine',…)))`
+(raw floats). Replaced with a **per-slug snapshot**: `apiIndex()` stores each shown live result under
+`preview:{slug}` in `ExternalApiCache` (TTL `cache.preview_snapshot_days`≈7d, own `source='preview'`
+namespace, invisible to SerpApi quota); `preview()` reads by slug directly — **no live search at all**
+(zero quota, stronger than before; 404 only on TTL expiry via `findByKey`/`scopeFresh`). Card's live
+URL is now param-free `/restaurants/preview/{slug}`. Writes only to `external_api_cache` (no
+`restaurants` write). `RestaurantPreviewTest` rewritten 3→5 + 1 new controller test; 277 tests green;
+deployed + verified LIVE in-browser: cuisine AND category live results render the full detail page,
+zero console errors. Detail: `history/2026-06-27--spec-040-preview-snapshot.md`. Note surfaced: the DB
+is NOT actually near-empty — Austin + NYC have persisted enriched rows.). **046** (stop non-restaurant places leaking into cuisine searches — a user's
 "brazilian food in Austin" search ranked two **waxing salons** [European Wax Center, reWAXation Austin]
 matching "brazilian" via *Brazilian wax*; spec-042's `filterNonRestaurants` kept them because its
 recall-protective escape hatch passes any row with empty `place_types`, and SerpApi returns some
