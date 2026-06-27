@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import CuisinePicker from '@/Components/CuisinePicker.vue'
 import LocationPicker from '@/Components/LocationPicker.vue'
 import RestaurantCard from '@/Components/RestaurantCard.vue'
@@ -57,6 +57,11 @@ const sortOptions = [
 
 const restaurants = ref<Restaurant[]>([])
 const phase = ref<Phase>('idle')
+// Drives the one-shot card stagger: armed in search() right before results
+// render, disarmed on the next tick so a re-sort (resort()) doesn't replay it.
+const shouldStagger = ref(false)
+// Brief grid dim while a re-sort fetch is in flight (no spinner, no stagger).
+const isResorting = ref(false)
 const nextPageUrl = ref<string | null>(null)
 const detectingLocation = ref(false)
 const searchError = ref<string | null>(null)
@@ -216,7 +221,11 @@ async function search() {
         if (restaurants.value.length === 0) {
             phase.value = 'empty'
         } else {
+            shouldStagger.value = true
             phase.value = 'results'
+            nextTick(() => {
+                shouldStagger.value = false
+            })
         }
         searchError.value = null
     } catch {
@@ -224,6 +233,52 @@ async function search() {
         restaurants.value = []
         nextPageUrl.value = null
         phase.value = 'error'
+    }
+}
+
+// Re-fetch on sort change WITHOUT the spinner + full card stagger. Same
+// endpoint + query as search(); only the UX wrapper differs (a brief grid dim,
+// no phase flip to 'searching', no re-armed stagger). Falls back to a full
+// search if somehow invoked before we have results.
+async function resort() {
+    if (phase.value !== 'results' && phase.value !== 'empty') {
+        return search()
+    }
+
+    isResorting.value = true
+    searchError.value = null
+    loadMoreError.value = null
+
+    const params = new URLSearchParams()
+    if (selectedCuisine.value) {
+        params.set('cuisine', selectedCuisine.value)
+    } else if (selectedCategory.value) {
+        params.set('category', selectedCategory.value)
+    }
+    if (lat.value !== null) params.set('lat', lat.value.toString())
+    if (lng.value !== null) params.set('lng', lng.value.toString())
+    params.set('sort', sort.value)
+
+    try {
+        const response = await fetch(`/api/restaurants?${params}`)
+        if (!response.ok) {
+            throw new Error('Resort failed')
+        }
+        const data = await response.json()
+        restaurants.value = data.data ?? []
+        nextPageUrl.value = data.next_page_url
+        if (restaurants.value.length === 0) {
+            phase.value = 'empty'
+        } else {
+            phase.value = 'results'
+        }
+    } catch {
+        searchError.value = 'Couldn\'t reach the listing service. Please try again.'
+        restaurants.value = []
+        nextPageUrl.value = null
+        phase.value = 'error'
+    } finally {
+        isResorting.value = false
     }
 }
 
@@ -250,6 +305,8 @@ function resetToIdle() {
     nextPageUrl.value = null
     searchError.value = null
     loadMoreError.value = null
+    shouldStagger.value = false
+    isResorting.value = false
 }
 
 function refineSearch() {
@@ -341,17 +398,11 @@ function refineSearch() {
                         <img src="/img/ipop360-logo.png" alt="iPop360" class="h-8 w-auto" />
                     </Link>
 
-                    <!-- Compact pickers -->
-                    <div class="flex flex-1 items-center gap-2 overflow-x-auto">
-                        <CuisinePicker
-                            :categories="categories"
-                            :compact="true"
-                            @select="onCuisineSelect"
-                        />
-                        <div class="flex items-center gap-1 text-sm text-muted-foreground">
-                            <MapPin class="h-3.5 w-3.5" />
-                            <span>{{ location.city || location.state || 'Everywhere' }}</span>
-                        </div>
+                    <!-- Location (compact cuisine picker removed in spec-044 —
+                         it never re-searched; refine via the search icon). -->
+                    <div class="flex flex-1 items-center gap-1 text-sm text-muted-foreground">
+                        <MapPin class="h-3.5 w-3.5" />
+                        <span>{{ location.city || location.state || 'Everywhere' }}</span>
                     </div>
 
                     <!-- Favorites link (authed users) -->
@@ -412,13 +463,15 @@ function refineSearch() {
             <!-- Results area (all non-idle phases) -->
             <Transition name="results-in">
                 <div v-if="isResultsPhase" class="mx-auto w-full px-4 pb-8 pt-6">
-                    <!-- Max width only when in results phase -->
-                    <div class="mx-auto max-w-7xl">
-                        <!-- Inner state swap with fade transition -->
-                        <Transition name="fade" mode="out-in">
+                    <!-- Max width only when in results phase. `relative` anchors
+                         the absolute-positioned spinner leave (state-swap). -->
+                    <div class="mx-auto max-w-7xl relative">
+                        <!-- Inner state swap: spinner↔grid crossfade (no
+                             mode="out-in" → no blank beat between phases). -->
+                        <Transition name="state-swap">
                             <!-- Loading spinner (searching phase) -->
-                            <div v-if="phase === 'searching'" key="loading" class="flex flex-col items-center gap-3 py-16">
-                                <span class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            <div v-if="phase === 'searching'" key="loading" class="loading-block">
+                                <span class="spinner-enter inline-block h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                                 <p class="animate-pulse text-sm text-muted-foreground">Finding the best spots...</p>
                             </div>
 
@@ -465,7 +518,7 @@ function refineSearch() {
                                         <select
                                             id="sort-select"
                                             v-model="sort"
-                                            @change="search()"
+                                            @change="resort()"
                                             class="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                         >
                                             <option v-for="option in sortOptions" :key="option.value" :value="option.value">
@@ -476,7 +529,10 @@ function refineSearch() {
                                 </div>
 
                                 <!-- Card grid -->
-                                <div class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                                <div
+                                    class="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 transition-opacity duration-150"
+                                    :class="isResorting ? 'opacity-40' : 'opacity-100'"
+                                >
                                     <RestaurantCard
                                         v-for="(restaurant, index) in restaurants"
                                         :key="restaurant.id"
@@ -485,6 +541,7 @@ function refineSearch() {
                                         :search-lat="lat"
                                         :search-lng="lng"
                                         :cuisine="selectedCuisine"
+                                        :stagger="shouldStagger"
                                     />
                                 </div>
 

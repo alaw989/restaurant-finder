@@ -17,6 +17,9 @@ const props = defineProps<{
     searchLat?: number | null;
     searchLng?: number | null;
     cuisine?: string;
+    // When true, the first screenful of cards plays the .card-enter stagger.
+    // Armed once per real search in Welcome.vue; false on re-sort (spec-044).
+    stagger?: boolean;
 }>();
 
 const { isFavorited, toggle } = useFavorites();
@@ -106,7 +109,7 @@ const ariaLabel = computed(() => (saved.value ? 'Saved' : 'Save restaurant'));
 
 <template>
     <article
-        :class="[rank <= 12 ? 'card-enter' : '', 'cv-card']"
+        :class="[stagger && rank <= 12 ? 'card-enter' : '', 'cv-card']"
         :style="{ '--rank': rank }"
         class="group relative overflow-hidden rounded-2xl transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl bg-card border"
     >

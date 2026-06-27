@@ -103,35 +103,44 @@
 }
 
 @layer utilities {
-    /* Hero leave transition - fades, scales, blurs out */
+    /* Hero departure: leaves upward, toward where the bar lands, lighter blur.
+       Exit vector matches the bar's downward arrival so the swap reads as one
+       gesture (idle → results) instead of a centered→top-aligned reflow stutter. */
     .hero-out-leave-active {
-        transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+                    filter 280ms cubic-bezier(0.16, 1, 0.3, 1);
     }
     .hero-out-leave-to {
         opacity: 0;
-        transform: scale(0.96) translateY(-8px);
-        filter: blur(6px);
+        transform: scale(0.97) translateY(-12px);
+        filter: blur(4px);
     }
 
-    /* Results enter transition - fades in from below */
-    .results-in-enter-active {
-        transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .results-in-enter-from {
-        opacity: 0;
-        transform: translateY(24px);
-    }
-
-    /* Compact bar enter transition */
+    /* Compact bar drops in, slightly faster than the hero leaves, with a tiny
+       overlap so it enters as the hero exits. */
     .bar-in-enter-active {
-        transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition: opacity 260ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition-delay: 40ms;
     }
     .bar-in-enter-from {
         opacity: 0;
-        transform: translateY(-8px);
+        transform: translateY(-10px);
     }
 
-    /* Inner fade transition for state swap */
+    /* Results area begins entering while the hero is still leaving. */
+    .results-in-enter-active {
+        transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition-delay: 80ms;
+    }
+    .results-in-enter-from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    /* Plain opacity fade (used by the geolocation banner). */
     .fade-enter-active,
     .fade-leave-active {
         transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -139,6 +148,43 @@
     .fade-enter-from,
     .fade-leave-to {
         opacity: 0;
+    }
+
+    /* Spinner ↔ grid CROSSFADE (replaces the old mode="out-in" swap). The
+       spinner leaves UNDER the grid entering — both run concurrently, so there
+       is no blank beat. The leave-active is taken out of flow (absolute) the
+       instant it starts fading, so the entering grid defines the container
+       height from frame 1 → no height snap (spec-044 jank #2). */
+    .state-swap-enter-active {
+        transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition-delay: 60ms;
+    }
+    .state-swap-leave-active {
+        transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+        position: absolute;
+        inset: 0;
+    }
+    .state-swap-enter-from,
+    .state-swap-leave-to {
+        opacity: 0;
+    }
+
+    /* Stable loading height: reserves the space the grid will fill so the
+       spinner → grid handoff doesn't snap the page height. */
+    .loading-block {
+        min-height: min(60vh, 540px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+    }
+    @keyframes spinnerEnter {
+        from { opacity: 0; transform: scale(0.92); }
+        to { opacity: 1; transform: none; }
+    }
+    .spinner-enter {
+        animation: spinnerEnter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
     /* Skip rendering offscreen result cards. contain-intrinsic-size keeps the
@@ -150,15 +196,17 @@
         contain-intrinsic-size: auto 380px;
     }
 
-    /* Lightweight card entrance for the first screenful only (rank <= 12).
-       Replaces @vueuse/motion v-motion (one IntersectionObserver/card). */
+    /* Card entrance for the first screenful only. Bold & snappy (cap 8, 28ms
+       steps ≈ 224ms tail). Gated by a `stagger` prop in RestaurantCard so it
+       fires once per real search and never on re-sort. Replaces the old
+       @vueuse/motion v-motion (one IntersectionObserver/card). */
     @keyframes cardEnter {
-        from { opacity: 0; transform: translateY(12px); }
+        from { opacity: 0; transform: translateY(14px) scale(0.99); }
         to { opacity: 1; transform: none; }
     }
     .card-enter {
-        animation: cardEnter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
-        animation-delay: calc(min(var(--rank, 1) - 1, 12) * 35ms);
+        animation: cardEnter 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation-delay: calc(min(var(--rank, 1) - 1, 8) * 28ms);
     }
 }
 
@@ -170,4 +218,35 @@
     @apply bg-background text-foreground;
     }
   button:not(:disabled), [role="button"], summary { cursor: pointer; }
+}
+
+/* Respect the user's motion preference: neutralize the entire choreography
+   (instant swaps, no transforms/blurs) but KEEP the spinner's spin — it's a
+   status indicator, not decoration. Vue's <Transition> still toggles the
+   classes, so elements still mount/unmount; only the motion is removed. */
+@media (prefers-reduced-motion: reduce) {
+    .hero-out-leave-active,
+    .bar-in-enter-active,
+    .results-in-enter-active,
+    .state-swap-enter-active,
+    .state-swap-leave-active,
+    .spinner-enter,
+    .card-enter {
+        transition: none !important;
+        animation: none !important;
+        transition-delay: 0ms !important;
+        animation-delay: 0ms !important;
+    }
+    .hero-out-leave-to {
+        opacity: 0;
+        transform: none;
+        filter: none;
+    }
+    .bar-in-enter-from,
+    .results-in-enter-from,
+    .state-swap-enter-from,
+    .state-swap-leave-to {
+        opacity: 0;
+        transform: none;
+    }
 }
