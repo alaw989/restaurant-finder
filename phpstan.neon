@@ -8,5 +8,3 @@ parameters:
     # Exclude tests for now - we'll add them in a later spec
     excludePaths:
         - tests/
-    # Generate a baseline on first run to absorb pre-existing findings
-    baselineFile: phpstan-baseline.neon
