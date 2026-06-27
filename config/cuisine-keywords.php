@@ -37,7 +37,7 @@ return [
 
     'cuisines' => [
         // ── Asian ──────────────────────────────────────────────────────────
-        'chinese'    => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian'],
+        'chinese'    => ['chinese', 'china', 'szechuan', 'sichuan', 'peking', 'beijing', 'cantonese', 'mandarin', 'dim.sum', 'wok', 'dragon', 'shanghai', 'hunan', 'mongolian', 'panda'],
         'japanese'   => ['japanese', 'sushi', 'ramen', 'teriyaki', 'bento', 'teppan', 'izakaya', 'hibachi', 'sashimi', 'tempura', 'udon', 'yakitori', 'tonkatsu'],
         'korean'     => ['korean', 'seoul', 'kimchi', 'bulgogi', 'bibimbap', 'gochujang', 'galbi'],
         'thai'       => ['thai', 'thailand', 'bangkok', 'pad.thai', 'tom.yum', 'lemongrass', 'som.tum', 'massaman'],
