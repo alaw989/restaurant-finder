@@ -137,16 +137,43 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-27):** specs **001–046 are ALL COMPLETE**. This batch shipped/verified **039**
-(vector brand logo — `BrandLogo.vue`, retired the 654KB raster from the render path), **040** (live-result
-detail pages — already in `617031e`, closed its bookkeeping + fixed an app-wide spec-038 JSON-LD rendering
-bug: Inertia `<Head>` was silently dropping every JSON-LD `<script>` → new `JsonLd.vue` fixes it on
-Welcome/Index/Show), and off-queue follow-ups **a** (drop SerpApi ' near me' — quota-neutral), **b**
-(Socrata WHERE now gates longitude too), **c** (chinese += 'panda' keyword). **No open specs. No ralph
-batch in flight. The queue is empty** — next move is a new task or idea. (d) populate serpapi `cuisines`
-from `place_types` — deferred. **Latest hotfix (2026-06-27):** spec-040 "click result → 404" fixed via
-per-slug snapshot cache (`d0e42b8`, verified live) — see **Most recent shipments**. The **SSR track** (server-rendered JSON-LD/meta in initial HTML) is the
-biggest deferred SEO lever — see spec-040's US2 caveat + [[inertia-head-drops-script-tags]].
+**▶ Resume point (2026-06-27):** specs **001–046 are ALL COMPLETE.** A **full-optimization audit**
+(frontend + backend) produced a new **18-spec backlog (047–064)**, authored as PROPOSED specs in `specs/`.
+Full audit + prioritization + binding-constraint notes live in the plan:
+`/home/alaw989/.claude/plans/lets-make-a-plan-majestic-crayon.md`. Ralph implements them **lowest-number-first**
+(one per iteration); balanced ordering = safety → code-health → perf → architecture:
+
+- **Tier 1 — Safety/tooling:** 047 CI quality gate (tests+pint+build) · 048 larastan static analysis ·
+  049 dead-code/cruft sweep · 050 `.env.example` + secret-scanning. *Land 047 first — it test-gates every later spec.*
+- **Tier 2 — Correctness:** 051 FavoriteController hardening + its missing tests · 052 batched scoring writes ·
+  053 hot-path DB indexes.
+- **Tier 3 — Code health:** 054 shared venue pipeline (the ~250-LOC dedup of the two 1k-LOC services) ·
+  055 single Restaurant formatter (API Resources) · 056 decompose `Welcome.vue` (663 LOC) · 057 frontend
+  shared layer (`api.ts`/`<SeoMeta>`/canonical types/icons) · 058 cache TTL consolidation · 059 real
+  enrichment `Http::pool` (parity w/ read path) + decompose `enrichAllCitiesThrottled` · 060 per-source
+  normalizers.
+- **Tier 4 — Performance:** 061 frontend bundle diet (vendor split, Geist latin-only, retire 640KB logo) ·
+  062 extract transition CSS out of global `app.css`.
+- **Tier 5 — Architecture:** 063 enable Inertia SSR (server-rendered JSON-LD/meta — the biggest deferred
+  SEO lever; was the "SSR track", see spec-040 US2 + [[inertia-head-drops-script-tags]]) · 064 Vitest (first frontend tests).
+
+**Ordering freedom:** 064 (Vitest) is the one Tier-5 spec worth pulling forward before 056/057 to lock
+behavior with tests during the big frontend extractions. **Sizing:** 054, 056, 063 may each exceed one
+iteration — each spec notes a split point.
+
+**Audit rigor — two high-stakes claims were verified and REJECTED (do NOT re-investigate):**
+- "Broken SerpApi cache-freshness check → quota leak" — FALSE. `SerpApiService::cacheKeyFor` (`:150`) and
+  `RestaurantEnrichmentService::isSerpApiCacheFresh` (`:998`) produce the identical key; the real quota
+  guard (`countRealSerpApiCallsLast30Days` + per-run cap + monthly budget) is intact.
+- "Secrets committed in `SHARED_TASK_NOTES.md`" — FALSE. Only key *names* appear; grep for 16+ char values
+  = 0 hits. (Still: 050 adds secret-scanning to CI as cheap hygiene.)
+
+**Pre-backlog shipments still on record:** 039 (vector `BrandLogo.vue`, retired the 654KB raster from the
+render path) · 040 (live-result detail pages, in `617031e`; fixed the app-wide spec-038 JSON-LD `<Head>`-drops-`<script>` bug via `JsonLd.vue`) · **040 hotfix (2026-06-27, `d0e42b8`):** "click result → 404" fixed via per-slug
+snapshot cache (verified live) — see **Most recent shipments**. Off-queue follow-ups: **a** drop SerpApi ' near me' · **b** Socrata WHERE gates longitude too · **c** chinese += 'panda' keyword.
+
+**Deferred (not specs unless requested):** (d) populate serpapi `cuisines` from `place_types`; soft deletes;
+external error monitoring (Sentry/Bugsnag); scheduling `quota:status`.
 
 **Most recent shipments:** **spec-040 preview fix** (`d0e42b8`, 2026-06-27 — fixed "clicking a result → 404".
 The Option-A cache-only **reconstruction** in `preview()` was retired: it 404'd every category-search
