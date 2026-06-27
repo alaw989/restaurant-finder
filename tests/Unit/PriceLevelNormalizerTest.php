@@ -12,7 +12,7 @@ class PriceLevelNormalizerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->normalizer = new PriceLevelNormalizer();
+        $this->normalizer = new PriceLevelNormalizer;
     }
 
     public function test_null_and_empty_strings_return_null(): void

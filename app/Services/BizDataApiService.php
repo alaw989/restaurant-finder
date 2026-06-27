@@ -7,6 +7,7 @@ use App\Services\Http\RequestSpec;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class BizDataApiService
 {
@@ -23,7 +24,7 @@ class BizDataApiService
 
         try {
             $response = Http::timeout(15)
-                ->get($this->baseUrl . '/api/businesses', [
+                ->get($this->baseUrl.'/api/businesses', [
                     'location' => "{$lat},{$lng}",
                     'category' => 'restaurant',
                     'radius_km' => $radius,
@@ -37,6 +38,7 @@ class BizDataApiService
                     'lat' => $lat,
                     'lng' => $lng,
                 ]);
+
                 return [];
             }
 
@@ -54,6 +56,7 @@ class BizDataApiService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return [];
         }
     }
@@ -64,7 +67,7 @@ class BizDataApiService
 
         foreach ($businesses as $b) {
             $name = $b['name'] ?? null;
-            if (!$name) {
+            if (! $name) {
                 continue;
             }
 
@@ -74,12 +77,12 @@ class BizDataApiService
                 ? $this->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng)
                 : null;
 
-            $fingerprint = $name . ($lat ?? '') . ($lng ?? '');
+            $fingerprint = $name.($lat ?? '').($lng ?? '');
 
             $results[] = [
-                'id' => -1 * abs(crc32('bizdata:' . $fingerprint)),
+                'id' => -1 * abs(crc32('bizdata:'.$fingerprint)),
                 'name' => $name,
-                'slug' => \Illuminate\Support\Str::slug($name) . '-' . substr(md5($fingerprint), 0, 6),
+                'slug' => Str::slug($name).'-'.substr(md5($fingerprint), 0, 6),
                 'description' => null,
                 'address' => $b['address'] ?? null,
                 'city' => null,
@@ -121,7 +124,7 @@ class BizDataApiService
 
         try {
             $response = Http::timeout(15)
-                ->get($this->baseUrl . '/api/businesses', [
+                ->get($this->baseUrl.'/api/businesses', [
                     'location' => "{$lat},{$lng}",
                     'category' => 'restaurant',
                     'radius_km' => $radius,
@@ -135,6 +138,7 @@ class BizDataApiService
                     'lat' => $lat,
                     'lng' => $lng,
                 ]);
+
                 return null;
             }
 
@@ -150,6 +154,7 @@ class BizDataApiService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return null;
         }
     }
@@ -169,7 +174,7 @@ class BizDataApiService
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25, int $limit = 50): string
     {
-        return 'bizdata:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        return 'bizdata:'.md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
     }
 
     /**
@@ -185,7 +190,7 @@ class BizDataApiService
         return [
             new RequestSpec(
                 method: 'GET',
-                url: $this->baseUrl . '/api/businesses',
+                url: $this->baseUrl.'/api/businesses',
                 query: [
                     'location' => "{$lat},{$lng}",
                     'category' => 'restaurant',
@@ -246,6 +251,7 @@ class BizDataApiService
         $dLng = deg2rad($lng2 - $lng1);
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

@@ -16,7 +16,7 @@ class RestaurantFactory extends Factory
 
         return [
             'name' => $name,
-            'slug' => Str::slug($name) . '-' . Str::random(6),
+            'slug' => Str::slug($name).'-'.Str::random(6),
             'description' => fake()->sentence(),
             'address' => fake()->streetAddress(),
             'city' => fake()->city(),

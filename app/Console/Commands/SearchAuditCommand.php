@@ -36,6 +36,7 @@ class SearchAuditCommand extends Command
 
         if (empty($targets)) {
             $this->error('No cities matched and no --lat/--lng provided.');
+
             return Command::FAILURE;
         }
 
@@ -89,28 +90,28 @@ class SearchAuditCommand extends Command
     private function auditCity(LiveSearchService $search, string $label, float $lat, float $lng, ?string $cuisine, int $limit): void
     {
         $this->newLine();
-        $this->line("==== <options=bold>{$label}</> ({$lat}, {$lng}) | cuisine: " . ($cuisine ?? '-') . ' ====');
+        $this->line("==== <options=bold>{$label}</> ({$lat}, {$lng}) | cuisine: ".($cuisine ?? '-').' ====');
 
         $start = microtime(true);
         $results = $search->search($lat, $lng, $cuisine, null);
         $elapsed = round(microtime(true) - $start, 1);
 
-        $this->line(count($results) . " results in {$elapsed}s");
+        $this->line(count($results)." results in {$elapsed}s");
 
         $sources = collect($results)->countBy(fn ($r) => $r['source'] ?? '?');
-        $this->line('by source: ' . $sources->map(fn ($n, $s) => "{$s}={$n}")->implode(', '));
+        $this->line('by source: '.$sources->map(fn ($n, $s) => "{$s}={$n}")->implode(', '));
 
         if (empty($results)) {
             return;
         }
 
         foreach (array_slice($results, 0, $limit) as $i => $r) {
-            $rank = '#' . ($i + 1);
+            $rank = '#'.($i + 1);
             $score = number_format((float) ($r['popularity_score'] ?? 0), 4);
             $source = $r['source'] ?? '?';
-            $rating = isset($r['google_rating']) ? number_format($r['google_rating'], 1) . '★' : '-';
+            $rating = isset($r['google_rating']) ? number_format($r['google_rating'], 1).'★' : '-';
             $reviews = $r['google_review_count'] ?? 0;
-            $distance = isset($r['distance']) ? $r['distance'] . 'km' : '-';
+            $distance = isset($r['distance']) ? $r['distance'].'km' : '-';
             $name = mb_substr($r['name'] ?? '?', 0, 42);
 
             $this->line(sprintf(' %-4s %s  %-9s %5s (%-5s) %6s  %s', $rank, $score, $source, $rating, $reviews, $distance, $name));

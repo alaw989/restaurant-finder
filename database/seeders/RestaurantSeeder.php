@@ -2,8 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\Cuisine;
-use App\Models\Restaurant;
 use Illuminate\Database\Seeder;
 
 class RestaurantSeeder extends Seeder
@@ -18,7 +16,7 @@ class RestaurantSeeder extends Seeder
         // so the DB no longer needs seed restaurants. The data array is kept
         // below as a paper trail; populate real venues via `restaurants:enrich`
         // instead.
-        return;
+
     }
 
     // getRestaurantsData() below is retained as a paper trail but is no longer

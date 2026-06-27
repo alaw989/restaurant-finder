@@ -68,9 +68,13 @@ class PopularityScoreService
     ];
 
     private array $weights;
+
     private int $logReviewFloor;
+
     private int $logReviewDefault;
+
     private float $qualityPrior;
+
     private float $qualityMeanFallback;
 
     public function __construct(?array $weights = null, ?int $logReviewFloor = null, ?int $logReviewDefault = null, ?float $qualityPrior = null, ?float $qualityMeanFallback = null)
@@ -144,6 +148,7 @@ class PopularityScoreService
     public function calculateBreakdownForArray(array $restaurant, Collection $allRestaurants): array
     {
         $aggregates = $this->computeAggregates($allRestaurants);
+
         return $this->calculateBreakdownWithAggregates($restaurant, $aggregates);
     }
 
@@ -183,7 +188,7 @@ class PopularityScoreService
 
             $raw = $this->rawValueFromArray($restaurant, $signal);
 
-            if (!$this->isPresent($signal, $method, $raw)) {
+            if (! $this->isPresent($signal, $method, $raw)) {
                 continue;
             }
 
@@ -214,7 +219,7 @@ class PopularityScoreService
         usort($signals, fn ($a, $b) => $b['contribution'] <=> $a['contribution']);
 
         // Guard against NaN / INF
-        if (!is_finite($score)) {
+        if (! is_finite($score)) {
             return ['signals' => [], 'total' => 0.0];
         }
 
@@ -273,6 +278,7 @@ class PopularityScoreService
     {
         $array = $restaurant->toArray();
         $array['distance'] = $restaurant->getAttribute('distance');
+
         return $array;
     }
 
@@ -297,7 +303,7 @@ class PopularityScoreService
             // Active only when an external quality source is configured AND this
             // row has a usable google_rating. Reviews=0 is allowed (the Bayesian
             // shrink pulls it fully toward the credible mean).
-            if (!$this->qualitySourceConfigured()) {
+            if (! $this->qualitySourceConfigured()) {
                 return false;
             }
 
@@ -306,7 +312,7 @@ class PopularityScoreService
                 && (float) $raw['rating'] > 0.0;
         }
 
-        if (str_starts_with($signal, 'google_') && !$this->qualitySourceConfigured()) {
+        if (str_starts_with($signal, 'google_') && ! $this->qualitySourceConfigured()) {
             // The google_* columns are populated by an external quality source
             // (SerpApi google_maps, Google Places, or Outscraper). When none of
             // those keys are configured, any stored rating/review values are
@@ -366,7 +372,7 @@ class PopularityScoreService
         $Q = (($v / $denom) * $R) + (($m / $denom) * $C);
         $Q = $Q / 5.0;
 
-        if (!is_finite($Q)) {
+        if (! is_finite($Q)) {
             return 0.0;
         }
 
@@ -426,7 +432,7 @@ class PopularityScoreService
 
         $value = log(1.0 + $count) / log(1.0 + $denom);
 
-        if (!is_finite($value)) {
+        if (! is_finite($value)) {
             return 0.0;
         }
 
@@ -467,7 +473,7 @@ class PopularityScoreService
 
         $value = 1.0 / (1.0 + $distanceKm / $scale);
 
-        if (!is_finite($value)) {
+        if (! is_finite($value)) {
             return 0.0;
         }
 
@@ -566,9 +572,9 @@ class PopularityScoreService
     private function qualitySourceConfigured(): bool
     {
         try {
-            return !empty(config('services.serpapi.api_key'))
-                || !empty(config('services.google.places_key'))
-                || !empty(config('services.outscraper.api_key'));
+            return ! empty(config('services.serpapi.api_key'))
+                || ! empty(config('services.google.places_key'))
+                || ! empty(config('services.outscraper.api_key'));
         } catch (\Throwable $e) {
             // Pure unit-test context (no booted container): assume present so the
             // quality-signal path remains testable.

@@ -7,6 +7,7 @@ use App\Services\Http\RequestSpec;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SerpApiService
 {
@@ -47,7 +48,7 @@ class SerpApiService
                 ->get('https://serpapi.com/search', [
                     'engine' => 'google_maps',
                     'q' => $this->buildQuery($query),
-                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
+                    'll' => "@{$lat},{$lng},".self::MAP_ZOOM.'z',
                     'type' => 'search',
                     'api_key' => $this->apiKey,
                 ]);
@@ -58,6 +59,7 @@ class SerpApiService
                     'lat' => $lat,
                     'lng' => $lng,
                 ]);
+
                 return [];
             }
 
@@ -75,6 +77,7 @@ class SerpApiService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return [];
         }
     }
@@ -101,7 +104,7 @@ class SerpApiService
                 ->get('https://serpapi.com/search', [
                     'engine' => 'google_maps',
                     'q' => $this->buildQuery($query),
-                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
+                    'll' => "@{$lat},{$lng},".self::MAP_ZOOM.'z',
                     'type' => 'search',
                     'api_key' => $this->apiKey,
                 ]);
@@ -112,6 +115,7 @@ class SerpApiService
                     'lat' => $lat,
                     'lng' => $lng,
                 ]);
+
                 return null;
             }
 
@@ -127,6 +131,7 @@ class SerpApiService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return null;
         }
     }
@@ -147,7 +152,7 @@ class SerpApiService
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $query = null): string
     {
-        return 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
+        return 'serpapi:'.md5(serialize(compact('lat', 'lng', 'query')));
     }
 
     /**
@@ -173,7 +178,7 @@ class SerpApiService
                 query: [
                     'engine' => 'google_maps',
                     'q' => $this->buildQuery($query),
-                    'll' => "@{$lat},{$lng}," . self::MAP_ZOOM . "z",
+                    'll' => "@{$lat},{$lng},".self::MAP_ZOOM.'z',
                     'type' => 'search',
                     'api_key' => $this->apiKey,
                 ],
@@ -247,7 +252,7 @@ class SerpApiService
 
         foreach ($localResults as $r) {
             $name = $r['title'] ?? null;
-            if (!$name) {
+            if (! $name) {
                 continue;
             }
 
@@ -257,7 +262,7 @@ class SerpApiService
                 ? $this->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng)
                 : null;
 
-            $fingerprint = $name . ($lat ?? '') . ($lng ?? '');
+            $fingerprint = $name.($lat ?? '').($lng ?? '');
 
             // Parse rating and reviews from SerpApi response
             $rating = $r['rating'] ?? null;
@@ -297,9 +302,9 @@ class SerpApiService
             }
 
             $results[] = [
-                'id' => -1 * abs(crc32('serpapi:' . $fingerprint)),
+                'id' => -1 * abs(crc32('serpapi:'.$fingerprint)),
                 'name' => $name,
-                'slug' => \Illuminate\Support\Str::slug($name) . '-' . substr(md5($fingerprint), 0, 6),
+                'slug' => Str::slug($name).'-'.substr(md5($fingerprint), 0, 6),
                 'description' => $r['description'] ?? null,
                 'address' => $this->parseAddress($r),
                 'city' => null,
@@ -339,6 +344,7 @@ class SerpApiService
         }
 
         $level = (int) $priceLevel;
+
         return match ($level) {
             1 => '$',
             2 => '$$',
@@ -363,7 +369,7 @@ class SerpApiService
             return null;
         }
 
-        if (!preg_match('#^https?://lh[3-6]\.googleusercontent\.com/#i', $url)) {
+        if (! preg_match('#^https?://lh[3-6]\.googleusercontent\.com/#i', $url)) {
             return $url;
         }
 
@@ -375,7 +381,7 @@ class SerpApiService
      */
     private function parseAddress(array $result): ?string
     {
-        if (!empty($result['address'])) {
+        if (! empty($result['address'])) {
             return $result['address'];
         }
 
@@ -400,6 +406,7 @@ class SerpApiService
         $dLng = deg2rad($lng2 - $lng1);
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

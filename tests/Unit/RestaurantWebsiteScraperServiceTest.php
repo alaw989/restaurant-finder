@@ -14,7 +14,7 @@ class RestaurantWebsiteScraperServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new RestaurantWebsiteScraperService();
+        $this->service = new RestaurantWebsiteScraperService;
         Cache::flush();
     }
 
@@ -134,7 +134,7 @@ class RestaurantWebsiteScraperServiceTest extends TestCase
         Http::fake([
             'https://example.com/robots.txt' => Http::response('', 404),
             'https://example.com/' => Http::response(
-                '<html><body><script type="application/ld+json">' . $jsonLd . '</script></body></html>',
+                '<html><body><script type="application/ld+json">'.$jsonLd.'</script></body></html>',
                 200
             ),
         ]);
@@ -241,7 +241,7 @@ class RestaurantWebsiteScraperServiceTest extends TestCase
         Http::fake([
             'https://example.com/robots.txt' => Http::response('', 404),
             'https://example.com/' => Http::response(
-                '<html><body><script type="application/ld+json">' . $jsonLd . '</script></body></html>',
+                '<html><body><script type="application/ld+json">'.$jsonLd.'</script></body></html>',
                 200
             ),
         ]);

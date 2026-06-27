@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE
 
 **Series**: Tier 1 — Safety / tooling foundation. This spec MUST land before the
 refactor-heavy specs (054+) so every later change is test-gated.

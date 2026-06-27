@@ -57,9 +57,11 @@ class GeolocationService
 
     public function searchCities(string $query): array
     {
-        if (strlen($query) < 2) return [];
+        if (strlen($query) < 2) {
+            return [];
+        }
 
-        $key = 'citysearch:' . md5($query);
+        $key = 'citysearch:'.md5($query);
 
         return Cache::remember($key, now()->addDay(), function () use ($query) {
             try {
@@ -70,7 +72,9 @@ class GeolocationService
                         'limit' => 10,
                     ]);
 
-                if ($response->failed()) return [];
+                if ($response->failed()) {
+                    return [];
+                }
 
                 $data = $response->json();
                 $features = $data['features'] ?? [];
@@ -101,6 +105,7 @@ class GeolocationService
                     ->all();
             } catch (\Throwable $e) {
                 Log::debug('City search failed', ['query' => $query, 'error' => $e->getMessage()]);
+
                 return [];
             }
         });
@@ -109,7 +114,7 @@ class GeolocationService
     public function forwardGeocode(string $city, ?string $state): ?array
     {
         $query = $state ? "{$city}, {$state}" : $city;
-        $key = 'fwdgeo:' . md5($query);
+        $key = 'fwdgeo:'.md5($query);
 
         return Cache::remember($key, now()->addWeek(), function () use ($query) {
             try {

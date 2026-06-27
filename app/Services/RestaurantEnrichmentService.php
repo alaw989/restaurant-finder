@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\EnrichRestaurantWithAi;
 use App\Models\Cuisine;
+use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -55,6 +56,7 @@ class RestaurantEnrichmentService
                 'lng' => $lng,
                 'cuisine' => $cuisine->name,
             ]);
+
             return 0;
         }
 
@@ -166,6 +168,7 @@ class RestaurantEnrichmentService
                 return array_map(fn ($r) => $this->normalizeBizDataVenue($r), $normalized);
             } catch (\Throwable $e) {
                 Log::warning('BizData backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+
                 return [];
             }
         };
@@ -189,6 +192,7 @@ class RestaurantEnrichmentService
                 return array_map(fn ($r) => $this->normalizeFoursquareVenue($r), $normalized);
             } catch (\Throwable $e) {
                 Log::warning('Foursquare backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+
                 return [];
             }
         };
@@ -209,7 +213,7 @@ class RestaurantEnrichmentService
                 $elements = $raw['data'] ?? [];
                 $normalized = $this->overpass->normalizeRaw($elements, $lat, $lng);
 
-                if (!empty($normalized)) {
+                if (! empty($normalized)) {
                     return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $normalized);
                 }
 
@@ -230,6 +234,7 @@ class RestaurantEnrichmentService
                 return array_map(fn ($r) => $this->normalizeOverpassVenue($r), $nameNormalized);
             } catch (\Throwable $e) {
                 Log::warning('Overpass backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+
                 return [];
             }
         };
@@ -253,6 +258,7 @@ class RestaurantEnrichmentService
                 return array_map(fn ($r) => $this->normalizeSerpApiVenue($r), $normalized);
             } catch (\Throwable $e) {
                 Log::warning('SerpApi backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+
                 return [];
             }
         };
@@ -276,6 +282,7 @@ class RestaurantEnrichmentService
                 return array_map(fn ($r) => $this->normalizeSocrataVenue($r), $normalized);
             } catch (\Throwable $e) {
                 Log::warning('Socrata backfill failed (non-fatal)', ['message' => $e->getMessage()]);
+
                 return [];
             }
         };
@@ -516,6 +523,7 @@ class RestaurantEnrichmentService
         }
 
         $distance = $this->haversineDistance($latA, $lngA, $latB, $lngB);
+
         return $distance <= $radius;
     }
 
@@ -537,8 +545,8 @@ class RestaurantEnrichmentService
         $merged = $target;
 
         // Prefer the row that has rating data
-        $sourceHasRating = !empty($source['yelp_rating']) || !empty($source['google_rating']);
-        $targetHasRating = !empty($target['yelp_rating']) || !empty($target['google_rating']);
+        $sourceHasRating = ! empty($source['yelp_rating']) || ! empty($source['google_rating']);
+        $targetHasRating = ! empty($target['yelp_rating']) || ! empty($target['google_rating']);
 
         foreach ($fields as $field) {
             $sourceValue = $source[$field] ?? null;
@@ -547,11 +555,12 @@ class RestaurantEnrichmentService
             // If target has no value, take from source
             if ($targetValue === null && $sourceValue !== null) {
                 $merged[$field] = $sourceValue;
+
                 continue;
             }
 
             // If source has rating and target doesn't, prefer source's rating fields
-            if ($sourceHasRating && !$targetHasRating) {
+            if ($sourceHasRating && ! $targetHasRating) {
                 if (in_array($field, ['yelp_rating', 'google_rating', 'google_review_count', 'yelp_review_count'])) {
                     if ($sourceValue !== null) {
                         $merged[$field] = $sourceValue;
@@ -561,7 +570,7 @@ class RestaurantEnrichmentService
         }
 
         // Union gallery photos across sources (dedup by URL, cap 6).
-        if (!empty($source['photos'])) {
+        if (! empty($source['photos'])) {
             $unioned = array_values(array_unique(array_merge(
                 $merged['photos'] ?? [],
                 $source['photos'],
@@ -617,7 +626,7 @@ class RestaurantEnrichmentService
 
         $yelpId = $venue['yelp_business_id'] ?? null;
 
-        if (!empty($yelpId)) {
+        if (! empty($yelpId)) {
             $attributes['yelp_business_id'] = $yelpId;
         }
 
@@ -627,7 +636,7 @@ class RestaurantEnrichmentService
         //  - by name + proximity, restricted to rows with NO yelp id, so an OSM
         //    venue never overwrites a Yelp-enriched row while a Yelp venue can
         //    still promote a prior OSM-only row.
-        $existing = !empty($yelpId)
+        $existing = ! empty($yelpId)
             ? Restaurant::where('yelp_business_id', $yelpId)->first()
             : null;
 
@@ -665,7 +674,7 @@ class RestaurantEnrichmentService
             return;
         }
 
-        $outscraperKey = !empty(config('services.outscraper.api_key'));
+        $outscraperKey = ! empty(config('services.outscraper.api_key'));
 
         foreach ($restaurants as $restaurant) {
             try {
@@ -692,28 +701,28 @@ class RestaurantEnrichmentService
                 if (isset($details['price_level']) && $restaurant->price_range === null) {
                     $updates['price_range'] = $this->mapPriceLevel((int) $details['price_level']);
                 }
-                if (!empty($details['photos'][0]['photo_reference']) && $restaurant->photo_url === null) {
+                if (! empty($details['photos'][0]['photo_reference']) && $restaurant->photo_url === null) {
                     $updates['photo_url'] = $this->buildGooglePhotoUrl($details['photos'][0]['photo_reference']);
                 }
 
                 // Capture the full Google photo set (up to 6) for the list-card
                 // hover gallery. These references are already in the cached Places
                 // details, so this is free — no extra API call. One-time backfill.
-                if ($restaurant->photos === null && !empty($details['photos'])) {
+                if ($restaurant->photos === null && ! empty($details['photos'])) {
                     $photoUrls = [];
                     foreach ($details['photos'] as $gp) {
-                        if (!empty($gp['photo_reference'])) {
+                        if (! empty($gp['photo_reference'])) {
                             $photoUrls[] = $this->buildGooglePhotoUrl($gp['photo_reference']);
                             if (count($photoUrls) >= 6) {
                                 break;
                             }
                         }
                     }
-                    if (!empty($photoUrls)) {
+                    if (! empty($photoUrls)) {
                         $updates['photos'] = $photoUrls;
                     }
                 }
-                if (!empty($details['website']) && empty($restaurant->website_url)) {
+                if (! empty($details['website']) && empty($restaurant->website_url)) {
                     $updates['website_url'] = $details['website'];
                 }
 
@@ -721,7 +730,7 @@ class RestaurantEnrichmentService
 
                 if ($outscraperKey) {
                     $popularTimes = $this->outscraper->getPopularTimes($place['place_id']);
-                    if (!empty($popularTimes)) {
+                    if (! empty($popularTimes)) {
                         $busyness = $this->computeAverageBusyness($popularTimes);
                         if ($busyness !== null) {
                             $restaurant->update(['popular_times_avg_busyness' => $busyness]);
@@ -787,13 +796,13 @@ class RestaurantEnrichmentService
                 }
 
                 // Skip if we already have opening_hours data (cached)
-                if (!empty($restaurant->opening_hours)) {
+                if (! empty($restaurant->opening_hours)) {
                     continue;
                 }
 
                 $scrapedData = $this->websiteScraper->scrape($restaurant->website_url);
 
-                if ($scrapedData !== null && !empty($scrapedData['opening_hours'])) {
+                if ($scrapedData !== null && ! empty($scrapedData['opening_hours'])) {
                     $restaurant->update([
                         'opening_hours' => $scrapedData['opening_hours'],
                     ]);
@@ -822,7 +831,7 @@ class RestaurantEnrichmentService
         foreach ($restaurants as $restaurant) {
             try {
                 // Skip if recently enriched (within 7 days)
-                if (!empty($restaurant->ai_metadata['enriched_at'])) {
+                if (! empty($restaurant->ai_metadata['enriched_at'])) {
                     $enrichedAt = now()->parse($restaurant->ai_metadata['enriched_at']);
                     if ($enrichedAt->gt(now()->subDays(7))) {
                         continue;
@@ -876,7 +885,7 @@ class RestaurantEnrichmentService
         foreach ($googlePlaces as $place) {
             $placeName = strtolower(trim($place['name'] ?? ''));
 
-            if (!$this->namesMatch($normalizedName, $placeName)) {
+            if (! $this->namesMatch($normalizedName, $placeName)) {
                 continue;
             }
 
@@ -918,8 +927,8 @@ class RestaurantEnrichmentService
     private function buildGooglePhotoUrl(string $photoReference): string
     {
         return 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference='
-            . $photoReference
-            . '&key=' . config('services.google.places_key');
+            .$photoReference
+            .'&key='.config('services.google.places_key');
     }
 
     /**
@@ -985,7 +994,7 @@ class RestaurantEnrichmentService
      */
     private function countRealSerpApiCallsLast30Days(): int
     {
-        return \App\Models\ExternalApiCache::where('source', 'serpapi')
+        return ExternalApiCache::where('source', 'serpapi')
             ->where('fetched_at', '>=', now()->subDays(30))
             ->count();
     }
@@ -995,8 +1004,9 @@ class RestaurantEnrichmentService
      */
     private function isSerpApiCacheFresh(float $lat, float $lng, string $query): bool
     {
-        $cacheKey = 'serpapi:' . md5(serialize(compact('lat', 'lng', 'query')));
-        return \App\Models\ExternalApiCache::findByKey($cacheKey) !== null;
+        $cacheKey = 'serpapi:'.md5(serialize(compact('lat', 'lng', 'query')));
+
+        return ExternalApiCache::findByKey($cacheKey) !== null;
     }
 
     /**
@@ -1014,7 +1024,7 @@ class RestaurantEnrichmentService
     public function enrichAllCitiesThrottled(): array
     {
         $cities = config('restaurant-finder.cities', []);
-        $cuisines = \App\Models\Cuisine::all();
+        $cuisines = Cuisine::all();
 
         if (empty($cities) || $cuisines->isEmpty()) {
             return [
@@ -1088,6 +1098,7 @@ class RestaurantEnrichmentService
                     'city' => $cityName,
                     'cuisine' => $cuisine->name,
                 ]);
+
                 continue;
             }
 

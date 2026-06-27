@@ -10,7 +10,9 @@ use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
 use App\Services\PopularityScoreService;
 use App\Services\PriceLevelNormalizer;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
@@ -23,7 +25,7 @@ class RestaurantController extends Controller
         private PriceLevelNormalizer $priceLevelNormalizer,
     ) {}
 
-    private function formatRestaurantData(\Illuminate\Support\Collection $restaurants): \Illuminate\Support\Collection
+    private function formatRestaurantData(Collection $restaurants): Collection
     {
         return $restaurants->map(fn (Restaurant $r) => [
             'id' => $r->id,
@@ -58,7 +60,7 @@ class RestaurantController extends Controller
      * Get the score breakdown for a restaurant, preferring the stored value
      * with fallback to computation for rows scored before the column existed.
      */
-    private function getScoreBreakdown(Restaurant $restaurant, \Illuminate\Support\Collection $all): array
+    private function getScoreBreakdown(Restaurant $restaurant, Collection $all): array
     {
         // Prefer the stored breakdown (most efficient)
         if ($restaurant->score_breakdown !== null) {
@@ -72,7 +74,7 @@ class RestaurantController extends Controller
     /**
      * Apply the selected sort mode to the query.
      */
-    private function applySortMode(\Illuminate\Database\Eloquent\Builder $query, string $sort, bool $hasCoords): \Illuminate\Database\Eloquent\Builder
+    private function applySortMode(Builder $query, string $sort, bool $hasCoords): Builder
     {
         return match ($sort) {
             'best_match' => $query->orderByDesc('popularity_score'),

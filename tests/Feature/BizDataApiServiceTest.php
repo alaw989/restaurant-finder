@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\ExternalApiCache;
 use App\Services\BizDataApiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -48,7 +47,7 @@ class BizDataApiServiceTest extends TestCase
             ),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $results = $service->search(37.7749, -122.4194, 'italian');
 
         $this->assertCount(2, $results);
@@ -72,7 +71,7 @@ class BizDataApiServiceTest extends TestCase
             'bizdata-web.vercel.app/*' => Http::response(null, 500),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertSame([], $results);
@@ -84,7 +83,7 @@ class BizDataApiServiceTest extends TestCase
             'bizdata-web.vercel.app/*' => Http::response(['total' => 0], 200),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertSame([], $results);
@@ -102,7 +101,7 @@ class BizDataApiServiceTest extends TestCase
             ),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(1, $results);
@@ -120,7 +119,7 @@ class BizDataApiServiceTest extends TestCase
             ),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $service->search(37.7749, -122.4194, 'italian');
         $service->search(37.7749, -122.4194, 'italian');
 
@@ -134,7 +133,7 @@ class BizDataApiServiceTest extends TestCase
             'bizdata-web.vercel.app/*' => fn () => throw new \Exception('Connection refused'),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertSame([], $results);
@@ -151,7 +150,7 @@ class BizDataApiServiceTest extends TestCase
             ),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $service->search(37.7749, -122.4194, 'italian');
         $service->search(37.7749, -122.4194, 'mexican');
 
@@ -170,11 +169,12 @@ class BizDataApiServiceTest extends TestCase
             ),
         ]);
 
-        $service = new BizDataApiService();
+        $service = new BizDataApiService;
         $service->search(37.7749, -122.4194, 'japanese', 10, 100);
 
         Http::assertSent(function ($request) {
             $url = $request->url();
+
             return str_contains($url, 'location=37.7749%2C-122.4194')
                 && str_contains($url, 'category=restaurant')
                 && str_contains($url, 'radius_km=10')

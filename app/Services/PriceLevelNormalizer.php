@@ -8,7 +8,7 @@ class PriceLevelNormalizer
      * Normalize a price_range string to a numeric level 1-4 for sorting.
      * Returns null if the price range cannot be determined.
      *
-     * @param string|null $priceRange The price range text (e.g., "$", "$$$", "€10-€30", "moderate")
+     * @param  string|null  $priceRange  The price range text (e.g., "$", "$$$", "€10-€30", "moderate")
      * @return int|null Numeric level 1-4, or null if undeterminable
      */
     public function normalize(?string $priceRange): ?int
@@ -26,7 +26,7 @@ class PriceLevelNormalizer
             // We have at least 2 repeated symbols
             $remaining = preg_replace('/^([\$\€\£\¥\₩\₹\₽\₴\₦\₪\₫\₡\₸\₱\₲\₾\₮])+/u', '', $trimmed, 1);
             // If what follows starts with a digit, this is a price value like "$10-30", not a level indicator
-            if ($remaining === '' || $remaining === ' ' || !preg_match('/^\d/', ltrim($remaining, ' '))) {
+            if ($remaining === '' || $remaining === ' ' || ! preg_match('/^\d/', ltrim($remaining, ' '))) {
                 // Count consecutive symbols at the start
                 preg_match('/^([\$\€\£\¥\₩\₹\₽\₴\₦\₪\₫\₡\₸\₱\₲\₾\₮])+/u', $trimmed, $matches);
                 if (isset($matches[0])) {
@@ -38,12 +38,19 @@ class PriceLevelNormalizer
         // Step 2: Extract numbers from patterns like "10-30" or "$10-$15" -> use average
         if (preg_match_all('/\d+/', $priceRange, $matches)) {
             $numbers = array_map('intval', $matches[0]);
-            if (!empty($numbers)) {
+            if (! empty($numbers)) {
                 $avg = array_sum($numbers) / count($numbers);
                 // Map average price to level: <$20 = 1, $20-$40 = 2, $40-$80 = 3, $80+ = 4
-                if ($avg < 20) return 1;
-                if ($avg < 40) return 2;
-                if ($avg < 80) return 3;
+                if ($avg < 20) {
+                    return 1;
+                }
+                if ($avg < 40) {
+                    return 2;
+                }
+                if ($avg < 80) {
+                    return 3;
+                }
+
                 return 4;
             }
         }

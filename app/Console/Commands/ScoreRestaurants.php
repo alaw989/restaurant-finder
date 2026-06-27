@@ -27,6 +27,7 @@ class ScoreRestaurants extends Command
 
         if ($total === 0) {
             $this->warn('No restaurants found to score.');
+
             return self::FAILURE;
         }
 
@@ -66,7 +67,7 @@ class ScoreRestaurants extends Command
                 }
 
                 // Batch update within a transaction
-                if (!empty($updates)) {
+                if (! empty($updates)) {
                     DB::transaction(function () use ($updates) {
                         foreach ($updates as $update) {
                             Restaurant::where('id', $update['id'])->update([

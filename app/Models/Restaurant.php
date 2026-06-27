@@ -3,14 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Str;
 
 class Restaurant extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'name',
         'slug',
@@ -61,7 +62,7 @@ class Restaurant extends Model
     {
         static::creating(function (Restaurant $restaurant) {
             if (empty($restaurant->slug)) {
-                $restaurant->slug = Str::slug($restaurant->name) . '-' . Str::random(6);
+                $restaurant->slug = Str::slug($restaurant->name).'-'.Str::random(6);
             }
         });
     }

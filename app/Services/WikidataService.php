@@ -19,12 +19,19 @@ use Illuminate\Support\Facades\Log;
 class WikidataService
 {
     private const ENDPOINT = 'https://query.wikidata.org/sparql';
+
     private const USER_AGENT = 'iPop360/1.0';
+
     private const RESTAURANT = 'Q11707';        // instance-of: restaurant
+
     private const MICHELIN_STAR = 'Q20824563';  // received award: Michelin star
+
     private const DEFAULT_SIMILARITY = 0.7;
+
     private const BOX_PADDING = 0.01;            // ±degrees for hasAward proximity
+
     private const AWARD_MAX_DISTANCE_KM = 1.5;   // hasAwardInSet proximity cap (~0.01° box radius)
+
     private const TTL_HOURS = 24 * 30;           // 30-day cache
 
     /**
@@ -57,6 +64,7 @@ class WikidataService
                     'status' => $response->status(),
                     'bbox' => compact('sLat', 'wLng', 'nLat', 'eLng'),
                 ]);
+
                 return [];
             }
 
@@ -71,6 +79,7 @@ class WikidataService
                 'message' => $e->getMessage(),
                 'bbox' => compact('sLat', 'wLng', 'nLat', 'eLng'),
             ]);
+
             return [];
         }
     }
@@ -100,6 +109,7 @@ class WikidataService
                 'name' => $name,
                 'message' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -188,7 +198,7 @@ SPARQL;
                 continue;
             }
 
-            if (!preg_match('/Point\(([-\d.]+) ([-\d.]+)\)/', $coord, $m)) {
+            if (! preg_match('/Point\(([-\d.]+) ([-\d.]+)\)/', $coord, $m)) {
                 continue;
             }
 

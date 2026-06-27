@@ -4,7 +4,6 @@ namespace Tests\Unit;
 
 use App\Services\LiveSearchService;
 use App\Services\RestaurantEnrichmentService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class GarbageNameFilterTest extends TestCase

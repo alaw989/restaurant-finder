@@ -18,7 +18,7 @@ class WikidataServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new WikidataService();
+        $this->service = new WikidataService;
     }
 
     /**

@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Jobs\EnrichRestaurantWithAi;
 use App\Models\Restaurant;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Config;
 
 /**
  * Backfill command to dispatch AI enrichment jobs for eligible restaurants.
@@ -38,6 +37,7 @@ class AiEnrichRestaurants extends Command
 
         if (empty($apiKey)) {
             $this->info('No AI key configured (services.ai.api_key). Exiting (no-op).');
+
             return self::SUCCESS;
         }
 
@@ -52,10 +52,10 @@ class AiEnrichRestaurants extends Command
         $query = Restaurant::active();
 
         // Filter by specific IDs if provided
-        if (!empty($specificIds)) {
+        if (! empty($specificIds)) {
             $query->whereIn('id', $specificIds);
-            $this->info('Processing specific restaurant IDs: ' . implode(', ', $specificIds));
-        } elseif (!$processAll) {
+            $this->info('Processing specific restaurant IDs: '.implode(', ', $specificIds));
+        } elseif (! $processAll) {
             // Only process restaurants needing enrichment
             $query->where(function ($q) {
                 $q->whereNull('ai_metadata')
@@ -70,10 +70,11 @@ class AiEnrichRestaurants extends Command
 
         if ($restaurants->isEmpty()) {
             $this->warn('No restaurants found matching the criteria.');
+
             return self::SUCCESS;
         }
 
-        $this->info('Found ' . $restaurants->count() . ' restaurant(s) to process.');
+        $this->info('Found '.$restaurants->count().' restaurant(s) to process.');
 
         $bar = $this->output->createProgressBar($restaurants->count());
         $bar->start();

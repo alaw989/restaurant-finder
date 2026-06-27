@@ -14,7 +14,7 @@ class PopularityScoreServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new PopularityScoreService();
+        $this->service = new PopularityScoreService;
     }
 
     /**
@@ -22,7 +22,7 @@ class PopularityScoreServiceTest extends TestCase
      */
     private function makeRestaurant(array $attributes): Restaurant
     {
-        $restaurant = new Restaurant();
+        $restaurant = new Restaurant;
         foreach ($attributes as $key => $value) {
             $restaurant->$key = $value;
         }
@@ -220,7 +220,7 @@ class PopularityScoreServiceTest extends TestCase
         ]);
         $all = new Collection([$venue, $other]);
 
-        $withDefaultFloor = new PopularityScoreService();
+        $withDefaultFloor = new PopularityScoreService;
         $withNoFloor = new PopularityScoreService(null, 1);
 
         $defaultScore = $withDefaultFloor->calculateScore($venue, $all);

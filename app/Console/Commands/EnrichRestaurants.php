@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Cuisine;
 use App\Services\RestaurantEnrichmentService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 
 class EnrichRestaurants extends Command
 {
@@ -41,6 +42,7 @@ class EnrichRestaurants extends Command
 
         if (empty($cityArg)) {
             $this->error('Either provide a city name, use --all-cities, or use --throttled for quota-protected enrichment.');
+
             return self::FAILURE;
         }
 
@@ -58,6 +60,7 @@ class EnrichRestaurants extends Command
 
         if ($coordinates === null) {
             $this->error("Could not resolve coordinates for city: {$city}");
+
             return self::FAILURE;
         }
 
@@ -69,6 +72,7 @@ class EnrichRestaurants extends Command
 
         if ($cuisines->isEmpty()) {
             $this->warn('No cuisines found. Run db:seed --class=CuisineSeeder first.');
+
             return self::FAILURE;
         }
 
@@ -100,6 +104,7 @@ class EnrichRestaurants extends Command
 
         if (empty($cities)) {
             $this->warn('No cities configured in config/restaurant-finder.php');
+
             return self::FAILURE;
         }
 
@@ -114,6 +119,7 @@ class EnrichRestaurants extends Command
 
         if ($cuisines->isEmpty()) {
             $this->warn('No cuisines found. Run db:seed --class=CuisineSeeder first.');
+
             return self::FAILURE;
         }
 
@@ -146,7 +152,7 @@ class EnrichRestaurants extends Command
 
         $this->newLine();
         $this->table(['City', 'Enriched'], collect($cityResults)->map(fn ($count, $city) => [$city, $count]));
-        $this->info("Grand total: {$grandTotal} restaurants enriched across " . count($cities) . ' cities.');
+        $this->info("Grand total: {$grandTotal} restaurants enriched across ".count($cities).' cities.');
 
         return self::SUCCESS;
     }
@@ -154,11 +160,11 @@ class EnrichRestaurants extends Command
     /**
      * Get cuisines to enrich, either from --cuisine option or all from database.
      */
-    protected function getCuisines(): \Illuminate\Database\Eloquent\Collection
+    protected function getCuisines(): Collection
     {
         $cuisineSlugs = $this->option('cuisine');
 
-        if (!empty($cuisineSlugs)) {
+        if (! empty($cuisineSlugs)) {
             return Cuisine::whereIn('slug', $cuisineSlugs)->get();
         }
 

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 class GooglePlacesService
 {
     private ?string $apiKey;
+
     private string $baseUrl = 'https://maps.googleapis.com/maps/api/place';
 
     public function __construct()
@@ -27,6 +28,7 @@ class GooglePlacesService
                 'lng' => $lng,
                 'cuisine' => $cuisine,
             ]);
+
             return [];
         }
 
@@ -51,6 +53,7 @@ class GooglePlacesService
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
                 return [];
             }
 
@@ -61,6 +64,7 @@ class GooglePlacesService
                     'status' => $data['status'] ?? 'unknown',
                     'error_message' => $data['error_message'] ?? null,
                 ]);
+
                 return [];
             }
 
@@ -76,6 +80,7 @@ class GooglePlacesService
                 'lng' => $lng,
                 'cuisine' => $cuisine,
             ]);
+
             return [];
         }
     }
@@ -87,6 +92,7 @@ class GooglePlacesService
     {
         if (empty($this->apiKey)) {
             Log::debug('Google Places details skipped — no API key configured', ['place_id' => $placeId]);
+
             return [];
         }
 
@@ -122,6 +128,7 @@ class GooglePlacesService
                     'status' => $response->status(),
                     'place_id' => $placeId,
                 ]);
+
                 return [];
             }
 
@@ -133,6 +140,7 @@ class GooglePlacesService
                     'error_message' => $data['error_message'] ?? null,
                     'place_id' => $placeId,
                 ]);
+
                 return [];
             }
 
@@ -146,6 +154,7 @@ class GooglePlacesService
                 'message' => $e->getMessage(),
                 'place_id' => $placeId,
             ]);
+
             return [];
         }
     }
@@ -155,6 +164,6 @@ class GooglePlacesService
      */
     private function buildCacheKey(string $source, array $params): string
     {
-        return $source . ':' . md5(serialize($params));
+        return $source.':'.md5(serialize($params));
     }
 }

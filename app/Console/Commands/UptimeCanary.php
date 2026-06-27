@@ -49,8 +49,9 @@ class UptimeCanary extends Command
         ];
 
         foreach ($apiEndpoints as $name => $url) {
-            if (!$url) {
+            if (! $url) {
                 $checks["api_{$name}"] = 'skipped (no url)';
+
                 continue;
             }
 

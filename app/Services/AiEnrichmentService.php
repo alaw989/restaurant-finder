@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Log;
 class AiEnrichmentService
 {
     private ?string $apiKey;
+
     private ?string $baseUrl;
+
     private ?string $model;
 
     public function __construct()
@@ -43,7 +45,7 @@ class AiEnrichmentService
             $prompt = $this->buildPrompt($restaurantData);
             $response = Http::timeout(30)
                 ->withHeaders([
-                    'Authorization' => 'Bearer ' . $this->apiKey,
+                    'Authorization' => 'Bearer '.$this->apiKey,
                     'Content-Type' => 'application/json',
                 ])
                 ->post("{$this->baseUrl}/chat/completions", [
@@ -67,6 +69,7 @@ class AiEnrichmentService
                     'status' => $response->status(),
                     'restaurant_id' => $restaurantData['id'] ?? null,
                 ]);
+
                 return null;
             }
 
@@ -80,11 +83,12 @@ class AiEnrichmentService
 
             $parsed = json_decode($content, true);
 
-            if (!is_array($parsed)) {
+            if (! is_array($parsed)) {
                 Log::warning('AI enrichment returned invalid JSON', [
                     'content' => $content,
                     'restaurant_id' => $restaurantData['id'] ?? null,
                 ]);
+
                 return null;
             }
 
@@ -97,6 +101,7 @@ class AiEnrichmentService
                 'message' => $e->getMessage(),
                 'restaurant_id' => $restaurantData['id'] ?? null,
             ]);
+
             return null;
         }
     }

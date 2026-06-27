@@ -7,6 +7,7 @@ use App\Services\Http\RequestSpec;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class OverpassService
 {
@@ -43,7 +44,7 @@ class OverpassService
      */
     public function searchByName(float $lat, float $lng, array $keywords, int $radius = 25000, int $limit = 50): array
     {
-        $cacheKey = 'overpass_name:' . md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
+        $cacheKey = 'overpass_name:'.md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -93,6 +94,7 @@ class OverpassService
                             'mirror' => $mirror,
                             'status' => $response->status(),
                         ]);
+
                         continue;
                     }
 
@@ -108,6 +110,7 @@ class OverpassService
                         'mirror' => $mirror,
                         'message' => $e->getMessage(),
                     ]);
+
                     continue;
                 }
             }
@@ -118,6 +121,7 @@ class OverpassService
             'lng' => $lng,
             'cuisine' => $cuisine,
         ]);
+
         return null;
     }
 
@@ -134,7 +138,7 @@ class OverpassService
         // key is context-independent, so both paths share one cache.
         $readPath = (bool) ($context['read_path'] ?? false);
 
-        $cacheKey = 'overpass_name:' . md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
+        $cacheKey = 'overpass_name:'.md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -156,12 +160,12 @@ class OverpassService
             }
 
             $query = "[out:json][timeout:{$serverTimeout}];\n"
-                . "(\n"
-                . "  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . "  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . "  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . ");\n"
-                . "out body center {$limit};";
+                ."(\n"
+                ."  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                ."  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                ."  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .");\n"
+                ."out body center {$limit};";
 
             foreach ($mirrors as $mirror) {
                 try {
@@ -185,6 +189,7 @@ class OverpassService
                         'mirror' => $mirror,
                         'message' => $e->getMessage(),
                     ]);
+
                     continue;
                 }
             }
@@ -218,6 +223,7 @@ class OverpassService
                             'mirror' => $mirror,
                             'status' => $response->status(),
                         ]);
+
                         continue;
                     }
 
@@ -236,6 +242,7 @@ class OverpassService
                         'mirror' => $mirror,
                         'message' => $e->getMessage(),
                     ]);
+
                     continue;
                 }
             }
@@ -246,6 +253,7 @@ class OverpassService
             'lng' => $lng,
             'cuisine' => $cuisine,
         ]);
+
         return [];
     }
 
@@ -259,12 +267,12 @@ class OverpassService
             }
 
             $query = "[out:json][timeout:25];\n"
-                . "(\n"
-                . "  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . "  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . "  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                . ");\n"
-                . "out body center {$limit};";
+                ."(\n"
+                ."  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                ."  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                ."  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .");\n"
+                ."out body center {$limit};";
 
             foreach ($this->mirrors as $mirror) {
                 try {
@@ -291,6 +299,7 @@ class OverpassService
                         'mirror' => $mirror,
                         'message' => $e->getMessage(),
                     ]);
+
                     continue;
                 }
             }
@@ -306,16 +315,16 @@ class OverpassService
 
         if ($cuisine) {
             $filterCuisine = $this->buildCuisineFilter($cuisine);
-            $filters .= '["cuisine"~"' . addslashes($filterCuisine) . '",i]';
+            $filters .= '["cuisine"~"'.addslashes($filterCuisine).'",i]';
         }
 
         return "[out:json][timeout:25];\n"
-            . "(\n"
-            . "  node{$filters}(around:{$radiusM},{$lat},{$lng});\n"
-            . "  way{$filters}(around:{$radiusM},{$lat},{$lng});\n"
-            . "  rel{$filters}(around:{$radiusM},{$lat},{$lng});\n"
-            . ");\n"
-            . "out body center {$limit};";
+            ."(\n"
+            ."  node{$filters}(around:{$radiusM},{$lat},{$lng});\n"
+            ."  way{$filters}(around:{$radiusM},{$lat},{$lng});\n"
+            ."  rel{$filters}(around:{$radiusM},{$lat},{$lng});\n"
+            .");\n"
+            ."out body center {$limit};";
     }
 
     /**
@@ -327,7 +336,7 @@ class OverpassService
             ? explode('|', $cuisine)
             : [$cuisine];
 
-        $parts = array_map(fn ($p) => '(?:^|;)' . preg_quote($p, '/') . '(?:$|;)', $parts);
+        $parts = array_map(fn ($p) => '(?:^|;)'.preg_quote($p, '/').'(?:$|;)', $parts);
 
         return implode('|', $parts);
     }
@@ -353,6 +362,7 @@ class OverpassService
                     $parts[] = $kw;
                 }
             }
+
             return implode('|', array_values(array_unique($parts)));
         }
 
@@ -375,7 +385,7 @@ class OverpassService
 
             $tags = $el['tags'] ?? [];
             $name = $tags['name'] ?? null;
-            if (!$name) {
+            if (! $name) {
                 continue;
             }
 
@@ -383,9 +393,9 @@ class OverpassService
             $osmId = $el['id'] ?? 0;
 
             $results[] = [
-                'id' => -1 * abs(crc32('osm:' . $osmId)),
+                'id' => -1 * abs(crc32('osm:'.$osmId)),
                 'name' => $name,
-                'slug' => \Illuminate\Support\Str::slug($name) . '-' . substr(md5((string) $osmId), 0, 6),
+                'slug' => Str::slug($name).'-'.substr(md5((string) $osmId), 0, 6),
                 'description' => null,
                 'address' => $this->buildAddress($tags),
                 'city' => $tags['addr:city'] ?? null,
@@ -418,9 +428,10 @@ class OverpassService
         $type = $el['type'] ?? null;
 
         if ($type === 'node') {
-            if (!isset($el['lat'], $el['lon'])) {
+            if (! isset($el['lat'], $el['lon'])) {
                 return null;
             }
+
             return ['lat' => $el['lat'], 'lon' => $el['lon']];
         }
 
@@ -449,20 +460,21 @@ class OverpassService
         if ($price) {
             return $price;
         }
+
         return null;
     }
 
     private function extractCuisines(array $tags): array
     {
         $cuisineStr = $tags['cuisine'] ?? '';
-        if (!$cuisineStr) {
+        if (! $cuisineStr) {
             return [];
         }
 
         return collect(explode(';', $cuisineStr))
             ->map(fn ($c) => trim($c))
             ->filter()
-            ->map(fn ($c) => ['id' => abs(crc32($c)), 'name' => ucwords($c), 'slug' => \Illuminate\Support\Str::slug($c)])
+            ->map(fn ($c) => ['id' => abs(crc32($c)), 'name' => ucwords($c), 'slug' => Str::slug($c)])
             ->values()
             ->all();
     }
@@ -474,6 +486,7 @@ class OverpassService
         $dLng = deg2rad($lng2 - $lng1);
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
@@ -492,7 +505,7 @@ class OverpassService
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): string
     {
-        return 'overpass_search:' . md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        return 'overpass_search:'.md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
     }
 
     /**

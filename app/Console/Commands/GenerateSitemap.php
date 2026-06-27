@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Models\Cuisine;
 use App\Models\Restaurant;
+use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class GenerateSitemap extends Command
 {
     protected $signature = 'seo:sitemap';
+
     protected $description = 'Generate sitemap.xml for SEO';
 
     public function handle(): int
@@ -30,8 +32,8 @@ class GenerateSitemap extends Command
 
     protected function generateSitemapXml(string $baseUrl): string
     {
-        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-        $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
+        $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n";
 
         // Static pages
         $staticPages = [
@@ -43,13 +45,13 @@ class GenerateSitemap extends Command
         ];
 
         foreach ($staticPages as $page) {
-            $xml .= $this->urlNode($baseUrl . $page['url'], $page['changefreq'], $page['priority']);
+            $xml .= $this->urlNode($baseUrl.$page['url'], $page['changefreq'], $page['priority']);
         }
 
         // Cuisine category pages
         $cuisines = DB::table('cuisines')->select('slug')->get();
         foreach ($cuisines as $cuisine) {
-            $url = $baseUrl . '/cuisine/' . $cuisine->slug;
+            $url = $baseUrl.'/cuisine/'.$cuisine->slug;
             $xml .= $this->urlNode($url, 'weekly', '0.8');
         }
 
@@ -61,7 +63,7 @@ class GenerateSitemap extends Command
             ->get();
 
         foreach ($restaurants as $restaurant) {
-            $url = $baseUrl . '/restaurants/' . $restaurant->slug;
+            $url = $baseUrl.'/restaurants/'.$restaurant->slug;
             $changefreq = 'weekly';
             $priority = '0.7';
             $xml .= $this->urlNode($url, $changefreq, $priority, $restaurant->updated_at);
@@ -76,18 +78,18 @@ class GenerateSitemap extends Command
         string $url,
         string $changefreq,
         string $priority,
-        ?\Illuminate\Support\Carbon $lastmod = null
+        ?Carbon $lastmod = null
     ): string {
-        $node = '  <url>' . "\n";
-        $node .= '    <loc>' . htmlspecialchars($url) . '</loc>' . "\n";
-        $node .= '    <changefreq>' . $changefreq . '</changefreq>' . "\n";
-        $node .= '    <priority>' . $priority . '</priority>' . "\n";
+        $node = '  <url>'."\n";
+        $node .= '    <loc>'.htmlspecialchars($url).'</loc>'."\n";
+        $node .= '    <changefreq>'.$changefreq.'</changefreq>'."\n";
+        $node .= '    <priority>'.$priority.'</priority>'."\n";
 
         if ($lastmod) {
-            $node .= '    <lastmod>' . $lastmod->toAtomString() . '</lastmod>' . "\n";
+            $node .= '    <lastmod>'.$lastmod->toAtomString().'</lastmod>'."\n";
         }
 
-        $node .= '  </url>' . "\n";
+        $node .= '  </url>'."\n";
 
         return $node;
     }

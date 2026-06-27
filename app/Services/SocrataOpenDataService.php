@@ -4,13 +4,16 @@ namespace App\Services;
 
 use App\Models\ExternalApiCache;
 use App\Services\Http\RequestSpec;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SocrataOpenDataService
 {
     private ?string $appToken;
+
     private array $endpoints;
 
     /** Maximum retry attempts for transient HTTP failures. */
@@ -54,6 +57,7 @@ class SocrataOpenDataService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return [];
         }
     }
@@ -87,6 +91,7 @@ class SocrataOpenDataService
                 'lat' => $lat,
                 'lng' => $lng,
             ]);
+
             return null;
         }
     }
@@ -107,7 +112,7 @@ class SocrataOpenDataService
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $query = null, int $radius = 5000): string
     {
-        return 'socrata:' . md5(serialize(compact('lat', 'lng', 'query', 'radius')));
+        return 'socrata:'.md5(serialize(compact('lat', 'lng', 'query', 'radius')));
     }
 
     /**
@@ -129,7 +134,7 @@ class SocrataOpenDataService
 
         $specs = [];
         foreach ($this->endpoints as $config) {
-            if (!isset($config['dataset_id']) || !isset($config['domain'])) {
+            if (! isset($config['dataset_id']) || ! isset($config['domain'])) {
                 continue;
             }
 
@@ -157,7 +162,7 @@ class SocrataOpenDataService
         }
 
         $data = $response->json();
-        if (!is_array($data)) {
+        if (! is_array($data)) {
             return null;
         }
 
@@ -188,7 +193,7 @@ class SocrataOpenDataService
             $all = array_merge($all, $parsed);
         }
 
-        if (!$anySuccess) {
+        if (! $anySuccess) {
             return [];
         }
 
@@ -206,7 +211,7 @@ class SocrataOpenDataService
         $allResults = [];
 
         foreach ($this->endpoints as $city => $config) {
-            if (!isset($config['dataset_id']) || !isset($config['domain'])) {
+            if (! isset($config['dataset_id']) || ! isset($config['domain'])) {
                 continue;
             }
 
@@ -259,6 +264,7 @@ class SocrataOpenDataService
                     // Retry on transient errors (5xx) or if we have retries left
                     if ($response->serverError() && $attempt < self::MAX_RETRIES) {
                         $this->backoff($attempt);
+
                         continue;
                     }
 
@@ -267,12 +273,12 @@ class SocrataOpenDataService
 
                 $data = $response->json();
 
-                if (!is_array($data)) {
+                if (! is_array($data)) {
                     return [];
                 }
 
                 return $this->normalizeEndpointResults($data, $lat, $lng);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
                 Log::warning('Socrata endpoint connection error', [
                     'domain' => $domain,
                     'dataset_id' => $datasetId,
@@ -290,6 +296,7 @@ class SocrataOpenDataService
                     'dataset_id' => $datasetId,
                     'message' => $e->getMessage(),
                 ]);
+
                 return [];
             }
         }
@@ -299,6 +306,7 @@ class SocrataOpenDataService
             'domain' => $domain,
             'dataset_id' => $datasetId,
         ]);
+
         return [];
     }
 
@@ -321,7 +329,7 @@ class SocrataOpenDataService
             '$where' => $this->buildWhereClause($lat, $lng),
         ];
 
-        if (!empty($fields)) {
+        if (! empty($fields)) {
             $params['$select'] = implode(',', $fields);
         }
 
@@ -372,7 +380,7 @@ class SocrataOpenDataService
             'Accept' => 'application/json',
         ];
 
-        if (!empty($this->appToken)) {
+        if (! empty($this->appToken)) {
             $headers['X-App-Token'] = $this->appToken;
         }
 
@@ -404,7 +412,7 @@ class SocrataOpenDataService
     {
         // Common column names across Socrata datasets
         $name = $row['dba'] ?? $row['business_name'] ?? $row['name'] ?? $row['legal_name'] ?? null;
-        if (!$name) {
+        if (! $name) {
             return null;
         }
 
@@ -427,7 +435,7 @@ class SocrataOpenDataService
             $distance = $this->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng);
         }
 
-        $fingerprint = $name . ($lat ?? '') . ($lng ?? '');
+        $fingerprint = $name.($lat ?? '').($lng ?? '');
 
         // Inspection score/grade if available
         $score = $row['score'] ?? null;
@@ -436,17 +444,17 @@ class SocrataOpenDataService
         // Build full address
         $fullAddress = $address;
         if ($city) {
-            $fullAddress = trim(($fullAddress ? $fullAddress . ', ' : '') . $city);
+            $fullAddress = trim(($fullAddress ? $fullAddress.', ' : '').$city);
         }
         if ($zip) {
-            $fullAddress = trim(($fullAddress ? $fullAddress . ', ' : '') . $zip);
+            $fullAddress = trim(($fullAddress ? $fullAddress.', ' : '').$zip);
         }
 
         return [
-            'id' => -1 * abs(crc32('socrata:' . $fingerprint)),
+            'id' => -1 * abs(crc32('socrata:'.$fingerprint)),
             'name' => $name,
-            'slug' => \Illuminate\Support\Str::slug($name) . '-' . substr(md5($fingerprint), 0, 6),
-            'description' => $grade ? "Grade: {$grade}" . ($score ? " (Score: {$score})" : '') : null,
+            'slug' => Str::slug($name).'-'.substr(md5($fingerprint), 0, 6),
+            'description' => $grade ? "Grade: {$grade}".($score ? " (Score: {$score})" : '') : null,
             'address' => $fullAddress,
             'city' => $city,
             'state' => $row['state'] ?? 'NY',
@@ -479,8 +487,8 @@ class SocrataOpenDataService
         $deduped = [];
 
         foreach ($results as $r) {
-            $key = strtolower($r['name']) . ':' . round($r['distance'] ?? 0, 1);
-            if (!isset($seen[$key])) {
+            $key = strtolower($r['name']).':'.round($r['distance'] ?? 0, 1);
+            if (! isset($seen[$key])) {
                 $seen[$key] = true;
                 $deduped[] = $r;
             }
@@ -499,6 +507,7 @@ class SocrataOpenDataService
         $dLng = deg2rad($lng2 - $lng1);
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

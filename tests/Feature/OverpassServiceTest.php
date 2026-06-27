@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\ExternalApiCache;
 use App\Services\OverpassService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -51,7 +50,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(1, $results);
@@ -69,7 +68,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(1, $results);
@@ -86,7 +85,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(1, $results);
@@ -107,7 +106,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(3, $results);
@@ -129,7 +128,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(1, $results);
@@ -147,7 +146,7 @@ class OverpassServiceTest extends TestCase
             'overpass-api.de/*' => Http::response(['elements' => $elements], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194, 'italian');
 
         $recorded = Http::recorded();
@@ -174,10 +173,11 @@ class OverpassServiceTest extends TestCase
                     $this->makeNode('Place 5', 37.8149, -122.3794, 5),
                 ];
             }
+
             return Http::response(['elements' => $elements], 200);
         });
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194, null, 25000);
 
         // Should have retried until >=5 results or max radius
@@ -191,6 +191,7 @@ class OverpassServiceTest extends TestCase
 
         Http::fake(function ($request) use (&$callCount) {
             $callCount++;
+
             return Http::response([
                 'elements' => [
                     $this->makeNode('Place 1', 37.7749, -122.4194, 1),
@@ -202,7 +203,7 @@ class OverpassServiceTest extends TestCase
             ], 200);
         });
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194);
 
         $this->assertSame(1, $callCount);
@@ -223,7 +224,7 @@ class OverpassServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194, 'japanese');
 
         $recorded = Http::recorded();
@@ -245,11 +246,12 @@ class OverpassServiceTest extends TestCase
         Http::fake([
             'overpass-api.de/*' => function () use (&$count, $elements) {
                 $count++;
+
                 return Http::response(['elements' => $elements], 200);
             },
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194, 'asian');
 
         $this->assertSame(1, $count);
@@ -273,7 +275,7 @@ class OverpassServiceTest extends TestCase
             'overpass-api.de/*' => Http::response(['elements' => $elements], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->searchByName(37.7749, -122.4194, ['sushi', 'ramen']);
 
         $recorded = Http::recorded();
@@ -300,10 +302,11 @@ class OverpassServiceTest extends TestCase
                     $this->makeNode('Match 5', 37.8149, -122.3794, 5),
                 ];
             }
+
             return Http::response(['elements' => $elements], 200);
         });
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->searchByName(37.7749, -122.4194, ['match']);
 
         $this->assertGreaterThanOrEqual(5, count($results));
@@ -321,7 +324,7 @@ class OverpassServiceTest extends TestCase
             'overpass-api.de/*' => Http::response(['elements' => $elements], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194, 'italian');
         $service->search(37.7749, -122.4194, 'italian');
 
@@ -336,7 +339,7 @@ class OverpassServiceTest extends TestCase
             'overpass.kumi.systems/*' => Http::response(null, 500),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertSame([], $results);
@@ -348,11 +351,12 @@ class OverpassServiceTest extends TestCase
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $service->search(37.7749, -122.4194, 'lebanese');
 
         Http::assertSent(function ($request) {
             $body = $request->body();
+
             return str_contains($body, 'lebanese');
         });
     }
@@ -375,7 +379,7 @@ class OverpassServiceTest extends TestCase
             throw new \Exception('Unknown mirror');
         });
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $results = $service->search(37.7749, -122.4194);
 
         $this->assertCount(6, $results);
@@ -394,7 +398,7 @@ class OverpassServiceTest extends TestCase
             'overpass.kumi.systems/*' => Http::response(null, 500),
         ]);
 
-        $service = new OverpassService();
+        $service = new OverpassService;
         $result = $service->fetchByNameRaw(37.7749, -122.4194, ['chinese', 'dragon'], context: ['read_path' => true]);
 
         $this->assertNull($result);

@@ -2,11 +2,12 @@
 
 namespace App\Services;
 
+use DOMDocument;
+use DOMXPath;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use DOMDocument;
-use DOMXPath;
 
 /**
  * Clean own-website scraper for restaurants.
@@ -38,7 +39,7 @@ class RestaurantWebsiteScraperService
     /**
      * Scrape a restaurant's own website for opening hours and optional data.
      *
-     * @param string $websiteUrl The restaurant's own website URL
+     * @param  string  $websiteUrl  The restaurant's own website URL
      * @return array|null Returns array with 'opening_hours' and optional 'menu_url'/'photo_url', or null if scrape failed/disallowed
      */
     public function scrape(string $websiteUrl): ?array
@@ -48,25 +49,27 @@ class RestaurantWebsiteScraperService
         }
 
         // Ensure URL has a scheme before parsing
-        if (!str_starts_with($websiteUrl, 'http://') && !str_starts_with($websiteUrl, 'https://')) {
-            $websiteUrl = 'https://' . $websiteUrl;
+        if (! str_starts_with($websiteUrl, 'http://') && ! str_starts_with($websiteUrl, 'https://')) {
+            $websiteUrl = 'https://'.$websiteUrl;
         }
 
         // Parse domain for lock and robots.txt
         $domain = $this->parseDomain($websiteUrl);
         if ($domain === null) {
             Log::warning('Failed to parse domain from website URL', ['url' => $websiteUrl]);
+
             return null;
         }
 
         // Check robots.txt before scraping
-        if (!$this->isAllowedByRobotsTxt($websiteUrl, $domain)) {
+        if (! $this->isAllowedByRobotsTxt($websiteUrl, $domain)) {
             Log::info('Website scraping disallowed by robots.txt', ['url' => $websiteUrl, 'domain' => $domain]);
+
             return null;
         }
 
         // Check cache first
-        $cacheKey = 'website_scrape:' . md5($websiteUrl);
+        $cacheKey = 'website_scrape:'.md5($websiteUrl);
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -76,8 +79,9 @@ class RestaurantWebsiteScraperService
         $lock = Cache::lock("website_scraper:lock:{$domain}", 10);
 
         try {
-            if (!$lock->get()) {
+            if (! $lock->get()) {
                 Log::debug('Concurrent scrape in progress for domain', ['domain' => $domain]);
+
                 return null;
             }
 
@@ -99,7 +103,7 @@ class RestaurantWebsiteScraperService
     private function parseDomain(string $url): ?string
     {
         $parsed = parse_url($url);
-        if ($parsed === false || !isset($parsed['host'])) {
+        if ($parsed === false || ! isset($parsed['host'])) {
             return null;
         }
 
@@ -111,7 +115,7 @@ class RestaurantWebsiteScraperService
      */
     private function isAllowedByRobotsTxt(string $url, string $domain): bool
     {
-        $robotsCacheKey = 'robots_txt:' . $domain;
+        $robotsCacheKey = 'robots_txt:'.$domain;
 
         // Check cache for robots.txt content
         $robotsTxt = Cache::remember($robotsCacheKey, now()->addHours(self::ROBOTS_CACHE_TTL_HOURS), function () use ($domain, $url) {
@@ -131,6 +135,7 @@ class RestaurantWebsiteScraperService
                 return $response->status() === 404 ? '' : null;
             } catch (\Throwable $e) {
                 Log::debug('Failed to fetch robots.txt', ['domain' => $domain, 'error' => $e->getMessage()]);
+
                 // On error, assume allowed (fail open for free-first)
                 return null;
             }
@@ -172,6 +177,7 @@ class RestaurantWebsiteScraperService
                 } else {
                     $userAgentMatches = false;
                 }
+
                 continue;
             }
 
@@ -209,8 +215,8 @@ class RestaurantWebsiteScraperService
     private function pathMatchesPattern(string $path, string $pattern): bool
     {
         // Normalize paths
-        $path = '/' . ltrim($path, '/');
-        $pattern = '/' . ltrim($pattern, '/');
+        $path = '/'.ltrim($path, '/');
+        $pattern = '/'.ltrim($pattern, '/');
 
         // Exact match
         if ($pattern === $path) {
@@ -224,7 +230,8 @@ class RestaurantWebsiteScraperService
 
         // Wildcard match (*) support
         if (str_contains($pattern, '*')) {
-            $regex = '#^' . str_replace('\*', '.*', preg_quote($pattern, '#')) . '#';
+            $regex = '#^'.str_replace('\*', '.*', preg_quote($pattern, '#')).'#';
+
             return (bool) preg_match($regex, $path);
         }
 
@@ -244,7 +251,7 @@ class RestaurantWebsiteScraperService
                     ->withUserAgent(self::USER_AGENT)
                     ->get($url);
 
-                if (!$response->successful()) {
+                if (! $response->successful()) {
                     Log::warning('Failed to fetch website for scraping', [
                         'url' => $url,
                         'status' => $response->status(),
@@ -255,6 +262,7 @@ class RestaurantWebsiteScraperService
                     // Retry on transient errors (5xx) or if we have retries left
                     if ($response->serverError() && $attempt < self::MAX_RETRIES) {
                         $this->backoff($attempt);
+
                         continue;
                     }
 
@@ -268,7 +276,7 @@ class RestaurantWebsiteScraperService
 
                 // Use DOMDocument to parse HTML
                 libxml_use_internal_errors(true);
-                $dom = new DOMDocument();
+                $dom = new DOMDocument;
                 $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
                 libxml_clear_errors();
 
@@ -286,7 +294,7 @@ class RestaurantWebsiteScraperService
                 }
 
                 return null;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
                 $lastException = $e;
                 Log::warning('Transient connection error during website scrape', [
                     'url' => $url,
@@ -303,6 +311,7 @@ class RestaurantWebsiteScraperService
                     'url' => $url,
                     'error' => $e->getMessage(),
                 ]);
+
                 return null;
             }
         }
@@ -311,6 +320,7 @@ class RestaurantWebsiteScraperService
         Log::warning('All retry attempts exhausted for website scrape', [
             'url' => $url,
         ]);
+
         return null;
     }
 
@@ -369,7 +379,7 @@ class RestaurantWebsiteScraperService
                     : [$data];
 
                 foreach ($objects as $object) {
-                    if (!is_array($object)) {
+                    if (! is_array($object)) {
                         continue;
                     }
 
@@ -402,28 +412,28 @@ class RestaurantWebsiteScraperService
             $hours = [];
             foreach ($elements as $element) {
                 $content = trim($element->textContent);
-                if (!empty($content)) {
+                if (! empty($content)) {
                     $hours[] = $content;
                 }
             }
 
-            if (!empty($hours)) {
+            if (! empty($hours)) {
                 return $this->normalizeOpeningHours($hours);
             }
         }
 
         // Also check for time elements with datetime attribute
-        $timeElements = $xpath->query("//time[@datetime]");
+        $timeElements = $xpath->query('//time[@datetime]');
         if ($timeElements->length > 0) {
             $hours = [];
             foreach ($timeElements as $element) {
                 $datetime = $element->getAttribute('datetime');
-                if (!empty($datetime)) {
+                if (! empty($datetime)) {
                     $hours[] = $datetime;
                 }
             }
 
-            if (!empty($hours)) {
+            if (! empty($hours)) {
                 return $this->normalizeOpeningHours($hours);
             }
         }
@@ -513,14 +523,14 @@ class RestaurantWebsiteScraperService
                     }
                 }
 
-                if (!empty($structured)) {
+                if (! empty($structured)) {
                     return ['structured' => true, 'hours' => $structured];
                 }
             }
 
             // Handle simple string array
             $strings = array_filter($hours, 'is_string');
-            if (!empty($strings)) {
+            if (! empty($strings)) {
                 return ['structured' => false, 'raw_text' => implode("\n", $strings)];
             }
         }
@@ -574,7 +584,7 @@ class RestaurantWebsiteScraperService
     private function extractMenuUrl(DOMDocument $dom, DOMXPath $xpath, string $baseUrl): ?string
     {
         // Look for links with text containing "menu"
-        $links = $xpath->query("//a");
+        $links = $xpath->query('//a');
 
         foreach ($links as $link) {
             $text = strtolower(trim($link->textContent));
@@ -587,11 +597,11 @@ class RestaurantWebsiteScraperService
             // Check if link text indicates it's a menu
             if (str_contains($text, 'menu') || str_contains($text, 'food') || str_contains($text, 'order')) {
                 // Convert relative URL to absolute
-                if (!str_starts_with($href, 'http')) {
+                if (! str_starts_with($href, 'http')) {
                     $href = $this->resolveUrl($href, $baseUrl);
                 }
 
-                if (!empty($href)) {
+                if (! empty($href)) {
                     return $href;
                 }
             }
@@ -622,6 +632,7 @@ class RestaurantWebsiteScraperService
 
         // Relative path
         $basePath = dirname($path);
-        return "{$scheme}://{$host}{$basePath}/" . ltrim($relative, '/');
+
+        return "{$scheme}://{$host}{$basePath}/".ltrim($relative, '/');
     }
 }

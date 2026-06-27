@@ -89,11 +89,11 @@ class LiveSearchService
         $context = ['read_path' => true];
 
         $sources = [
-            'bizdata'    => $this->bizDataService,
+            'bizdata' => $this->bizDataService,
             'foursquare' => $this->foursquareService,
-            'serpapi'    => $this->serpApiService,
-            'socrata'    => $this->socrataService,
-            'overpass'   => $this->overpassService,
+            'serpapi' => $this->serpApiService,
+            'socrata' => $this->socrataService,
+            'overpass' => $this->overpassService,
         ];
 
         // Per-source cuisine string derived from the ONE resolved scope.
@@ -121,6 +121,7 @@ class LiveSearchService
                 $cached = ExternalApiCache::findByKey($key);
                 if ($cached !== null) {
                     $hits[$label] = $cached;
+
                     continue;
                 }
 
@@ -132,7 +133,7 @@ class LiveSearchService
                 }
 
                 $specs = $service->poolRequestsFor($lat, $lng, $sourceCuisine, $context);
-                if (!empty($specs)) {
+                if (! empty($specs)) {
                     $toFetch[$label] = $specs;
                 }
             } catch (\Throwable $e) {
@@ -224,7 +225,7 @@ class LiveSearchService
     {
         $request = $pool->as($key)->timeout($spec->timeout);
 
-        if (!empty($spec->headers)) {
+        if (! empty($spec->headers)) {
             $request = $request->withHeaders($spec->headers);
         }
 
@@ -245,12 +246,12 @@ class LiveSearchService
     private function normalizeCachedHit(string $label, array $cached, float $lat, float $lng, ?string $cuisine): array
     {
         return match ($label) {
-            'bizdata'    => $this->bizDataService->normalizeRaw($cached, $lat, $lng, $cuisine),
+            'bizdata' => $this->bizDataService->normalizeRaw($cached, $lat, $lng, $cuisine),
             'foursquare' => $this->foursquareService->normalizeRaw($cached),
-            'serpapi'    => $this->serpApiService->normalizeRaw($cached, $lat, $lng),
-            'socrata'    => $this->socrataService->normalizeRaw($cached, $lat, $lng),
-            'overpass'   => $this->overpassService->normalizeRaw($cached, $lat, $lng),
-            default      => [],
+            'serpapi' => $this->serpApiService->normalizeRaw($cached, $lat, $lng),
+            'socrata' => $this->socrataService->normalizeRaw($cached, $lat, $lng),
+            'overpass' => $this->overpassService->normalizeRaw($cached, $lat, $lng),
+            default => [],
         };
     }
 
@@ -308,7 +309,7 @@ class LiveSearchService
 
         foreach ($results as &$r) {
             // Ensure distance is set (from scopeNearby or calculated)
-            if (!isset($r['distance']) && isset($r['lat'], $r['lng'])) {
+            if (! isset($r['distance']) && isset($r['lat'], $r['lng'])) {
                 $r['distance'] = $this->haversineKm($searchLat, $searchLng, (float) $r['lat'], (float) $r['lng']);
             }
 
@@ -364,6 +365,7 @@ class LiveSearchService
         $dLng = deg2rad($lng2 - $lng1);
         $a = sin($dLat / 2) ** 2
             + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
@@ -394,6 +396,7 @@ class LiveSearchService
             // No usable coords (incl. null-island 0,0) — can't prove it's far; keep.
             if ($lat === null || $lng === null || ((float) $lat === 0.0 && (float) $lng === 0.0)) {
                 $kept[] = $r;
+
                 continue;
             }
 
@@ -580,9 +583,11 @@ class LiveSearchService
             if (! is_array($placeTypes) || empty($placeTypes)) {
                 if ($source === 'serpapi' && $this->nameLooksNonRestaurant($r['name'] ?? '')) {
                     $dropped[] = ['name' => $r['name'] ?? '', 'place_types' => $placeTypes, 'source' => $source, 'reason' => 'untyped non-restaurant name'];
+
                     continue;
                 }
                 $kept[] = $r;
+
                 continue;
             }
             if ($this->isFoodEstablishment($placeTypes)) {
@@ -607,7 +612,7 @@ class LiveSearchService
      * returns human-readable type phrases ("African restaurant", "Cocktail bar",
      * "Coffee shop"); matched case-insensitively.
      *
-     * @param string[] $placeTypes
+     * @param  string[]  $placeTypes
      */
     private function isFoodEstablishment(array $placeTypes): bool
     {
@@ -726,14 +731,14 @@ class LiveSearchService
 
         // ON pattern matches name + type + description (broad recall for genuine
         // rows whose name lacks a keyword, e.g. "Panda Express").
-        $onPattern = '/' . implode('|', $scope->onKeywords) . '/i';
+        $onPattern = '/'.implode('|', $scope->onKeywords).'/i';
 
         // RIVAL pattern = all OTHER cuisines' keywords, minus the ON set, so no
         // ON keyword is ever also a rival (onMatch always wins). Applied to
         // trusted-source rows ONLY against type + description (not name).
         $rivalPattern = empty($scope->rivalKeywords)
             ? null
-            : ('/' . implode('|', array_values(array_unique($scope->rivalKeywords))) . '/i');
+            : ('/'.implode('|', array_values(array_unique($scope->rivalKeywords))).'/i');
 
         $dropped = []; // observability for the new trusted-source drop
 
@@ -749,6 +754,7 @@ class LiveSearchService
                 if ($name === '') {
                     return false; // nameless noise from an unfiltered source
                 }
+
                 return preg_match($onPattern, $name) === 1;
             }
 
@@ -757,18 +763,18 @@ class LiveSearchService
             $description = (string) ($r['description'] ?? '');
 
             // On-cuisine signal (name + type + description) → keep.
-            if (preg_match($onPattern, $name . ' ' . $placeTypes . ' ' . $description) === 1) {
+            if (preg_match($onPattern, $name.' '.$placeTypes.' '.$description) === 1) {
                 return true;
             }
 
             // Kill-switch off → trust everything non-bizdata (legacy spec-027 behavior).
-            if (!$scrutinizeTrusted) {
+            if (! $scrutinizeTrusted) {
                 return true;
             }
 
             // Rival signal (type + description ONLY, never name) → drop.
             if ($rivalPattern !== null) {
-                $rivalSignal = trim($placeTypes . ' ' . $description);
+                $rivalSignal = trim($placeTypes.' '.$description);
                 if ($rivalSignal !== '' && preg_match($rivalPattern, $rivalSignal) === 1) {
                     $dropped[] = [
                         'name' => $name,
@@ -776,6 +782,7 @@ class LiveSearchService
                         'place_types' => $r['place_types'] ?? [],
                         'description' => $description,
                     ];
+
                     return false;
                 }
             }
@@ -784,7 +791,7 @@ class LiveSearchService
             return true;
         }));
 
-        if (!empty($dropped)) {
+        if (! empty($dropped)) {
             Log::info('Cuisine-relevance filter dropped trusted-source rival rows', [
                 'cuisine' => $scope->primarySlug,
                 'count' => count($dropped),
@@ -871,6 +878,7 @@ class LiveSearchService
         }
 
         $distance = $this->haversineKm($latA, $lngA, $latB, $lngB);
+
         return $distance <= $radius;
     }
 
@@ -892,8 +900,8 @@ class LiveSearchService
         $merged = $target;
 
         // Prefer the row that has rating data
-        $sourceHasRating = !empty($source['yelp_rating']) || !empty($source['google_rating']);
-        $targetHasRating = !empty($target['yelp_rating']) || !empty($target['google_rating']);
+        $sourceHasRating = ! empty($source['yelp_rating']) || ! empty($source['google_rating']);
+        $targetHasRating = ! empty($target['yelp_rating']) || ! empty($target['google_rating']);
 
         foreach ($fields as $field) {
             $sourceValue = $source[$field] ?? null;
@@ -902,11 +910,12 @@ class LiveSearchService
             // If target has no value, take from source
             if ($targetValue === null && $sourceValue !== null) {
                 $merged[$field] = $sourceValue;
+
                 continue;
             }
 
             // If source has rating and target doesn't, prefer source's rating fields
-            if ($sourceHasRating && !$targetHasRating) {
+            if ($sourceHasRating && ! $targetHasRating) {
                 if (in_array($field, ['yelp_rating', 'google_rating', 'google_review_count', 'yelp_review_count'])) {
                     if ($sourceValue !== null) {
                         $merged[$field] = $sourceValue;
@@ -916,12 +925,12 @@ class LiveSearchService
         }
 
         // Merge source tags (e.g., cuisines, categories) if present
-        if (!empty($source['cuisines']) && empty($merged['cuisines'])) {
+        if (! empty($source['cuisines']) && empty($merged['cuisines'])) {
             $merged['cuisines'] = $source['cuisines'];
         }
 
         // Union gallery photos across sources (dedup by URL, cap 6).
-        if (!empty($source['photos'])) {
+        if (! empty($source['photos'])) {
             $unioned = array_values(array_unique(array_merge(
                 $merged['photos'] ?? [],
                 $source['photos'],
@@ -934,6 +943,7 @@ class LiveSearchService
 
     /**
      * Legacy simple dedup (exact name + distance bucket).
+     *
      * @deprecated Use crossSourceDedup instead.
      */
     private function deduplicate(array $results): array
@@ -942,8 +952,8 @@ class LiveSearchService
         $deduped = [];
 
         foreach ($results as $r) {
-            $key = strtolower($r['name']) . ':' . round($r['distance'] ?? 0, 1);
-            if (!isset($seen[$key])) {
+            $key = strtolower($r['name']).':'.round($r['distance'] ?? 0, 1);
+            if (! isset($seen[$key])) {
                 $seen[$key] = true;
                 $deduped[] = $r;
             }

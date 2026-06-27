@@ -7,11 +7,14 @@ use App\Services\Http\RequestSpec;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class FoursquareService
 {
     private ?string $apiKey;
+
     private string $baseUrl = 'https://places-api.foursquare.com';
+
     private string $version = '2025-06-17';
 
     public function __construct()
@@ -25,6 +28,7 @@ class FoursquareService
             Log::debug('Foursquare search skipped — no API key configured', [
                 'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
             ]);
+
             return [];
         }
 
@@ -37,7 +41,7 @@ class FoursquareService
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
                 'X-Places-Api-Version' => $this->version,
             ])->get("{$this->baseUrl}/places/search", [
                 'll' => "{$lat},{$lng}",
@@ -53,6 +57,7 @@ class FoursquareService
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
                 return [];
             }
 
@@ -67,6 +72,7 @@ class FoursquareService
                 'message' => $e->getMessage(),
                 'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
             ]);
+
             return [];
         }
     }
@@ -81,6 +87,7 @@ class FoursquareService
             Log::debug('Foursquare search skipped — no API key configured', [
                 'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
             ]);
+
             return null;
         }
 
@@ -93,7 +100,7 @@ class FoursquareService
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
                 'X-Places-Api-Version' => $this->version,
             ])->get("{$this->baseUrl}/places/search", [
                 'll' => "{$lat},{$lng}",
@@ -109,6 +116,7 @@ class FoursquareService
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
                 return null;
             }
 
@@ -123,13 +131,14 @@ class FoursquareService
                 'message' => $e->getMessage(),
                 'lat' => $lat, 'lng' => $lng, 'cuisine' => $cuisine,
             ]);
+
             return null;
         }
     }
 
     private function buildCacheKey(string $source, array $params): string
     {
-        return $source . ':' . md5(serialize($params));
+        return $source.':'.md5(serialize($params));
     }
 
     /**
@@ -171,7 +180,7 @@ class FoursquareService
                     'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
                 ],
                 headers: [
-                    'Authorization' => 'Bearer ' . $this->apiKey,
+                    'Authorization' => 'Bearer '.$this->apiKey,
                     'X-Places-Api-Version' => $this->version,
                 ],
                 timeout: $timeout,
@@ -239,7 +248,7 @@ class FoursquareService
         $photoUrls = [];
         foreach ($photos as $p) {
             if (isset($p['prefix'], $p['suffix'])) {
-                $url = $p['prefix'] . '300x300' . $p['suffix'];
+                $url = $p['prefix'].'300x300'.$p['suffix'];
                 $photoUrl ??= $url;
                 $photoUrls[] = $url;
                 if (count($photoUrls) >= 6) {
@@ -249,9 +258,9 @@ class FoursquareService
         }
 
         return [
-            'id' => -1 * abs(crc32('foursquare:' . ($r['fsq_id'] ?? ''))),
+            'id' => -1 * abs(crc32('foursquare:'.($r['fsq_id'] ?? ''))),
             'name' => $r['name'] ?? 'Unknown',
-            'slug' => \Illuminate\Support\Str::slug($r['name'] ?? 'unknown') . '-' . substr(md5($r['fsq_id'] ?? ''), 0, 6),
+            'slug' => Str::slug($r['name'] ?? 'unknown').'-'.substr(md5($r['fsq_id'] ?? ''), 0, 6),
             'description' => null,
             'address' => $r['location']['formatted_address'] ?? $r['location']['address'] ?? null,
             'city' => $r['location']['locality'] ?? null,
@@ -284,7 +293,7 @@ class FoursquareService
             ->map(fn ($c) => [
                 'id' => $c['id'] ?? abs(crc32($c['name'] ?? '')),
                 'name' => $c['name'] ?? '',
-                'slug' => \Illuminate\Support\Str::slug($c['name'] ?? ''),
+                'slug' => Str::slug($c['name'] ?? ''),
             ])->values()->all();
     }
 }

@@ -45,6 +45,7 @@ class CuisineMatcher
             if (isset($categories[$cuisineSlug])) {
                 return $this->buildScoped($cuisineSlug, $categories[$cuisineSlug]);
             }
+
             return $this->buildInvalid();
         }
 
@@ -55,6 +56,7 @@ class CuisineMatcher
             if (isset($cuisines[$categorySlug])) {
                 return $this->buildScoped($categorySlug, [$categorySlug]);
             }
+
             return $this->buildInvalid();
         }
 
@@ -64,7 +66,7 @@ class CuisineMatcher
     /**
      * Union of the keyword sets for the given slugs (config data).
      *
-     * @param string[] $slugs
+     * @param  string[]  $slugs
      * @return string[]
      */
     public function keywordsFor(array $slugs): array
@@ -78,6 +80,7 @@ class CuisineMatcher
                 $out[] = $kw;
             }
         }
+
         return array_values(array_filter(array_unique($out), fn ($k) => $k !== ''));
     }
 
@@ -85,8 +88,8 @@ class CuisineMatcher
      * All keyword fragments for cuisines NOT in $onSlugs, minus the on-set so no
      * on-cuisine keyword is also flagged as rival.
      *
-     * @param string[] $onSlugs
-     * @param string[] $onKeywords
+     * @param  string[]  $onSlugs
+     * @param  string[]  $onKeywords
      * @return string[]
      */
     public function rivalKeywords(array $onSlugs, array $onKeywords): array
@@ -104,6 +107,7 @@ class CuisineMatcher
                 }
             }
         }
+
         return array_values(array_unique($rival));
     }
 
@@ -118,7 +122,7 @@ class CuisineMatcher
     /**
      * Build a SCOPE: requested=true, resolved=true, with computed keyword sets.
      *
-     * @param string[] $targetSlugs
+     * @param  string[]  $targetSlugs
      */
     private function buildScoped(string $primarySlug, array $targetSlugs): CuisineScope
     {
@@ -171,6 +175,7 @@ class CuisineMatcher
             return null;
         }
         $value = strtolower(trim($value));
+
         return $value === '' ? null : $value;
     }
 

@@ -25,6 +25,7 @@ class GarbageCollectApiCache extends Command
 
         if ($totalExpired === 0) {
             $this->info('No expired cache entries found.');
+
             return self::SUCCESS;
         }
 
@@ -43,7 +44,8 @@ class GarbageCollectApiCache extends Command
             );
 
             if ($totalExpired > 10) {
-                $this->info("... and {$totalExpired - 10} more expired entries.");
+                $remaining = $totalExpired - 10;
+                $this->info("... and {$remaining} more expired entries.");
             }
 
             return self::SUCCESS;

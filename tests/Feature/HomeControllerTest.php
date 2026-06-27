@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\CuisineCategory;
 use App\Models\Cuisine;
+use App\Models\CuisineCategory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

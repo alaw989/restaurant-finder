@@ -22,6 +22,7 @@ class OutscraperService
     {
         if (empty($this->apiKey)) {
             Log::debug('Outscraper popular times skipped — no API key configured', ['place_id' => $googlePlaceId]);
+
             return [];
         }
 
@@ -45,6 +46,7 @@ class OutscraperService
                     'status' => $response->status(),
                     'place_id' => $googlePlaceId,
                 ]);
+
                 return [];
             }
 
@@ -59,6 +61,7 @@ class OutscraperService
                 'message' => $e->getMessage(),
                 'place_id' => $googlePlaceId,
             ]);
+
             return [];
         }
     }
@@ -68,6 +71,6 @@ class OutscraperService
      */
     private function buildCacheKey(string $source, array $params): string
     {
-        return $source . ':' . md5(serialize($params));
+        return $source.':'.md5(serialize($params));
     }
 }

@@ -2,6 +2,8 @@
 
 namespace Tests\Unit;
 
+use App\Models\Cuisine;
+use App\Models\CuisineCategory;
 use App\Services\BizDataApiService;
 use App\Services\CuisineMatcher;
 use App\Services\FoursquareService;
@@ -12,6 +14,7 @@ use App\Services\PopularityScoreService;
 use App\Services\SerpApiService;
 use App\Services\SocrataOpenDataService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
@@ -24,6 +27,7 @@ class LiveSearchScoringTest extends TestCase
     use RefreshDatabase;
 
     private LiveSearchService $liveSearchService;
+
     private PopularityScoreService $scoreService;
 
     protected function setUp(): void
@@ -311,7 +315,7 @@ class LiveSearchScoringTest extends TestCase
         // the others must still return venues. Guards the per-source isolation.
         Http::fake(function (Request $request) {
             if (str_contains($request->url(), 'bizdata')) {
-                throw new \Illuminate\Http\Client\ConnectionException('BizData is down');
+                throw new ConnectionException('BizData is down');
             }
 
             if (str_contains($request->url(), 'overpass')) {
@@ -753,17 +757,17 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'State Street AME Zion Church', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => ['Methodist church', 'Church']],
+                    'place_types' => ['Methodist church', 'Church']],
                 ['name' => 'Africatown Bridge', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => ['Bridge']],
+                    'place_types' => ['Bridge']],
                 ['name' => 'African Braids Salon', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['Hair salon']],
+                    'place_types' => ['Hair salon']],
                 ['name' => "Greer's Downtown Market", 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23,
-                 'place_types' => ['Grocery store', 'Bakery', 'Butcher shop', 'Deli', 'Supermarket']],
+                    'place_types' => ['Grocery store', 'Bakery', 'Butcher shop', 'Deli', 'Supermarket']],
                 ['name' => 'Awash Ethiopian Restaurant', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24,
-                 'place_types' => ['Ethiopian restaurant', 'African restaurant']],
+                    'place_types' => ['Ethiopian restaurant', 'African restaurant']],
                 ['name' => 'Berber Street Food', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25,
-                 'place_types' => ['African restaurant', 'Caterer']],
+                    'place_types' => ['African restaurant', 'Caterer']],
             ],
         ]);
 
@@ -787,19 +791,19 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'The Cocktail Lounge', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => ['Cocktail bar', 'Lounge bar']],
+                    'place_types' => ['Cocktail bar', 'Lounge bar']],
                 ['name' => 'Bean Roasters', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => ['Coffee shop', 'Coffee roastery']],
+                    'place_types' => ['Coffee shop', 'Coffee roastery']],
                 ['name' => 'Hop Works Brewery', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['Brewery']],
+                    'place_types' => ['Brewery']],
                 ['name' => 'Vino Bar', 'source' => 'serpapi', 'lat' => 30.68, 'lng' => -88.23,
-                 'place_types' => ['Wine bar']],
+                    'place_types' => ['Wine bar']],
                 ['name' => 'Downtown Barbershop', 'source' => 'serpapi', 'lat' => 30.69, 'lng' => -88.24,
-                 'place_types' => ['Barber shop']],
+                    'place_types' => ['Barber shop']],
                 ['name' => 'Vino Store', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.25,
-                 'place_types' => ['Wine store']],
+                    'place_types' => ['Wine store']],
                 ['name' => 'Frozen Food Mart', 'source' => 'serpapi', 'lat' => 30.71, 'lng' => -88.26,
-                 'place_types' => ['Grocery store', 'Frozen food store']],
+                    'place_types' => ['Grocery store', 'Frozen food store']],
             ],
         ]);
 
@@ -850,7 +854,7 @@ class LiveSearchScoringTest extends TestCase
             $service = $this->makeServiceWithVenues([
                 'serpapi' => [
                     ['name' => 'Africatown Church', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                     'place_types' => ['Church']],
+                        'place_types' => ['Church']],
                 ],
             ]);
 
@@ -910,11 +914,11 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
+                    'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
                 ['name' => 'reWAXation Austin', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => ['waxing_hair_removal_service', 'spa', 'establishment', 'point_of_interest']],
+                    'place_types' => ['waxing_hair_removal_service', 'spa', 'establishment', 'point_of_interest']],
                 ['name' => 'Casa do Brasil', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['Brazilian restaurant', 'restaurant', 'establishment', 'point_of_interest']],
+                    'place_types' => ['Brazilian restaurant', 'restaurant', 'establishment', 'point_of_interest']],
             ],
         ]);
 
@@ -936,11 +940,11 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'Glow Wax & Cafe', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => ['Waxing hair removal service', 'Cafe']],
+                    'place_types' => ['Waxing hair removal service', 'Cafe']],
                 ['name' => 'African Braids Salon', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => ['Hair salon']],
+                    'place_types' => ['Hair salon']],
                 ['name' => 'The Real Cafe', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['Cafe']],
+                    'place_types' => ['Cafe']],
             ],
         ]);
 
@@ -964,11 +968,11 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => []],
+                    'place_types' => []],
                 ['name' => 'Mystery Brazilian Grill', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => []],
+                    'place_types' => []],
                 ['name' => 'Typed Bistro', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['Bistro']],
+                    'place_types' => ['Bistro']],
             ],
         ]);
 
@@ -1054,11 +1058,11 @@ class LiveSearchScoringTest extends TestCase
         $service = $this->makeServiceWithVenues([
             'serpapi' => [
                 ['name' => 'Tapas Spanish Restaurant', 'source' => 'serpapi', 'lat' => 30.65, 'lng' => -88.20,
-                 'place_types' => ['Spanish restaurant', 'restaurant', 'establishment', 'point_of_interest']],
+                    'place_types' => ['Spanish restaurant', 'restaurant', 'establishment', 'point_of_interest']],
                 ['name' => 'Casa Espanola', 'source' => 'serpapi', 'lat' => 30.66, 'lng' => -88.21,
-                 'place_types' => ['spanish_restaurant', 'mediterranean_restaurant', 'establishment']],
+                    'place_types' => ['spanish_restaurant', 'mediterranean_restaurant', 'establishment']],
                 ['name' => 'European Wax Center', 'source' => 'serpapi', 'lat' => 30.67, 'lng' => -88.22,
-                 'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
+                    'place_types' => ['beauty_salon', 'hair_care', 'establishment', 'point_of_interest']],
             ],
         ]);
 
@@ -1130,12 +1134,12 @@ class LiveSearchScoringTest extends TestCase
      */
     private function seedCuisine(string $name, string $slug): void
     {
-        $category = \App\Models\CuisineCategory::create([
+        $category = CuisineCategory::create([
             'name' => $name,
-            'slug' => $slug . '-cat',
+            'slug' => $slug.'-cat',
         ]);
 
-        \App\Models\Cuisine::create([
+        Cuisine::create([
             'name' => $name,
             'slug' => $slug,
             'category_id' => $category->id,

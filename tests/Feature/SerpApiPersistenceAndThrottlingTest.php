@@ -266,7 +266,7 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
         // Pre-warm the cache for this combo
         ExternalApiCache::create([
             'source' => 'serpapi',
-            'external_id' => 'serpapi:' . md5(serialize(['lat' => 37.7749, 'lng' => -122.4194, 'query' => 'Italian'])),
+            'external_id' => 'serpapi:'.md5(serialize(['lat' => 37.7749, 'lng' => -122.4194, 'query' => 'Italian'])),
             'data' => ['local_results' => []],
             'fetched_at' => now(),
             'expires_at' => now()->addDays(30),

@@ -55,6 +55,7 @@ class EnrichRestaurantWithAi implements ShouldQueue
             Log::debug('AI enrichment job skipped: restaurant not found', [
                 'restaurant_id' => $this->restaurantId,
             ]);
+
             return;
         }
 
@@ -68,6 +69,7 @@ class EnrichRestaurantWithAi implements ShouldQueue
                 Log::debug('AI enrichment returned no data (no key or error)', [
                     'restaurant_id' => $restaurant->id,
                 ]);
+
                 return;
             }
 
@@ -80,31 +82,31 @@ class EnrichRestaurantWithAi implements ShouldQueue
             ];
 
             // Update normalized address if provided
-            if (!empty($enriched['normalized_address']) && $enriched['normalized_address'] !== $restaurant->address) {
+            if (! empty($enriched['normalized_address']) && $enriched['normalized_address'] !== $restaurant->address) {
                 $updates['address'] = $enriched['normalized_address'];
                 $aiMetadata['fields_updated'][] = 'address';
             }
 
             // Update phone if provided and missing
-            if (!empty($enriched['phone']) && empty($restaurant->phone)) {
+            if (! empty($enriched['phone']) && empty($restaurant->phone)) {
                 $updates['phone'] = $enriched['phone'];
                 $aiMetadata['fields_updated'][] = 'phone';
             }
 
             // Update website_url if provided and missing
-            if (!empty($enriched['website_url']) && empty($restaurant->website_url)) {
+            if (! empty($enriched['website_url']) && empty($restaurant->website_url)) {
                 $updates['website_url'] = $enriched['website_url'];
                 $aiMetadata['fields_updated'][] = 'website_url';
             }
 
             // Update description if provided and missing
-            if (!empty($enriched['description']) && empty($restaurant->description)) {
+            if (! empty($enriched['description']) && empty($restaurant->description)) {
                 $updates['description'] = $enriched['description'];
                 $aiMetadata['fields_updated'][] = 'description';
             }
 
             // Store cuisines in ai_metadata (cuisine attachment is handled separately if needed)
-            if (!empty($enriched['cuisines']) && is_array($enriched['cuisines'])) {
+            if (! empty($enriched['cuisines']) && is_array($enriched['cuisines'])) {
                 $aiMetadata['cuisines'] = $enriched['cuisines'];
                 $aiMetadata['fields_updated'][] = 'cuisines';
             }
@@ -113,7 +115,7 @@ class EnrichRestaurantWithAi implements ShouldQueue
             $updates['ai_metadata'] = $aiMetadata;
 
             // Update the restaurant
-            if (!empty($updates)) {
+            if (! empty($updates)) {
                 DB::transaction(function () use ($restaurant, $updates, $popularityScore) {
                     $restaurant->update($updates);
 

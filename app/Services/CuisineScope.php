@@ -24,21 +24,21 @@ namespace App\Services;
 final class CuisineScope
 {
     /**
-     * @param bool   $requested       Was a cuisine/category param actually passed?
-     * @param bool   $resolved        Did it map to a real taxonomy entry?
-     * @param string $queryTerm       Human, Google-friendly term for query-style
-     *                                sources (SerpApi/Foursquare/BizData), e.g.
-     *                                "african", "south african".
-     * @param string $primarySlug     Cuisine slug (single cuisine) or category
-     *                                slug (category search) — what Overpass
-     *                                resolves via config to a synonym union.
-     * @param string[] $targetSlugs   The cuisine slugs to filter on
-     *                                ([cuisineSlug] or a category's members).
-     * @param string[] $onKeywords    Regex-ready fragments that signal ON-cuisine
+     * @param  bool  $requested  Was a cuisine/category param actually passed?
+     * @param  bool  $resolved  Did it map to a real taxonomy entry?
+     * @param  string  $queryTerm  Human, Google-friendly term for query-style
+     *                             sources (SerpApi/Foursquare/BizData), e.g.
+     *                             "african", "south african".
+     * @param  string  $primarySlug  Cuisine slug (single cuisine) or category
+     *                               slug (category search) — what Overpass
+     *                               resolves via config to a synonym union.
+     * @param  string[]  $targetSlugs  The cuisine slugs to filter on
+     *                                 ([cuisineSlug] or a category's members).
+     * @param  string[]  $onKeywords  Regex-ready fragments that signal ON-cuisine
      *                                (name + type + description match).
-     * @param string[] $rivalKeywords Regex-ready fragments for all OTHER cuisines
-     *                                (rival match against type + description only).
-     * @param string $label           Human label for display/logging.
+     * @param  string[]  $rivalKeywords  Regex-ready fragments for all OTHER cuisines
+     *                                   (rival match against type + description only).
+     * @param  string  $label  Human label for display/logging.
      */
     public function __construct(
         public readonly bool $requested,

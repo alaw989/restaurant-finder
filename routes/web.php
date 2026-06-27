@@ -1,11 +1,11 @@
 <?php
 
-use App\Http\Controllers\HomeController;
 use App\Http\Controllers\CuisineController;
-use App\Http\Controllers\GeocodeController;
-use App\Http\Controllers\RestaurantController;
 use App\Http\Controllers\FavoriteController;
+use App\Http\Controllers\GeocodeController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RestaurantController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 

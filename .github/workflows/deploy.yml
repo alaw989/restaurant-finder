@@ -11,9 +11,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sqlite3, mbstring, xml, curl, bcmath, gd, zip, fileinfo
+          tools: composer:v2
+
+      - name: Install PHP dependencies (with dev)
+        run: composer install
+
+      - name: Run tests
+        run: php artisan test --no-interaction
+
+      - name: Run Pint (lint check)
+        run: vendor/bin/pint --test
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: ["quality"]
 
     steps:
       - name: Checkout code

@@ -172,14 +172,14 @@ class FavoriteController extends Controller
         // Try to find by google_place_id first, then by slug
         $query = Restaurant::query();
 
-        if (!empty($attributes['google_place_id'])) {
+        if (! empty($attributes['google_place_id'])) {
             $restaurant = $query->where('google_place_id', $attributes['google_place_id'])->first();
             if ($restaurant) {
                 return $restaurant;
             }
         }
 
-        if (!empty($attributes['slug'])) {
+        if (! empty($attributes['slug'])) {
             $restaurant = $query->where('slug', $attributes['slug'])->first();
             if ($restaurant) {
                 return $restaurant;
@@ -190,9 +190,9 @@ class FavoriteController extends Controller
         $restaurant = Restaurant::create($attributes);
 
         // Sync cuisines if provided
-        if (!empty($data['cuisines']) && is_array($data['cuisines'])) {
+        if (! empty($data['cuisines']) && is_array($data['cuisines'])) {
             $cuisineIds = array_filter(array_column($data['cuisines'], 'id'));
-            if (!empty($cuisineIds)) {
+            if (! empty($cuisineIds)) {
                 $restaurant->cuisines()->sync($cuisineIds);
             }
         }

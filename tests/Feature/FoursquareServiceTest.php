@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\ExternalApiCache;
 use App\Services\FoursquareService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -22,7 +21,7 @@ class FoursquareServiceTest extends TestCase
     private function fakePlace(string $name, float $lat, float $lng, ?string $phone = null, ?string $website = null, ?string $address = null, ?string $rating = null, ?string $price = null): array
     {
         return array_filter([
-            'fsq_id' => 'fsq-' . md5($name),
+            'fsq_id' => 'fsq-'.md5($name),
             'name' => $name,
             'location' => [
                 'address' => $address ?? '123 Main St',
@@ -52,7 +51,7 @@ class FoursquareServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $results = $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
 
         $this->assertCount(2, $results);
@@ -74,7 +73,7 @@ class FoursquareServiceTest extends TestCase
             'places-api.foursquare.com/*' => Http::response(null, 500),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $results = $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
 
         $this->assertSame([], $results);
@@ -84,7 +83,7 @@ class FoursquareServiceTest extends TestCase
     {
         Config::set('services.foursquare.api_key', null);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $results = $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
 
         $this->assertSame([], $results);
@@ -98,7 +97,7 @@ class FoursquareServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
         $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
 
@@ -113,7 +112,7 @@ class FoursquareServiceTest extends TestCase
             ], 200),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
         $service->searchNearbyRestaurants(37.7749, -122.4194, 'mexican');
 
@@ -126,7 +125,7 @@ class FoursquareServiceTest extends TestCase
             'places-api.foursquare.com/*' => fn () => throw new \Exception('Connection refused'),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $results = $service->searchNearbyRestaurants(37.7749, -122.4194, 'italian');
 
         $this->assertSame([], $results);
@@ -138,11 +137,12 @@ class FoursquareServiceTest extends TestCase
             'places-api.foursquare.com/*' => Http::response(['results' => []], 200),
         ]);
 
-        $service = new FoursquareService();
+        $service = new FoursquareService;
         $service->searchNearbyRestaurants(37.7749, -122.4194, 'japanese', 5000);
 
         Http::assertSent(function ($request) {
             $url = $request->url();
+
             return str_contains($url, 'll=37.7749%2C-122.4194')
                 && str_contains($url, 'query=japanese')
                 && str_contains($url, 'categories=13065')
@@ -154,6 +154,7 @@ class FoursquareServiceTest extends TestCase
         Http::assertSent(function ($request) {
             $auth = $request->header('Authorization')[0] ?? '';
             $version = $request->header('X-Places-Api-Version')[0] ?? '';
+
             return $auth === 'Bearer test-fsq-key'
                 && $version === '2025-06-17';
         });

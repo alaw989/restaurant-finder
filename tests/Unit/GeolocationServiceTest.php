@@ -4,7 +4,6 @@ namespace Tests\Unit;
 
 use App\Services\GeolocationService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
