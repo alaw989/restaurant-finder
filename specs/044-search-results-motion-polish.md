@@ -136,10 +136,15 @@ needs to re-search because it is only reachable from idle. `CuisinePicker.vue` i
 5. `npm run build` clean; `php artisan test` still 266/972.
 
 ## Verification
-1. `npm run build` (`vue-tsc` clean — new props optional; `nextTick` import added).
-2. `php artisan test` — 266/972 unchanged.
-3. Manual (`php artisan serve`; local has no SerpApi key → unrated results, but the flow is
-   identical): the four acceptance scenarios above, plus a throttled-network check (spinner
-   visible, no snap on arrival).
-4. Ship `feat(spec-044)` to master, watch the GHA deploy run, then **verify live** at
-   https://ipop360.vp-associates.com (the binding browser-verify step) — reproduce all scenarios.
+1. `npm run build` (`vue-tsc` clean — new props optional; `nextTick` import added). ✅
+2. `php artisan test` — 266/972 unchanged. ✅
+3. Manual local (`php artisan serve`; this machine has no SerpApi key → `is_live:true` but empty, so
+   the results-grid path couldn't be exercised locally): homepage renders, hero intact, no console
+   errors.
+4. **Verified live** at https://ipop360.vp-associates.com after deploy (`2f5bde5`): Mobile search →
+   30 real results with the new transition; compact cuisine dropdown GONE; re-sort to Rating
+   reordered the top-3 (Yellow Deli + Oasis, both 4.9★, → #1/#2) with `sawSpinner:false` and a grid
+   dim→restore; zero console errors.
+5. **Caveat (inspection-only):** the `prefers-reduced-motion` block (acceptance #4) was verified by
+   code review only — the headless browser couldn't toggle the OS motion preference, so it was not
+   tested interactively. Static CSS, low risk; confirm with OS "reduce motion" on if available.

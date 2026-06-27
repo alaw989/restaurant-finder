@@ -15,7 +15,7 @@ SQLite, Inertia.js + Vue 3, Tailwind, shadcn-vue. Full principles + process in
   ranked restaurants (Bayesian `quality` signal). Verified live: NYC → NOMAD,
   Hole In The Wall-FiDi, Mezcali; Austin → Caroline, Gus's World Famous Fried
   Chicken.
-- **Specs 001–044 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
+- **Specs 001–038 + 041–044 COMPLETE.** **029–033** = the Airbnb-style results redesign (photos plumbing,
   rewritten `RestaurantCard` + `CardGallery` hover-scrub, `RestaurantCardSkeleton`, responsive
   results grid, `Welcome.vue` idle→searching→results phase machine) — shipped to master via
   `ralph/results-redesign` (PR #1, `3fab22f`), live. **034–038** (results-redesign audit: interaction/
@@ -136,7 +136,15 @@ own local DB, which is expected (the live site uses its own on the droplet).
 To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-26)
-**001–044 are COMPLETE.** **044** (search→results motion polish — refined overlapping
+
+**▶ Resume point (2026-06-26):** master is clean at `d26c1b7`; spec-044 (search→results motion polish)
+shipped + verified live. Specs **001–038 + 041–044 are COMPLETE**. The ONLY open specs are **039**
+(new SVG logo — ⚠️ blocked until you drop a source image into `public/img/`) and **040** (live-result
+detail page + JSON-LD reachability — ⚠️ PROPOSED, blocked on a direction decision; Options A/B/C/D in
+its spec). No ralph batch is in flight (`ralph/audit-followup` → PR #2 already merged + deleted). The
+next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a new task.
+
+**Most recent shipments:** **044** (search→results motion polish — refined overlapping
 hero/bar/results transitions with matched exit/enter vectors so the idle→results swap reads as one
 gesture; replaced the `mode="out-in"` blank-beat + height-snap with a `state-swap` crossfade whose
 spinner leaves out-of-flow (absolute) UNDER the grid entering + a `.loading-block` stable height; new
@@ -185,11 +193,10 @@ direction sign-off). 037/038/039 were largely independent; **039 can run anytime
 exists**.
 Forward-refs in 036 to `useFavorites`/`@click.stop` are correct under ralph's lowest-first run order.
 
-**Ralph handoff (when 034–039 are all `Status: COMPLETE`):** run
-`gh pr create --base master --head ralph/audit-followup` (PR body summarizing 034–039;
-**do NOT merge — leave for user review**). The binding browser-verify on
-https://ipop360.vp-associates.com then applies **after** the PR is merged to master (watch the GHA
-run for the merged SHA, then reproduce behaviorally).
+**Ralph batch — DONE:** specs 034–038 shipped via `ralph/audit-followup` → PR #2 (`ba40e12`),
+merged + branch deleted 2026-06-26, deployed + verified live. (The original "create a PR, don't
+merge" handoff above is superseded — do not re-create it.) No ralph batch is in flight; the next
+spec ships as a normal direct-to-master `feat(spec-NNN)` once 039 or 040 is unblocked.
 
 Earlier off-queue follow-ups (still relevant, not blocking 034–039): (a) drop SerpApi's
 `buildQuery()` `" near me"` suffix (recall; cache-turnover-gated) — from 026; (b) Socrata
