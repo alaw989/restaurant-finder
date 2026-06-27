@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\LiveRestaurantResource;
+use App\Http\Resources\RestaurantResource;
 use App\Models\Cuisine;
 use App\Models\CuisineCategory;
 use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
-use App\Services\PopularityScoreService;
 use App\Services\PriceLevelNormalizer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -21,54 +22,42 @@ class RestaurantController extends Controller
     public function __construct(
         private GeolocationService $geolocationService,
         private LiveSearchService $liveSearchService,
-        private PopularityScoreService $popularityScoreService,
         private PriceLevelNormalizer $priceLevelNormalizer,
     ) {}
 
-    private function formatRestaurantData(Collection $restaurants): Collection
-    {
-        return $restaurants->map(fn (Restaurant $r) => [
-            'id' => $r->id,
-            'name' => $r->name,
-            'slug' => $r->slug,
-            'description' => $r->description,
-            'address' => $r->address,
-            'city' => $r->city,
-            'state' => $r->state,
-            'lat' => $r->latitude,
-            'lng' => $r->longitude,
-            'photo_url' => $r->photo_url,
-            'photos' => $r->photos ?? [],
-            'price_range' => $r->price_range,
-            'phone' => $r->phone,
-            'website_url' => $r->website_url,
-            'google_rating' => $r->google_rating,
-            'google_review_count' => $r->google_review_count,
-            'yelp_rating' => $r->yelp_rating,
-            'yelp_review_count' => $r->yelp_review_count,
-            'popular_times_avg_busyness' => $r->popular_times_avg_busyness,
-            'has_award' => $r->has_award,
-            'popularity_score' => $r->popularity_score,
-            'distance' => $r->distance ?? null,
-            'cuisines' => $r->cuisines->toArray(),
-            'source' => 'ipop360',
-            'score_breakdown' => $this->getScoreBreakdown($r, $restaurants),
-        ]);
-    }
-
     /**
-     * Get the score breakdown for a restaurant, preferring the stored value
-     * with fallback to computation for rows scored before the column existed.
+     * Build the shared restaurant query with cuisine/category/coords filtering.
+     *
+     * This query builder is used by both index() and apiIndex() to ensure
+     * consistent filtering behavior and avoid drift between the two endpoints.
+     *
+     * @param  Request  $request
+     * @return Builder
      */
-    private function getScoreBreakdown(Restaurant $restaurant, Collection $all): array
+    private function buildRestaurantQuery(Request $request): Builder
     {
-        // Prefer the stored breakdown (most efficient)
-        if ($restaurant->score_breakdown !== null) {
-            return $restaurant->score_breakdown;
-        }
+        $cuisineSlug = $request->query('cuisine');
+        $categorySlug = $request->query('category');
 
-        // Fallback: compute on-the-fly for legacy rows
-        return $this->popularityScoreService->calculateBreakdown($restaurant, $all);
+        return Restaurant::query()
+            ->with('cuisines')
+            ->when(
+                $cuisineSlug,
+                fn ($query) => $query->whereHas(
+                    'cuisines',
+                    fn ($q) => $q->where('slug', $cuisineSlug)
+                )
+            )
+            ->when(
+                $categorySlug && ! $cuisineSlug,
+                fn ($query) => $query->whereHas(
+                    'cuisines',
+                    fn ($q) => $q->whereHas(
+                        'category',
+                        fn ($cq) => $cq->where('slug', $categorySlug)
+                    )
+                )
+            );
     }
 
     /**
@@ -270,25 +259,8 @@ class RestaurantController extends Controller
 
         $coords = $this->geolocationService->resolveCoordinates($request);
 
-        $query = Restaurant::query()
-            ->with('cuisines')
-            ->when(
-                $cuisineSlug,
-                fn ($query) => $query->whereHas(
-                    'cuisines',
-                    fn ($q) => $q->where('slug', $cuisineSlug)
-                )
-            )
-            ->when(
-                $categorySlug && ! $cuisineSlug,
-                fn ($query) => $query->whereHas(
-                    'cuisines',
-                    fn ($q) => $q->whereHas(
-                        'category',
-                        fn ($cq) => $cq->where('slug', $categorySlug)
-                    )
-                )
-            )
+        // Build the shared query with cuisine/category filtering
+        $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
                 fn ($query) => $query->nearby($coords['lat'], $coords['lng'])
@@ -300,9 +272,17 @@ class RestaurantController extends Controller
 
         $restaurants = $query->paginate(20)->withQueryString();
 
+        // Format using RestaurantResource (collection)
         $items = $restaurants->getCollection();
-        $formatted = $this->formatRestaurantData($items);
-        $restaurants->setCollection($formatted);
+        $allItems = $items; // Keep for score_breakdown fallback
+
+        $formatted = RestaurantResource::collection($items);
+        // Attach the full collection to each resource for score_breakdown fallback
+        $formatted->each(fn ($resource) => $resource->withAllRestaurants($allItems));
+
+        $formattedArray = $formatted->resolve();
+
+        $restaurants->setCollection(collect($formattedArray));
 
         return Inertia::render('Restaurants/Index', [
             'restaurants' => $restaurants,
@@ -317,38 +297,15 @@ class RestaurantController extends Controller
         $restaurant->load('cuisines.category');
 
         $collection = collect([$restaurant]);
-        $breakdown = $this->getScoreBreakdown($restaurant, $collection);
+
+        // Format using RestaurantResource (single item)
+        $resource = (new RestaurantResource($restaurant))
+            ->withAllRestaurants($collection);
 
         $categorySlug = $restaurant->cuisines->first()?->category?->slug;
 
         return Inertia::render('Restaurants/Show', [
-            'restaurant' => [
-                'id' => $restaurant->id,
-                'name' => $restaurant->name,
-                'slug' => $restaurant->slug,
-                'description' => $restaurant->description,
-                'address' => $restaurant->address,
-                'city' => $restaurant->city,
-                'state' => $restaurant->state,
-                'postal_code' => $restaurant->postal_code,
-                'lat' => $restaurant->latitude,
-                'lng' => $restaurant->longitude,
-                'photo_url' => $restaurant->photo_url,
-                'photos' => $restaurant->photos ?? [],
-                'price_range' => $restaurant->price_range,
-                'phone' => $restaurant->phone,
-                'website_url' => $restaurant->website_url,
-                'google_rating' => $restaurant->google_rating,
-                'google_review_count' => $restaurant->google_review_count,
-                'yelp_rating' => $restaurant->yelp_rating,
-                'yelp_review_count' => $restaurant->yelp_review_count,
-                'popular_times_avg_busyness' => $restaurant->popular_times_avg_busyness,
-                'has_award' => $restaurant->has_award,
-                'popularity_score' => $restaurant->popularity_score,
-                'cuisines' => $restaurant->cuisines->toArray(),
-                'source' => 'ipop360',
-                'score_breakdown' => $breakdown,
-            ],
+            'restaurant' => $resource->resolve(),
             'categorySlug' => $categorySlug,
         ]);
     }
@@ -372,46 +329,11 @@ class RestaurantController extends Controller
         }
 
         return Inertia::render('Restaurants/Show', [
-            'restaurant' => $this->formatLiveRestaurant($restaurant),
+            'restaurant' => (new LiveRestaurantResource($restaurant))->resolve(),
             'categorySlug' => null,
             'isLivePreview' => true,
             'canonicalUrl' => route('restaurants.preview', ['slug' => $slug]),
         ]);
-    }
-
-    /**
-     * Format a raw live-search result array into the Show.vue restaurant prop
-     * shape (parallel to formatRestaurantData, which maps a DB Restaurant model).
-     */
-    private function formatLiveRestaurant(array $r): array
-    {
-        return [
-            'id' => $r['id'] ?? null,
-            'name' => $r['name'] ?? null,
-            'slug' => $r['slug'] ?? null,
-            'description' => $r['description'] ?? null,
-            'address' => $r['address'] ?? null,
-            'city' => $r['city'] ?? null,
-            'state' => $r['state'] ?? null,
-            'postal_code' => $r['postal_code'] ?? null,
-            'lat' => $r['lat'] ?? null,
-            'lng' => $r['lng'] ?? null,
-            'photo_url' => $r['photo_url'] ?? null,
-            'photos' => $r['photos'] ?? [],
-            'price_range' => $r['price_range'] ?? null,
-            'phone' => $r['phone'] ?? null,
-            'website_url' => $r['website_url'] ?? null,
-            'google_rating' => $r['google_rating'] ?? null,
-            'google_review_count' => $r['google_review_count'] ?? null,
-            'yelp_rating' => $r['yelp_rating'] ?? null,
-            'yelp_review_count' => $r['yelp_review_count'] ?? null,
-            'popular_times_avg_busyness' => $r['popular_times_avg_busyness'] ?? null,
-            'has_award' => $r['has_award'] ?? false,
-            'popularity_score' => $r['popularity_score'] ?? null,
-            'cuisines' => $r['cuisines'] ?? [],
-            'source' => $r['source'] ?? 'live',
-            'score_breakdown' => $r['score_breakdown'] ?? null,
-        ];
     }
 
     public function apiIndex(Request $request)
@@ -426,25 +348,8 @@ class RestaurantController extends Controller
 
         $coords = $this->geolocationService->resolveCoordinates($request);
 
-        $query = Restaurant::query()
-            ->with('cuisines')
-            ->when(
-                $cuisineSlug,
-                fn ($query) => $query->whereHas(
-                    'cuisines',
-                    fn ($q) => $q->where('slug', $cuisineSlug)
-                )
-            )
-            ->when(
-                $categorySlug && ! $cuisineSlug,
-                fn ($query) => $query->whereHas(
-                    'cuisines',
-                    fn ($q) => $q->whereHas(
-                        'category',
-                        fn ($cq) => $cq->where('slug', $categorySlug)
-                    )
-                )
-            )
+        // Build the shared query with cuisine/category filtering
+        $query = $this->buildRestaurantQuery($request)
             ->when(
                 $coords !== null,
                 fn ($query) => $query->nearby($coords['lat'], $coords['lng'])
@@ -477,7 +382,7 @@ class RestaurantController extends Controller
             $this->snapshotLiveResults($liveResults);
 
             return response()->json([
-                'data' => $liveResults,
+                'data' => LiveRestaurantResource::collection($liveResults)->resolve(),
                 'current_page' => 1,
                 'last_page' => 1,
                 'per_page' => count($liveResults),
@@ -491,10 +396,15 @@ class RestaurantController extends Controller
         }
 
         $items = $restaurants->getCollection();
-        $formatted = $this->formatRestaurantData($items);
+        $allItems = $items; // Keep for score_breakdown fallback
+
+        // Format using RestaurantResource (collection)
+        $formatted = RestaurantResource::collection($items);
+        // Attach the full collection to each resource for score_breakdown fallback
+        $formatted->each(fn ($resource) => $resource->withAllRestaurants($allItems));
 
         return response()->json([
-            'data' => $formatted,
+            'data' => $formatted->resolve(),
             'current_page' => $restaurants->currentPage(),
             'last_page' => $restaurants->lastPage(),
             'per_page' => $restaurants->perPage(),

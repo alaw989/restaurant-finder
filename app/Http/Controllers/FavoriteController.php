@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\RestaurantResource;
 use App\Models\Restaurant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,36 +18,13 @@ class FavoriteController extends Controller
         $user = $request->user();
         $favorites = $user->favorites()->with('cuisines')->get();
 
-        $formatted = $favorites->map(fn (Restaurant $r) => [
-            'id' => $r->id,
-            'name' => $r->name,
-            'slug' => $r->slug,
-            'description' => $r->description,
-            'address' => $r->address,
-            'city' => $r->city,
-            'state' => $r->state,
-            'lat' => $r->latitude,
-            'lng' => $r->longitude,
-            'photo_url' => $r->photo_url,
-            'photos' => $r->photos ?? [],
-            'price_range' => $r->price_range,
-            'phone' => $r->phone,
-            'website_url' => $r->website_url,
-            'google_rating' => $r->google_rating,
-            'google_review_count' => $r->google_review_count,
-            'yelp_rating' => $r->yelp_rating,
-            'yelp_review_count' => $r->yelp_review_count,
-            'popular_times_avg_busyness' => $r->popular_times_avg_busyness,
-            'has_award' => $r->has_award,
-            'popularity_score' => $r->popularity_score,
-            'distance' => null,
-            'cuisines' => $r->cuisines->toArray(),
-            'source' => 'ipop360',
-            'score_breakdown' => $r->score_breakdown,
-        ]);
+        // Format using RestaurantResource (collection)
+        $formatted = RestaurantResource::collection($favorites);
+        // Attach the full collection to each resource for score_breakdown fallback
+        $formatted->each(fn ($resource) => $resource->withAllRestaurants($favorites));
 
         return Inertia::render('Favorites/Index', [
-            'favorites' => $formatted,
+            'favorites' => $formatted->resolve(),
         ]);
     }
 
