@@ -25,22 +25,17 @@ const props = defineProps<{
 const { isFavorited, toggle } = useFavorites();
 
 // Compute the detail or maps URL for the stretched link. Persisted venues
-// (id > 0) link to their DB detail page; live results link to the cache-backed
-// preview route (spec-040) when we have the search-center coords needed to
-// reconstruct from warm caches, otherwise fall back to Google Maps.
+// (id > 0) link to their DB detail page; live results link to the param-free
+// preview route (spec-040). The preview page reads the venue from a per-slug
+// snapshot, so no coords/cuisine are needed in the URL — the old reconstruction
+// (which required them) 404'd on category searches. Fall back to Google Maps
+// only if a live result somehow has no slug.
 const detailOrMapsUrl = computed(() => {
     if (props.restaurant.id > 0) {
         return `/restaurants/${props.restaurant.slug}`;
     }
-    if (props.searchLat != null && props.searchLng != null) {
-        const params = new URLSearchParams({
-            lat: String(props.searchLat),
-            lng: String(props.searchLng),
-        });
-        if (props.cuisine) {
-            params.set('cuisine', props.cuisine);
-        }
-        return `/restaurants/preview/${props.restaurant.slug}?${params.toString()}`;
+    if (props.restaurant.slug) {
+        return `/restaurants/preview/${props.restaurant.slug}`;
     }
     return mapsUrl(props.restaurant.name, props.restaurant.city);
 });

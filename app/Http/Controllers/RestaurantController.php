@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Cuisine;
 use App\Models\CuisineCategory;
+use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
@@ -207,6 +208,35 @@ class RestaurantController extends Controller
         return ($a['name'] ?? '') <=> ($b['name'] ?? '');
     }
 
+    /**
+     * Persist each live result under preview:{slug} in ExternalApiCache (spec-040).
+     *
+     * Lets preview() render a venue from a direct slug lookup instead of
+     * reconstructing it via a cache-only re-search — which 404'd on category
+     * searches (the card carried cuisine but never category), Overpass
+     * name-fallback venues, coord drift, and cache expiry. Writes only to
+     * external_api_cache (already written on the read path, so the "no
+     * restaurants write" constraint stands) and triggers no live fetch (zero
+     * quota). TTL-configurable via restaurant-finder.cache.preview_snapshot_days.
+     */
+    private function snapshotLiveResults(array $results): void
+    {
+        if (empty($results)) {
+            return;
+        }
+
+        $expiresAt = now()->addDays(
+            (int) config('restaurant-finder.cache.preview_snapshot_days', 7)
+        );
+
+        foreach ($results as $venue) {
+            $slug = $venue['slug'] ?? null;
+            if (! empty($slug)) {
+                ExternalApiCache::storeByKey("preview:{$slug}", $venue, $expiresAt);
+            }
+        }
+    }
+
     public function index(Request $request)
     {
         $validated = $request->validate([
@@ -322,43 +352,28 @@ class RestaurantController extends Controller
     }
 
     /**
-     * Detail page for a LIVE-search result (spec-040, Option A). Reconstructs the
-     * venue from the warm per-source ExternalApiCache via a cache-only search
-     * (zero SerpApi quota, no restaurants-table write) and renders the same Show
-     * view. The URL carries the search-center coords so the per-source cache keys
-     * match the original search. 404s if the venue isn't in a warm cache (expired
-     * or never searched) — it never burns quota to reconstruct.
+     * Detail page for a LIVE-search result (spec-040). Renders the venue from the
+     * per-slug snapshot written by apiIndex() (preview:{slug} in
+     * ExternalApiCache) — a direct lookup, NOT a cache-only re-search. This is
+     * quota-free and robust: it no longer depends on reproducing the original
+     * search's coords/scope (which 404'd category searches, Overpass name-fallback
+     * venues, and any coord drift). The URL is just /restaurants/preview/{slug}
+     * (old lat/lng/cuisine query params are harmlessly ignored for back-compat).
+     * 404s once the snapshot TTL expires (findByKey honors expires_at).
      */
-    public function preview(Request $request, string $slug)
+    public function preview(string $slug)
     {
-        $validated = $request->validate([
-            'lat' => ['required', 'numeric'],
-            'lng' => ['required', 'numeric'],
-            'cuisine' => ['nullable', 'string'],
-        ]);
-
-        $lat = (float) $validated['lat'];
-        $lng = (float) $validated['lng'];
-        $cuisineSlug = $validated['cuisine'] ?? null;
-
-        $results = $this->liveSearchService->search($lat, $lng, $cuisineSlug, null, cacheOnly: true);
-
-        $restaurant = collect($results)->first(fn ($r) => ($r['slug'] ?? null) === $slug);
+        $restaurant = ExternalApiCache::findByKey("preview:{$slug}");
 
         if ($restaurant === null) {
             abort(404, 'This restaurant preview is no longer available.');
-        }
-
-        $previewParams = ['slug' => $slug, 'lat' => $lat, 'lng' => $lng];
-        if ($cuisineSlug !== null) {
-            $previewParams['cuisine'] = $cuisineSlug;
         }
 
         return Inertia::render('Restaurants/Show', [
             'restaurant' => $this->formatLiveRestaurant($restaurant),
             'categorySlug' => null,
             'isLivePreview' => true,
-            'canonicalUrl' => route('restaurants.preview', $previewParams),
+            'canonicalUrl' => route('restaurants.preview', ['slug' => $slug]),
         ]);
     }
 
@@ -451,6 +466,13 @@ class RestaurantController extends Controller
             // popularity_score desc unconditionally; without this ?sort= is a
             // no-op on the live path every production request hits).
             $liveResults = $this->sortLiveResults($liveResults, $sort, $coords !== null);
+
+            // Snapshot each shown result under preview:{slug} so the detail page
+            // (/restaurants/preview/{slug}) can render it WITHOUT re-running the
+            // live search (zero quota, no restaurants write). Stored AFTER sort +
+            // boundResults so it's exactly what the user saw. Replaces the fragile
+            // cache-only reconstruction — see spec-040 / preview().
+            $this->snapshotLiveResults($liveResults);
 
             return response()->json([
                 'data' => $liveResults,

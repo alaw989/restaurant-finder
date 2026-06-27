@@ -161,6 +161,16 @@ return [
     */
     'cache' => [
         'serpapi_ttl_hours' => (int) env('SERPAPI_CACHE_TTL_HOURS', 24 * 30),
+
+        // Per-slug snapshot of each live-search result, written on the read path
+        // so the detail page (/restaurants/preview/{slug}) can render a venue
+        // WITHOUT re-running the live search (zero quota). Replaces the fragile
+        // cache-only reconstruction (which 404'd on category searches, Overpass
+        // name-fallback venues, coord drift, and cache expiry). The snapshot is a
+        // point-in-time copy, so staleness is bounded by this TTL alone. After
+        // expiry the preview 404s gracefully (ExternalApiCache.findByKey honors
+        // expires_at). See spec-040.
+        'preview_snapshot_days' => (int) env('PREVIEW_SNAPSHOT_DAYS', 7),
     ],
 
     /*

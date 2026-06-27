@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\RestaurantController;
 use App\Models\Cuisine;
 use App\Models\CuisineCategory;
+use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\LiveSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -487,6 +488,23 @@ class RestaurantControllerTest extends TestCase
         $response->assertJsonPath('total', 3);
         $response->assertJsonPath('next_page_url', null);
         $this->assertCount(3, $response->json('data'));
+    }
+
+    public function test_api_live_results_are_snapshotted_by_slug_for_preview(): void
+    {
+        // apiIndex writes each live result under preview:{slug} so the detail page
+        // (preview()) can render it from a direct lookup instead of reconstructing
+        // it via a cache-only re-search (spec-040).
+        $this->bindLiveSearchResults([
+            $this->liveRow(['name' => 'Alpha', 'slug' => 'alpha-aaaaaa']),
+            $this->liveRow(['name' => 'Beta', 'slug' => 'beta-bbbbbb']),
+        ]);
+
+        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0');
+
+        $response->assertStatus(200);
+        $this->assertSame('Alpha', ExternalApiCache::findByKey('preview:alpha-aaaaaa')['name']);
+        $this->assertSame('Beta', ExternalApiCache::findByKey('preview:beta-bbbbbb')['name']);
     }
 
     public function test_sort_live_results_nearest_without_coords_falls_back_to_best_match(): void
