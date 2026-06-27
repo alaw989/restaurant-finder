@@ -30,7 +30,7 @@ jobs:
         run: composer install
 
       - name: Run tests
-        run: php artisan test --no-interaction
+        run: php artisan test
 
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test
