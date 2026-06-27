@@ -1,5 +1,7 @@
 # iPop360 History
 
+2026-06-27 — Spec 058: Cache TTL Consolidation — Moved all hardcoded cache TTLs to config/restaurant-finder.php. Added 6 new TTL config keys: outscraper_ttl_hours (168h), google_ttl_hours (24h), overpass_ttl_hours (24h), bizdata_ttl_hours (24h), foursquare_ttl_hours (24h), socrata_ttl_hours (24h). Updated 6 source services to read TTLs from config. Added documentation explaining two-cache-store architecture (ExternalApiCache vs Laravel Cache facade). Added inline comments in GeolocationService and RestaurantWebsiteScraperService. Documented all new env keys in .env.example. 293 tests pass, config:cache succeeds.
+
 2026-06-27 — Spec 054: Shared venue pipeline (dedup the two 1k-LOC services) — Created `app/Services/VenuePipeline.php` (~250 LOC) containing shared venue-processing primitives: filterGarbageNames, crossSourceDedup, venuesMatch, mergeVenues, haversineKm, namesMatch, MATCH_RADIUS_KM. Updated LiveSearchService and RestaurantEnrichmentService to inject and delegate to VenuePipeline. Fixed LiveSearchScoringTest to include VenuePipeline in service instantiation. All 293 tests pass; behavior is byte-identical (delegates to same pure functions). Config reads (dedup.match_radius_km, dedup.name_similarity_threshold) now flow through VenuePipeline.
 
 2026-06-19 — Kill Dead Yelp Weights: Set Yelp ranking weights to 0 after Yelp removal, all tests pass
