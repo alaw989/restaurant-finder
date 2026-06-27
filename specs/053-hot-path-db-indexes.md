@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE — 293 tests green, migration applied, EXPLAIN QUERY PLAN confirms indexes used
 
 **Series**: Tier 2 — Correctness / low-risk wins. Pure perf, behavior-neutral.
 
