@@ -137,7 +137,9 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-27):** master is clean at `9f4caeb`; spec-045 (spinner centering/fade +
+**▶ Resume point (2026-06-27):** master is clean at `b0d2bf9`; spec-045 + a loading-spinner
+spin-regression fix both shipped + verified live (the loading ring never rotated until `b0d2bf9` —
+see Most recent shipments). spec-045 (spinner centering/fade +
 back-transition + search-state reset — the spec-044 follow-up) shipped + verified live. Specs
 **001–038 + 041–045 are COMPLETE**. The ONLY open specs are **039** (new SVG logo — ⚠️ blocked until
 you drop a source image into `public/img/`) and **040** (live-result detail page + JSON-LD reachability
@@ -145,7 +147,17 @@ you drop a source image into `public/img/`) and **040** (live-result detail page
 flight. The next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a
 new task.
 
-**Most recent shipments:** **045** (spinner centering/fade + back-transition + search-state reset — the
+**Most recent shipments:** **045-spin-fix** (the loading spinner ring NEVER SPUN — a regression where it
+was ONE `<span>` carrying both `.spinner-enter` (entrance pop) and Tailwind's `.animate-spin`; both set
+the `animation` shorthand, and in the compiled CSS `.spinner-enter` lands AFTER `.animate-spin` (byte
+81123 vs 19960) so it won the cascade and wiped the spin — the ring ran the 260ms entrance and stopped
+(computed `animationName: none`, reproduced in-browser); fixed by wrapping the ring in its own
+`.spinner-enter` element and putting `animate-spin` on the inner ring alone, so the entrance and the
+infinite spin live on separate nodes and no `animation` shorthand can collide; frontend-only — app.css
+comment + Welcome.vue markup; the small button spinner at ~line 485 was never affected) — **SHIPPED:
+commit `b0d2bf9`, deployed + GHA-green + VERIFIED LIVE 2026-06-27** (caught the real mounted ring via a
+MutationObserver the instant it appeared during a live Austin search: `animationName:spin`, `1s`,
+`infinite`; 20 results; zero console errors). **045** (spinner centering/fade + back-transition + search-state reset — the
 spec-044 follow-up: fixed the loading spinner DRIFTING down as it crossfaded into results
 (`.state-swap-leave-active` `inset:0` stretched the leaving box to the grid-tall parent so the centered
 ring slid to the grid's vertical center; pinned to top/left/right only + `pointer-events:none`);
