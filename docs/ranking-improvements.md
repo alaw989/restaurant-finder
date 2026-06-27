@@ -166,7 +166,7 @@ Or simpler: a single `osm_quality_score` (decimal 3,2) computed from these.
 - Populates `google_rating` / `google_review_count` columns
 - Once populated, the scoring system naturally picks them up via existing Google bonus weights
 
-**Note:** `.env` already has `SERPAPI_API_KEY=acf3d8e76b570745abff059253dbe6118bc76f39d91277df3dfad9c7bf19c1df`.
+**Note:** `.env` already has `SERPAPI_API_KEY` configured.
 
 ---
 

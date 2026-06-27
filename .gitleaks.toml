@@ -20,5 +20,6 @@ regexes = [
   '''^[\w_]+=["']?\$\{[\w_]+\}["']?$''',   # Variable references like "${APP_NAME}"
   '''^[\w_]+=["']?127\.0\.0\.1["']?$''',    # Localhost IPs
   '''^[\w_]+=["']?0\.0["']?$''',            # Zero values
-  '''^#'''                                  # Comment lines
+  '''^#''',                                 # Comment lines
+  '''const \w+_KEY\s*=\s*['"][\w_]+['"]''', # localStorage/sessionStorage key constants
 ]
