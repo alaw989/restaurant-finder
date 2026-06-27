@@ -231,7 +231,11 @@ class SerpApiService
      */
     private function buildQuery(?string $query): string
     {
-        return trim(($query ?? 'restaurants') . ' near me');
+        // Just the cuisine term. SerpApi's google_maps engine is geo-anchored
+        // via its ll=@lat,lng param, so a "near me" suffix was redundant and
+        // biased toward literal phrase-matching. The cache key uses the raw
+        // term (not this output), so dropping it never turns over cache entries.
+        return trim($query ?? 'restaurants');
     }
 
     /**
@@ -264,7 +268,7 @@ class SerpApiService
             $photo = $this->sizeGoogleThumbnail($r['thumbnail'] ?? null);
 
             // Capture Google's structured place classification. SerpApi's
-            // q="<cuisine> near me" still leaks off-cuisine rows (spec-028), so the
+            // q="<cuisine>" still leaks off-cuisine rows (spec-028), so the
             // cuisine-relevance filter inspects this against a rival-cuisine set; and
             // spec-042's filterNonRestaurants() drops non-food places (churches, salons,
             // groceries). 'type' is the primary field (string); 'types' is the alternate

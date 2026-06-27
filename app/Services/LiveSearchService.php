@@ -98,8 +98,9 @@ class LiveSearchService
 
         // Per-source cuisine string derived from the ONE resolved scope.
         // Query-style sources (SerpApi/Foursquare/BizData/Socrata) get the
-        // human term ("african" → "african near me" — ONE quota call). Overpass
-        // gets the slug, which it expands to a synonym union via config.
+        // human term ("african" → "african"; SerpApi geo-anchors via its ll=
+        // param, so "near me" was redundant). Overpass gets the slug, which it
+        // expands to a synonym union via config.
         $scoped = $scope->isScoped();
         $queryCuisine = $scoped ? $scope->queryTerm : null;
         $overpassCuisine = $scoped ? $scope->primarySlug : null;
@@ -693,7 +694,7 @@ class LiveSearchService
      *    cuisine. Nameless rows are dropped.
      *
      *  - Trusted sources (serpapi, overpass, foursquare): three-valued scrutiny
-     *    (spec-028). SerpApi's q="<cuisine> near me" still leaks off-cuisine rows,
+     *    (spec-028). SerpApi's q="<cuisine>" still leaks off-cuisine rows,
      *    so trusting a source's query intent does not justify trusting every row.
      *    Using the on-cuisine keyword pattern against name + Google's structured
      *    `place_types` + `description`, and a rival-cuisine pattern (all OTHER
