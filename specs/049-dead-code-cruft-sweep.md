@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE
 
 **Series**: Tier 1 — Safety / tooling foundation. Low-risk warmup that shrinks
 the surface every later spec touches. Each removal is independent and can ship
