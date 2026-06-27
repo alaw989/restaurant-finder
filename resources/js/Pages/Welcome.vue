@@ -95,13 +95,36 @@ const structuredData = computed(() => {
     return [webSite, organization]
 })
 
+// Persist city/state AND coords together so a reload restores the exact spot the
+// user searched. Previously the city came from localStorage but the coords came
+// from the server's IP guess → a reload recentred the search on the wrong place.
+function persistLocation() {
+    localStorage.setItem('foodrank_location', JSON.stringify({
+        city: location.value.city,
+        state: location.value.state,
+        lat: lat.value,
+        lng: lng.value,
+    }))
+}
+
 onMounted(() => {
     // Check if we already have location from prior session
     const savedLocation = localStorage.getItem('foodrank_location')
     if (savedLocation) {
         try {
             const parsed = JSON.parse(savedLocation)
-            location.value = parsed
+            // Assign city/state explicitly — NOT the whole blob, which now also
+            // carries lat/lng (don't leak those onto the Location ref).
+            location.value = {
+                city: parsed.city ?? null,
+                state: parsed.state ?? null,
+            }
+            // Restore saved coords too (closes the reload city/coords desync).
+            // Legacy city-only saves simply keep the IP-guess coords.
+            if (parsed.lat != null && parsed.lng != null) {
+                lat.value = parsed.lat
+                lng.value = parsed.lng
+            }
             if (parsed.city) return // Don't re-prompt if user already has a saved location
         } catch {}
     }
@@ -124,7 +147,7 @@ onMounted(() => {
                             city: data.city ?? null,
                             state: data.state ?? null,
                         }
-                        localStorage.setItem('foodrank_location', JSON.stringify(location.value))
+                        persistLocation()
                     }
                 } catch {
                     // Keep IP-based fallback
@@ -152,7 +175,7 @@ function detectLocation() {
                 const data = await res.json()
                 if (data.city || data.state) {
                     location.value = { city: data.city ?? null, state: data.state ?? null }
-                    localStorage.setItem('foodrank_location', JSON.stringify(location.value))
+                    persistLocation()
                 }
             } catch {
                 // Keep existing coordinates
@@ -173,24 +196,19 @@ function onCuisineSelect(payload: { category: string; cuisine?: string; label: s
     selectedLabel.value = payload.label
 }
 
-async function onLocationUpdate(newLocation: Location) {
+// Sync now: coords arrive in the same selectResult() call via @coords (emitted
+// right after @update), so the async forward-geocode is redundant — and it raced
+// (a slow/failing fetch silently kept the OLD coords on a city change). Both
+// this and onCoords persist city+coords together.
+function onLocationUpdate(newLocation: Location) {
     location.value = newLocation
-    localStorage.setItem('foodrank_location', JSON.stringify(newLocation))
+    persistLocation()
+}
 
-    if (newLocation.city) {
-        try {
-            const params = new URLSearchParams({ city: newLocation.city })
-            if (newLocation.state) params.set('state', newLocation.state)
-            const res = await fetch(`/api/geocode/forward?${params}`)
-            const data = await res.json()
-            if (data.lat != null && data.lng != null) {
-                lat.value = data.lat
-                lng.value = data.lng
-            }
-        } catch {
-            // Keep existing coordinates
-        }
-    }
+function onCoords(lt: number, lg: number) {
+    lat.value = lt
+    lng.value = lg
+    persistLocation()
 }
 
 async function search() {
@@ -301,6 +319,13 @@ async function loadMore() {
 
 function resetToIdle() {
     phase.value = 'idle'
+    // Fresh slate: clear the cuisine selection so the remounted CuisinePicker's
+    // "any cuisine" label is honest (it owns its own selectedLabel, which resets
+    // on remount — clearing the parent stops the old cuisine being silently
+    // reused). City/coords/sort are intentionally kept.
+    selectedCategory.value = ''
+    selectedCuisine.value = undefined
+    selectedLabel.value = null
     restaurants.value = []
     nextPageUrl.value = null
     searchError.value = null
@@ -311,6 +336,11 @@ function resetToIdle() {
 
 function refineSearch() {
     phase.value = 'idle'
+    // Fresh slate on back/refine: clear cuisine (same reason as resetToIdle).
+    // City/coords/sort are kept so the user can just re-search.
+    selectedCategory.value = ''
+    selectedCuisine.value = undefined
+    selectedLabel.value = null
     geolocationError.value = null
 }
 </script>
@@ -422,8 +452,10 @@ function refineSearch() {
             </div>
         </Transition>
 
-        <!-- Main content area -->
-        <div class="flex flex-1 flex-col">
+        <!-- Main content area. `relative` anchors the absolute-positioned leaving
+             results on the back-transition (results-in-leave-active) to this box,
+             not the viewport. -->
+        <div class="relative flex flex-1 flex-col">
             <!-- Centered hero (idle phase) -->
             <Transition name="hero-out">
                 <div v-if="phase === 'idle'" class="flex flex-1 flex-col items-center justify-center px-4">
@@ -438,7 +470,7 @@ function refineSearch() {
                             <span>Find the most Popular</span>
                             <CuisinePicker :categories="categories" @select="onCuisineSelect" />
                             <span>Restaurants in</span>
-                            <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="(lt, lg) => { lat = lt; lng = lg }" @detect="detectLocation" />
+                            <LocationPicker :location="location" :detecting="detectingLocation" @update="onLocationUpdate" @coords="onCoords" @detect="detectLocation" />
                         </div>
 
                         <!-- Search button -->

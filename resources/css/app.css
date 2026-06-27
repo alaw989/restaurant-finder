@@ -117,6 +117,21 @@
         filter: blur(4px);
     }
 
+    /* Hero returns on back (results → idle): mirrors the leave so the swap reads
+       symmetric. In-flow flex-1 (not absolute) — it re-claims the height the
+       absolute leaving results vacates. */
+    .hero-out-enter-active {
+        transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+                    filter 320ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition-delay: 60ms;
+    }
+    .hero-out-enter-from {
+        opacity: 0;
+        transform: scale(0.97) translateY(-12px);
+        filter: blur(4px);
+    }
+
     /* Compact bar drops in, slightly faster than the hero leaves, with a tiny
        overlap so it enters as the hero exits. */
     .bar-in-enter-active {
@@ -125,6 +140,17 @@
         transition-delay: 40ms;
     }
     .bar-in-enter-from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    /* Sticky bar drops back out on the reverse path (short; stays in flow, no
+       layout impact — it's position:sticky, not absolute). */
+    .bar-in-leave-active {
+        transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .bar-in-leave-to {
         opacity: 0;
         transform: translateY(-10px);
     }
@@ -138,6 +164,23 @@
     .results-in-enter-from {
         opacity: 0;
         transform: translateY(20px);
+    }
+
+    /* Results leave on back (results → idle). Taken out of flow (absolute) so the
+       re-entering hero (flex-1) claims the full height from frame 1 — no stacked
+       double-height flash. Mirrors the state-swap spinner trick. */
+    .results-in-leave-active {
+        transition: opacity 260ms cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        pointer-events: none;
+    }
+    .results-in-leave-to {
+        opacity: 0;
+        transform: translateY(-12px);
     }
 
     /* Plain opacity fade (used by the geolocation banner). */
@@ -161,8 +204,19 @@
     }
     .state-swap-leave-active {
         transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+        /* Pin to top only — NO bottom/height. `inset:0` stretched the leaving
+           spinner box to the (now grid-tall) parent, so the flex-centered ring
+           drifted down to the grid's vertical center as it faded. With top/left/
+           right only, the box keeps its content height (.loading-block min-height)
+           and the ring stays put. pointer-events:none so the fading ring can't
+           intercept clicks. (Height left auto because this rule is shared by all
+           leaving state-swap children — a forced height would squish a leaving
+           results grid.) */
         position: absolute;
-        inset: 0;
+        left: 0;
+        right: 0;
+        top: 0;
+        pointer-events: none;
     }
     .state-swap-enter-from,
     .state-swap-leave-to {
@@ -226,8 +280,11 @@
    classes, so elements still mount/unmount; only the motion is removed. */
 @media (prefers-reduced-motion: reduce) {
     .hero-out-leave-active,
+    .hero-out-enter-active,
     .bar-in-enter-active,
+    .bar-in-leave-active,
     .results-in-enter-active,
+    .results-in-leave-active,
     .state-swap-enter-active,
     .state-swap-leave-active,
     .spinner-enter,
@@ -237,13 +294,16 @@
         transition-delay: 0ms !important;
         animation-delay: 0ms !important;
     }
-    .hero-out-leave-to {
+    .hero-out-leave-to,
+    .hero-out-enter-from {
         opacity: 0;
         transform: none;
         filter: none;
     }
     .bar-in-enter-from,
+    .bar-in-leave-to,
     .results-in-enter-from,
+    .results-in-leave-to,
     .state-swap-enter-from,
     .state-swap-leave-to {
         opacity: 0;
