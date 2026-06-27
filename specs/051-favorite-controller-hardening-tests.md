@@ -4,10 +4,32 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE — 2026-06-27
 
 **Series**: Tier 2 — Correctness / low-risk wins. Unblocks cleaner favorites
 behavior and adds the controller's first tests.
+
+## Implementation notes
+
+- Refactored `toggle()` to use Eloquent's `toggle()` which returns
+  `['attached' => [...], 'detached' => [...]]` — derived `$favorited` from
+  this instead of `exists() + detach/attach`.
+- Refactored `merge()` to collect all target IDs (existing + persisted) into
+  one array and call `syncWithoutDetaching($allIds)` once instead of N queries.
+- Kept `ensurePersisted()` contract unchanged (match by google_place_id, then
+  slug, then create); added tests to pin match precedence.
+- Created `tests/Feature/FavoriteControllerTest.php` with 13 tests covering:
+  - toggle adds/removes favorites and returns correct favorited state
+  - toggle with unpersisted venue creates restaurant and attaches favorite
+  - toggle is idempotent with unpersisted venues
+  - merge combines existing IDs and unpersisted venues in one batch
+  - merge returns union with no duplicates
+  - merge handles empty data
+  - index returns user favorites
+  - ensurePersisted matches by google_place_id first, then by slug
+  - auth: guest → 302 redirect on toggle/merge/index
+- Behavior is byte-identical (response shapes unchanged) — verified by tests.
+- 290 tests pass; deployed green; commit `33b2de1`.
 
 ## The problem
 
