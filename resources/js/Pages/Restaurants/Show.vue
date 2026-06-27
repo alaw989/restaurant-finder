@@ -12,6 +12,7 @@ import { cuisineGradient } from '@/lib/cuisine';
 import { Heart } from '@lucide/vue';
 import { useFavorites } from '@/composables/useFavorites';
 import { useSeo, generateRestaurantJsonLd } from '@/composables/useSeo';
+import JsonLd from '@/Components/JsonLd.vue';
 
 const props = defineProps<{
     categorySlug: string | null;
@@ -157,11 +158,10 @@ function openWebsite(url: string) {
             <meta name="twitter:title" :content="seoData.twitterTitle" />
             <meta name="twitter:description" :content="seoData.twitterDescription" />
             <meta name="twitter:image" :content="seoData.twitterImage" />
-            <script
-                type="application/ld+json"
-                v-html="JSON.stringify(structuredData)"
-            />
         </Head>
+
+        <!-- Structured data — Inertia <Head> drops <script> tags, so inject via JsonLd -->
+        <JsonLd :data="structuredData" />
 
         <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <!-- Back link -->

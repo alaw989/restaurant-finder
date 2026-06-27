@@ -10,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Search, MapPin, Utensils, X } from '@lucide/vue'
 import type { Restaurant } from '@/types/restaurant'
 import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/composables/useSeo'
+import JsonLd from '@/Components/JsonLd.vue'
+import BrandLogo from '@/Components/BrandLogo.vue'
 
 type Phase = 'idle' | 'searching' | 'results' | 'empty' | 'error'
 
@@ -362,13 +364,10 @@ function refineSearch() {
             <meta name="twitter:title" :content="seoData.twitterTitle" />
             <meta name="twitter:description" :content="seoData.twitterDescription" />
             <meta name="twitter:image" :content="seoData.twitterImage" />
-            <script
-                v-for="(item, index) in structuredData"
-                :key="`jsonld-${index}`"
-                type="application/ld+json"
-                v-html="JSON.stringify(item)"
-            />
         </Head>
+
+        <!-- Structured data — Inertia <Head> drops <script> tags, so inject via JsonLd -->
+        <JsonLd :data="structuredData" />
 
         <!-- Visually-hidden page title for accessibility -->
         <h1 class="sr-only">Find Popular Restaurants Near You</h1>
@@ -425,7 +424,7 @@ function refineSearch() {
                 <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:gap-4">
                     <!-- Logo mark -->
                     <Link href="/" @click="resetToIdle" class="flex items-center" aria-label="iPop360 home">
-                        <img src="/img/ipop360-logo.png" alt="iPop360" class="h-8 w-auto" />
+                        <BrandLogo class="text-[2rem]" />
                     </Link>
 
                     <!-- Location (compact cuisine picker removed in spec-044 —
@@ -462,7 +461,7 @@ function refineSearch() {
                     <div class="w-full max-w-4xl text-center">
                         <!-- Logo -->
                         <Link href="/" class="mb-8 inline-block" aria-label="iPop360 home">
-                            <img src="/img/ipop360-logo.png" alt="iPop360" class="mx-auto h-20 w-auto" />
+                            <BrandLogo stacked class="text-[3.75rem]" />
                         </Link>
 
                         <!-- Dynamic sentence -->

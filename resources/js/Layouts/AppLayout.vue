@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import BrandLogo from '@/Components/BrandLogo.vue';
 </script>
 
 <template>
@@ -8,7 +9,7 @@ import { Link } from '@inertiajs/vue3';
             <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div class="flex h-16 items-center justify-between">
                     <Link href="/" class="flex items-center" aria-label="iPop360 home">
-                        <img src="/img/ipop360-logo.png" alt="iPop360" class="h-9 w-auto" />
+                        <BrandLogo class="text-[2.25rem]" />
                     </Link>
 
                     <div class="flex items-center gap-4">
