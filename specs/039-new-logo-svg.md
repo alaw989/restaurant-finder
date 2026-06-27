@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-25
 
-**Status**: Pending
+**Status**: **COMPLETE** (2026-06-27) — implemented as an inline `BrandLogo.vue` vector (orbit mark
+matching `public/favicon.svg` + lowercase "ipop360" wordmark), replacing the 654KB raster PNG in the
+nav/hero render path. See close-out note at the bottom.
 
 **Series**: 034–039. **Standalone** (no code deps) — can run anytime, but needs the source image on
 disk (see Prerequisite). Coordinates with 037 (favicon/theme-color) and 038 (default `og:image`).
@@ -77,5 +79,31 @@ The browser tab shows the new favicon; the default `og:image` is the PNG logo.
   updated — verified interactively.
 
 ## Completion
-FRs met, build green, committed + pushed → output `<promise>DONE</promise>`.
-<!-- NR_OF_TRIES: 0 -->
+
+**SHIPPED 2026-06-27** — implemented differently from the Approach above (the emoji had already been
+replaced by a 654KB raster PNG in commit `231a804`; this spec's real job was to vectorize it):
+
+- **FR-001 (SVG):** new `resources/js/Components/BrandLogo.vue` — inline vector mark (three
+  interlocking arc-circles, brand blue/orange/purple, matching `public/favicon.svg`) + lowercase
+  "ipop360" wordmark as app-font HTML text. Transparent background; scales as a unit via inherited
+  font-size; `stacked` prop for the hero lockup. Replaces the 3 `<img src="/img/ipop360-logo.png">`
+  (nav `h-9`, compact bar `h-8`, hero `h-20`) → the 654KB PNG is **out of the render path** (kept only
+  as the `useSeo` JSON-LD `logo` fallback). Spec-sanctioned inline approach ("inline SVG preferred for
+  the small nav mark"); wordmark uses the loaded `--font-sans` (spec-allowed alternative to outlining).
+- **FR-002 (PNG/favicon):** ⚠️ NOT regenerated this batch — no rasterizer on the dev machine
+  (no rsvg-convert/imagemagick/inkscape/sharp), and `public/favicon.svg` already matches the
+  BrandLogo orbit motif (browser-tab icon is consistent). The multi-size `favicon.ico` + PNG fallbacks
+  from spec-037 remain. Cosmetic gap; install a rasterizer later if pixel-identical derivation wanted.
+- **FR-003 (wired):** BrandLogo in `AppLayout.vue` + `Welcome.vue` (hero + compact bar) ✓. Favicon
+  `<link>` (spec-037) + `useSeo` `og:image` unchanged.
+- **FR-004 (dark mode):** wordmark is `text-foreground` (shadcn token that flips under `.dark`); mark
+  is fixed saturated brand colors → legible both themes. Strictly better than the old fixed-`#333` PNG
+  wordmark (near-invisible on dark).
+
+Verified locally (headless screenshot): hero stacked + nav horizontal render clean, no broken refs.
+Hardened by an adversarial pre-push review (5 dims, 9 confirmed low findings) — fixed the SVG
+`aria-label`/wordmark double-announcement for screen readers (SVG `aria-hidden` when wordmark shown).
+`npm run build` green; tests green (frontend-only spec).
+
+FRs met (FR-002 partial — documented gap), build green, committed + pushed, verified.
+<!-- NR_OF_TRIES: 1 -->

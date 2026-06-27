@@ -4,8 +4,10 @@
 
 **Created**: 2026-06-26
 
-**Status**: **Option A chosen** (cache-backed detail pages via cache-only search reconstruction) —
-implementing. Surfaced by the post-merge live verification of PR #2 (specs 034–038).
+**Status**: **COMPLETE** (2026-06-27). Option A (cache-backed detail pages via cache-only search
+reconstruction) shipped in commit `617031e` (older than specs 041–046, so long-deployed) and verified
+live this batch. See close-out note at the bottom. Surfaced by the post-merge live verification of
+PR #2 (specs 034–038).
 
 **Series**: Follow-up to **spec-032** (`Restaurants/Show.vue` CardGallery detail page) and **spec-038**
 (`Restaurant`/`LocalBusiness` JSON-LD on the Show page + sitemap). Those features are correctly
@@ -126,5 +128,19 @@ pool + Overpass name fallback.
   and `noindex`; canonical = preview URL; cold cache → 404 (no quota burn).
 
 ## Completion
-FRs met, build + tests green, committed + pushed, verified live → `<promise>DONE</promise>`.
-<!-- NR_OF_TRIES: 1 -->
+
+**SHIPPED (`617031e`) + VERIFIED LIVE 2026-06-27.** US1/US3/US4 met: a live-search result opens
+`/restaurants/preview/{slug}` → 200 with the full `Show.vue` (name/rating/address/actions/map);
+unknown slug → 404 (cache-only reconstruction, **zero quota burn**); `noindex` + canonical = preview
+URL all render. `RestaurantPreviewTest` covers FR-005 (warm→200+data, missing→404, cacheOnly=true).
+
+**⚠️ US2 caveat (honest):** "server HTML contains Restaurant JSON-LD" is met only via **client-side JS
+injection** — and until this batch the JSON-LD was *entirely inert* app-wide (Inertia's `<Head>`
+component silently drops `<script>` children, so spec-038's WebSite/Organization/ItemList/Restaurant
+JSON-LD never rendered in production — invisible to the unit tests that only exercised the generator
+fns). This batch fixed that with a new `JsonLd.vue` component that imperatively injects the `<script>`
+into `document.head` (used on Welcome/Index/Show). Google executes JS so the JSON-LD is now seen; but
+**true server-rendered JSON-LD in the initial HTML is deferred to the SSR track** (no SSR server runs
+in prod today — `config/inertia.php` absent, deploy never starts `inertia:start-ssr`). `<JsonLd>`
+guards `document` so enabling SSR later won't crash it. Lesson → [[inertia-head-drops-script-tags]].
+<!-- NR_OF_TRIES: 2 -->

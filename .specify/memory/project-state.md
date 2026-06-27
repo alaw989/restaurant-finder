@@ -137,13 +137,15 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-27):** master is clean at `2617cfe`; spec-046 (stop "Brazilian wax"
-salons leaking into cuisine searches) shipped + verified live. Specs **001–038 + 041–046 are
-COMPLETE**. The ONLY open specs are **039** (new SVG logo — ⚠️ blocked until
-you drop a source image into `public/img/`) and **040** (live-result detail page + JSON-LD reachability
-— ⚠️ PROPOSED, blocked on a direction decision; Options A/B/C/D in its spec). No ralph batch is in
-flight. The next move is yours: unblock 039 (drop the logo), unblock 040 (pick an option), or start a
-new task.
+**▶ Resume point (2026-06-27):** specs **001–046 are ALL COMPLETE**. This batch shipped/verified **039**
+(vector brand logo — `BrandLogo.vue`, retired the 654KB raster from the render path), **040** (live-result
+detail pages — already in `617031e`, closed its bookkeeping + fixed an app-wide spec-038 JSON-LD rendering
+bug: Inertia `<Head>` was silently dropping every JSON-LD `<script>` → new `JsonLd.vue` fixes it on
+Welcome/Index/Show), and off-queue follow-ups **a** (drop SerpApi ' near me' — quota-neutral), **b**
+(Socrata WHERE now gates longitude too), **c** (chinese += 'panda' keyword). **No open specs. No ralph
+batch in flight. The queue is empty** — next move is a new task or idea. (d) populate serpapi `cuisines`
+from `place_types` — deferred. The **SSR track** (server-rendered JSON-LD/meta in initial HTML) is the
+biggest deferred SEO lever — see spec-040's US2 caveat + [[inertia-head-drops-script-tags]].
 
 **Most recent shipments:** **046** (stop non-restaurant places leaking into cuisine searches — a user's
 "brazilian food in Austin" search ranked two **waxing salons** [European Wax Center, reWAXation Austin]
