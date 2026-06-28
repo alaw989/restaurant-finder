@@ -45,14 +45,17 @@ jobs:
         run: php artisan test
 
       - name: Diagnostic - capture full test-warning details (TEMPORARY, non-gating)
-        # Raw phpunit suppresses the warnings (Laravel's artisan test runner is
-        # what surfaces them). So run via artisan test with phpunit.xml's
-        # displayDetailsOnTestsThatTriggeredWarnings=true to print the FULL
-        # untruncated message + location of every warning. Non-gating. REMOVE
-        # once the file_get_contents warning source is identified and fixed.
+        # Laravel's artisan test surfaces ~263 file_get_contents warnings that
+        # raw phpunit suppresses. PHP's log_errors writes the FULL message +
+        # source location to a file regardless of Laravel's error handler, so:
+        # run artisan test with log_errors on, then print the unique warnings.
+        # Non-gating. REMOVE once the file_get_contents source is identified.
         if: always()
         continue-on-error: true
-        run: php artisan test 2>&1 | grep -iE 'triggered|file_get_contents|warning|deprecat|\.php' | head -40
+        run: |
+          php -d log_errors=1 -d error_log=/tmp/phperr.log artisan test >/dev/null 2>&1 || true
+          echo '=== unique file_get_contents warnings (full message + location) ==='
+          grep -i 'file_get_contents' /tmp/phperr.log | sort -u | head -20
 
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test
