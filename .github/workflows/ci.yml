@@ -44,5 +44,14 @@ jobs:
       - name: Run tests
         run: php artisan test
 
+      - name: Diagnostic - capture full test-warning details (TEMPORARY, non-gating)
+        # Runs raw phpunit with --display-warnings/--display-deprecations so the
+        # FULL untruncated message + location of every CI-only warning is in the
+        # step log. Non-gating (continue-on-error + if:always). REMOVE once the
+        # file_get_contents warning source is identified and fixed.
+        if: always()
+        continue-on-error: true
+        run: vendor/bin/phpunit --display-warnings --display-deprecations
+
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test
