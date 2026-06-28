@@ -45,15 +45,12 @@ jobs:
         run: php artisan test
 
       - name: Diagnostic - capture full test-warning details (TEMPORARY, non-gating)
-        # artisan test records the warnings internally; JUnit XML (enabled in
-        # phpunit.xml) should carry the full untruncated message. Run via
-        # artisan test, then dump the junit warning details. Non-gating.
+        # artisan test truncates each warning to terminal width (80 in CI),
+        # cutting the path right at the filename. COLUMNS=400 widens it so the
+        # full file_get_contents(path) argument is visible. Non-gating.
         if: always()
         continue-on-error: true
-        run: |
-          php artisan test >/dev/null 2>&1 || true
-          echo '=== junit: file_get_contents warning details ==='
-          grep -i 'file_get_contents' /tmp/junit.xml | head -20 || echo '(no junit / no match)'
+        run: COLUMNS=400 php artisan test 2>&1 | grep -oE 'file_get_contents\([^)]*\)' | sort -u | head -10
 
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test

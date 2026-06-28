@@ -17,9 +17,6 @@
             <directory>app</directory>
         </include>
     </source>
-    <logging>
-        <junit outputFile="/tmp/junit.xml"/>
-    </logging>
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
