@@ -48,6 +48,14 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Create .env for testing
+        # CI has no .env (it's gitignored). Booting the artisan kernel without
+        # one makes Laravel's dotenv file_get_contents('.env') warn once per
+        # test, surfacing as ~260 spurious "test triggered warning" entries.
+        # phpunit.xml still owns the actual test env (APP_KEY/DB/etc.); this
+        # step only satisfies the .env read so CI logs stay clean.
+        run: cp .env.example .env
+
       - name: Run tests
         run: php artisan test
 

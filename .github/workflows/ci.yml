@@ -41,6 +41,13 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Create .env for testing
+        # CI has no .env (gitignored). Without it, booting the artisan kernel
+        # emits a file_get_contents('.env') warning per test (~260 spurious
+        # "test triggered warning" entries). phpunit.xml still owns the actual
+        # test env; this only satisfies the .env read.
+        run: cp .env.example .env
+
       - name: Run tests
         run: php artisan test
 
