@@ -23,6 +23,8 @@ const verificationLinkSent = computed(
     <GuestLayout>
         <Head title="Email Verification" />
 
+        <h2 class="mb-4 text-center text-lg font-semibold text-gray-900">Verify your email</h2>
+
         <div class="mb-4 text-sm text-gray-600">
             Thanks for signing up! Before getting started, could you verify your
             email address by clicking on the link we just emailed to you? If you

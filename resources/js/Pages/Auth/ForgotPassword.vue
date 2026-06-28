@@ -23,6 +23,8 @@ const submit = () => {
     <GuestLayout>
         <Head title="Forgot Password" />
 
+        <h2 class="mb-4 text-center text-lg font-semibold text-gray-900">Reset your password</h2>
+
         <div class="mb-4 text-sm text-gray-600">
             Forgot your password? No problem. Just let us know your email
             address and we will email you a password reset link that will allow

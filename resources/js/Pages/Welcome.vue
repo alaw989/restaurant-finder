@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -8,7 +8,10 @@ import { X } from '@lucide/vue'
 import JsonLd from '@/Components/JsonLd.vue'
 import HeroSearch from '@/Components/HeroSearch.vue'
 import StickySearchBar from '@/Components/StickySearchBar.vue'
-import ResultsGrid from '@/Components/ResultsGrid.vue'
+// Lazy-load the results tree (ResultsGrid + RestaurantCard + CardGallery + …) so
+// it isn't on the idle homepage entry chunk — it renders only in the results
+// phase (spec-061 bundle diet).
+const ResultsGrid = defineAsyncComponent(() => import('@/Components/ResultsGrid.vue'))
 
 import { useSeo, generateWebSiteJsonLd, generateOrganizationJsonLd } from '@/composables/useSeo'
 import { useRestaurantSearch } from '@/composables/useRestaurantSearch'
@@ -16,6 +19,7 @@ import { useGeolocation } from '@/composables/useGeolocation'
 import { usePersistedLocation } from '@/composables/usePersistedLocation'
 import { useBaseUrl } from '@/composables/useBaseUrl'
 import SeoMeta from '@/Components/SeoMeta.vue'
+import '../../css/transitions.css' // homepage-only transition choreography (spec-062)
 
 type Phase = 'idle' | 'searching' | 'results' | 'empty' | 'error'
 
@@ -183,12 +187,13 @@ function dismissLoadMoreError() {
     loadMoreError.value = null
 }
 
-// Mount: restore persisted location or auto-detect via GPS
+// Mount: restore persisted location if one is saved. GPS detection is NOT
+// triggered on load (Lighthouse `geolocation-on-start`) — it fires only from
+// the user-gesture "detect" path (HeroSearch @detect → detectLocation). The
+// server's IP-based fallback coords (props.fallbackCoords) pre-fill a location
+// so the field isn't blank for first-time visitors.
 onMounted(() => {
-    restorePersistedLocation(() => {
-        // No saved location — auto-detect via GPS
-        detectLocation()
-    })
+    restorePersistedLocation()
 })
 </script>
 
@@ -236,7 +241,7 @@ onMounted(() => {
                 <CardContent class="flex items-center justify-between py-3">
                     <div class="flex items-center gap-2">
                         <Badge variant="destructive">Location Error</Badge>
-                        <span class="text-sm text-destructive">{{ geolocationError }}</span>
+                        <span class="text-sm text-foreground">{{ geolocationError }}</span>
                     </div>
                     <Button variant="ghost" size="sm" aria-label="Dismiss" @click="dismissGeolocationError">
                         <X class="h-4 w-4" />
@@ -257,7 +262,7 @@ onMounted(() => {
         <!-- Main content area. `relative` anchors the absolute-positioned leaving
              results on the back-transition (results-in-leave-active) to this box,
              not the viewport. -->
-        <div class="relative flex flex-1 flex-col">
+        <main class="relative flex flex-1 flex-col">
             <!-- Centered hero (idle phase) -->
             <Transition name="hero-out">
                 <HeroSearch
@@ -298,7 +303,7 @@ onMounted(() => {
                     @search="onSearch"
                 />
             </Transition>
-        </div>
+        </main>
 
         <!-- Semantic footer -->
         <footer class="border-t border-border bg-muted/40 py-8">

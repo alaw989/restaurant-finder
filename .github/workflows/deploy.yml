@@ -138,6 +138,35 @@ jobs:
              printf 'SERPAPI_API_KEY=%s\n' '${{ secrets.SERPAPI_API_KEY }}' >> .env && \
              echo 'SERPAPI_API_KEY injected into .env'"
 
+      - name: Ensure Node 22 on droplet (for the Inertia SSR server)
+        # The SSR process (spec-063) runs `node bootstrap/ssr/ssr.js`. The droplet
+        # only ships php8.4, so ensure Node 22 matches the build runner.
+        # Idempotent: a no-op once `node -v` reports v22.
+        continue-on-error: true   # SSR is fail-safe (CSR fallback); never block the deploy on it
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "command -v node >/dev/null 2>&1 && node -v | grep -q '^v22' || \
+             (curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && \
+              sudo apt-get install -y nodejs) && \
+             node -v"
+
+      - name: Register the Inertia SSR supervisor program
+        # Renders deploy/supervisor-ipop360-ssr.conf (rsync'd above) with the real
+        # DEPLOY_PATH, writes it to /etc/supervisor/conf.d/, and reread+update so
+        # supervisor picks it up (autostart brings it up on the first deploy).
+        # The Post-deploy step restarts it each deploy to load the fresh ssr.js
+        # bundle (supervisor only re-spawns on config change, not content change).
+        continue-on-error: true   # never block the deploy on SSR setup (CSR fallback)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "DEPLOY=${{ secrets.DEPLOY_PATH }} && \
+             sed \"s|{{DEPLOY_PATH}}|\${DEPLOY}|g\" \${DEPLOY}/deploy/supervisor-ipop360-ssr.conf \
+               | sudo tee /etc/supervisor/conf.d/ipop360-ssr.conf >/dev/null && \
+             supervisorctl reread && \
+             supervisorctl update"
+
       - name: Post-deploy (fix permissions, migrate, cache)
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -151,7 +180,8 @@ jobs:
              php8.4 artisan cache:clear && \
              (php8.4 artisan seo:sitemap || echo 'seo:sitemap failed (non-fatal)') && \
              (sudo systemctl reload php8.4-fpm 2>/dev/null || sudo systemctl restart php8.4-fpm 2>/dev/null || true) && \
-             supervisorctl restart ipop360-worker:*"
+             supervisorctl restart ipop360-worker:* && \
+             (supervisorctl restart ipop360-ssr:* || true)"
 
       - name: Ensure Laravel scheduler cron (restaurants:score, apicache:gc, uptime:canary)
         continue-on-error: true

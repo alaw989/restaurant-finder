@@ -60,7 +60,7 @@ function onDetect() {
             </a>
 
             <!-- Dynamic sentence -->
-            <div class="mt-8 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-medium leading-relaxed sm:text-4xl">
+            <h2 class="mt-8 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-medium leading-relaxed sm:text-4xl">
                 <span>Find the most Popular</span>
                 <CuisinePicker
                     :categories="categories"
@@ -74,7 +74,7 @@ function onDetect() {
                     @coords="onCoords"
                     @detect="onDetect"
                 />
-            </div>
+            </h2>
 
             <!-- Search button -->
             <div class="mt-8">

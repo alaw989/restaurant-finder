@@ -138,15 +138,20 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 ## What's next (queued specs — as of 2026-06-27)
 
 **▶ Resume point (2026-06-27):** specs **001–046 are ALL COMPLETE.** A **full-optimization audit**
-(frontend + backend) produced a new **18-spec backlog (047–064)**, authored as PROPOSED specs in `specs/`.
+(frontend + backend) produced a new **19-spec backlog (047–065)**, authored as PROPOSED specs in `specs/`.
 Full audit + prioritization + binding-constraint notes live in the plan:
 `/home/alaw989/.claude/plans/lets-make-a-plan-majestic-crayon.md`. Ralph implements them **lowest-number-first**
 (one per iteration); balanced ordering = safety → code-health → perf → architecture:
 
 - **Tier 1 — Safety/tooling:** 047 CI quality gate (tests+pint+build) · 048 larastan static analysis ·
   049 dead-code/cruft sweep · 050 `.env.example` + secret-scanning. *Land 047 first — it test-gates every later spec.*
-- **Tier 2 — Correctness:** 051 FavoriteController hardening + its missing tests · 052 batched scoring writes ·
-  053 hot-path DB indexes.
+- **Tier 2 — Correctness:** 051 FavoriteController hardening + its missing tests · 065 batched scoring writes
+  (renumbered from 052 to free 052 for Lighthouse) · 053 hot-path DB indexes.
+- **052 — Lighthouse a11y + Best Practices** (Accessibility 90→100, Best Practices 96→100). **Renumbered up
+  from 065 to jump the queue** — frontend-only, no droplet changes. Pairs with [[061]] (bundle diet) + [[063]]
+  (SSR) for Mobile Performance 70→90. Plan: `.claude/plans/crispy-stargazing-crane.md`. (Other Lighthouse-track
+  amendments: 063 gained the load-bearing `ssr.noExternal` blocker; 061 gained the `@routes` trim +
+  `RestaurantCard` lazy-load.)
 - **Tier 3 — Code health:** 054 shared venue pipeline (the ~250-LOC dedup of the two 1k-LOC services) ·
   055 single Restaurant formatter (API Resources) · 056 decompose `Welcome.vue` (663 LOC) · 057 frontend
   shared layer (`api.ts`/`<SeoMeta>`/canonical types/icons) · 058 cache TTL consolidation · 059 real

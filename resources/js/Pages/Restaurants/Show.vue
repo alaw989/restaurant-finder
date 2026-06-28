@@ -236,7 +236,7 @@ const structuredData = computed(() => {
 
                     <!-- Score -->
                     <div v-if="restaurant.score_breakdown" class="mt-5">
-                        <h3 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Popularity Score</h3>
+                        <h2 class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Popularity Score</h2>
                         <ScoreBreakdown :breakdown="restaurant.score_breakdown" />
                     </div>
                 </div>
