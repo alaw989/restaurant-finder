@@ -45,13 +45,14 @@ jobs:
         run: php artisan test
 
       - name: Diagnostic - capture full test-warning details (TEMPORARY, non-gating)
-        # Runs raw phpunit with --display-warnings/--display-deprecations so the
-        # FULL untruncated message + location of every CI-only warning is in the
-        # step log. Non-gating (continue-on-error + if:always). REMOVE once the
-        # file_get_contents warning source is identified and fixed.
+        # Raw phpunit suppresses the warnings (Laravel's artisan test runner is
+        # what surfaces them). So run via artisan test with phpunit.xml's
+        # displayDetailsOnTestsThatTriggeredWarnings=true to print the FULL
+        # untruncated message + location of every warning. Non-gating. REMOVE
+        # once the file_get_contents warning source is identified and fixed.
         if: always()
         continue-on-error: true
-        run: vendor/bin/phpunit --display-warnings --display-deprecations
+        run: php artisan test 2>&1 | grep -iE 'triggered|file_get_contents|warning|deprecat|\.php' | head -40
 
       - name: Run Pint (lint check)
         run: vendor/bin/pint --test
