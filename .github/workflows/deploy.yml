@@ -48,13 +48,15 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Create .env for testing
-        # CI has no .env (it's gitignored). Booting the artisan kernel without
-        # one makes Laravel's dotenv file_get_contents('.env') warn once per
-        # test, surfacing as ~260 spurious "test triggered warning" entries.
-        # phpunit.xml still owns the actual test env (APP_KEY/DB/etc.); this
-        # step only satisfies the .env read so CI logs stay clean.
-        run: cp .env.example .env
+      - name: Create empty .env for testing
+        # CI has no .env (gitignored). Booting the artisan kernel without one
+        # makes Laravel's dotenv file_get_contents('.env') warn once per test
+        # (~260 spurious "test triggered warning" entries). An EMPTY .env
+        # satisfies that read without introducing env values, so phpunit.xml
+        # fully owns the test env (APP_KEY/DB/etc.). Do NOT cp .env.example --
+        # it ships an empty APP_KEY= that collides with phpunit.xml and breaks
+        # CSRF (419) on every POST test.
+        run: touch .env
 
       - name: Run tests
         run: php artisan test
