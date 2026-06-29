@@ -564,17 +564,16 @@ class PopularityScoreService
     }
 
     /**
-     * Whether any external quality source (SerpApi, Google Places, or Outscraper)
-     * is configured. The google_* rating/review columns are only trusted to
-     * contribute when at least one such source is live, so stale seeded or
-     * legacy values don't distort scores on a no-key deploy.
+     * Whether an external quality (rating) source is configured. SerpApi is the
+     * only rating source now (Google Places / Outscraper / Foursquare were removed
+     * — see spec-066 revert). The google_* rating/review columns are only trusted
+     * to contribute when a quality source is live, so stale seeded or legacy
+     * values don't distort scores on a no-key deploy.
      */
     private function qualitySourceConfigured(): bool
     {
         try {
-            return ! empty(config('services.serpapi.api_key'))
-                || ! empty(config('services.google.places_key'))
-                || ! empty(config('services.outscraper.api_key'));
+            return ! empty(config('services.serpapi.api_key'));
         } catch (\Throwable $e) {
             // Pure unit-test context (no booted container): assume present so the
             // quality-signal path remains testable.

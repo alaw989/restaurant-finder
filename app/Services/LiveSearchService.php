@@ -14,7 +14,6 @@ class LiveSearchService
     public function __construct(
         private OverpassService $overpassService,
         private BizDataApiService $bizDataService,
-        private FoursquareService $foursquareService,
         private SerpApiService $serpApiService,
         private SocrataOpenDataService $socrataService,
         private PopularityScoreService $scoreService,
@@ -90,7 +89,6 @@ class LiveSearchService
 
         $sources = [
             'bizdata' => $this->bizDataService,
-            'foursquare' => $this->foursquareService,
             'serpapi' => $this->serpApiService,
             'socrata' => $this->socrataService,
             'overpass' => $this->overpassService,
@@ -247,7 +245,6 @@ class LiveSearchService
     {
         return match ($label) {
             'bizdata' => $this->bizDataService->normalizeRaw($cached, $lat, $lng, $cuisine),
-            'foursquare' => $this->foursquareService->normalizeRaw($cached),
             'serpapi' => $this->serpApiService->normalizeRaw($cached, $lat, $lng),
             'socrata' => $this->socrataService->normalizeRaw($cached, $lat, $lng),
             'overpass' => $this->overpassService->normalizeRaw($cached, $lat, $lng),

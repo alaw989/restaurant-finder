@@ -163,10 +163,17 @@ authority-aware dedup + `rating_source` removed, `qualitySourceConfigured` resto
 budget counter / `quota:status` block / config removed, `GooglePlacesServiceTest` deleted. **SerpApi
 (~50/mo) is again the only rating source.** 311 tests green, PHPStan 0, Pint clean.
 
-**Residual (flagged, not changed):** Foursquare's *pre-existing* query still requests premium fields
-(`rating,popularity,price,photos`) even though the rating is discarded → a `FOURSQUARE_API_KEY` would
-still bill ~$0.019/call for UNRATED abundance. No-op without a key. To make Foursquare truly free if
-abundance-without-ratings is wanted, drop those fields (Pro tier, 0–500/mo free).
+**▶ UPDATE (later 2026-06-29) — paid sources FULLY REMOVED.** Neither Foursquare nor Google Places
+was contributing any real POI in prod (deploy injects only `SERPAPI_API_KEY`; live results were only
+`serpapi` + `bizdata`). Deleted `FoursquareService`, `GooglePlacesService`, `OutscraperService`
+(Outscraper's only consumer was the Google-Places-driven paid bonus → orphaned). Read path now fires
+**4 sources only: BizData, SerpApi, Overpass, Socrata**. Enrichment: Foursquare dropped from the
+parallel fetch; `enrichPaidBonus` (Google+Outscraper) + its 4 helpers + call site removed; 3 ctor deps
+dropped. `qualitySourceConfigured()` → SerpApi-only. Config `services.google/outscraper/foursquare` +
+their TTLs/timeout/`sources.foursquare` removed. Tests cleaned (FoursquareServiceTest deleted; dead
+google/foursquare/outscraper refs stripped). **Zero paid-source code paths remain** — only free
+sources (SerpApi rating + BizData/OSM/Socrata abundance + Wikidata awards). 301 tests green. The
+earlier "residual" Foursquare-premium-fields caveat is now moot (Foursquare is gone).
 
 **Lessons → [[paid-ratings-no-free-lunch]]**: ratings are a walled garden; beyond SerpApi's 50/mo
 there is no free source — Google Places/Foursquare are both metered. The plan's "relieve the SerpApi

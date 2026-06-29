@@ -120,10 +120,6 @@ return [
         // Default per-request timeout for the simple sources (BizData, SerpApi).
         'http_timeout' => (float) env('LIVE_SEARCH_HTTP_TIMEOUT', 8.0),
 
-        // Foursquare has historically had no explicit timeout (Laravel default
-        // 30s). Give it one on the live path.
-        'foursquare_timeout' => (float) env('LIVE_SEARCH_FOURSQUARE_TIMEOUT', 8.0),
-
         // Overpass fan-out caps. Enrichment tries 3 radii x 3 mirrors; the live
         // path uses the first of each only, with a tighter timeout.
         'overpass_timeout' => (float) env('LIVE_SEARCH_OVERPASS_TIMEOUT', 10.0),
@@ -143,7 +139,7 @@ return [
         // rows; without a cap the page dumps up to ~100 cards trailing to ~5%
         // score. Applied to scoped AND unscoped searches, after the cuisine and
         // distance filters and after scoring (already sorted by score desc).
-        // spec-067: raised 30→60 so broader OSM/Foursquare recall is actually
+        // spec-067: raised 30→60 so broader OSM recall is actually
         // visible (and pagination in spec-068 has rows to slice).
         'max_results' => (int) env('LIVE_SEARCH_MAX_RESULTS', 60),
 
@@ -176,8 +172,8 @@ return [
     | Other sources are free/unlimited and stay at their per-service defaults.
     |
     | NOTE: Two cache stores exist:
-    | 1. ExternalApiCache table (all 7 source services: SerpApi, Google Places,
-    |    Foursquare, BizData, Overpass, Socrata, Outscraper) — quota-bound sources,
+    | 1. ExternalApiCache table (the source services: SerpApi, BizData, Overpass,
+    |    Socrata) — quota-bound sources,
     |    stored centrally with uniform TTLs.
     | 2. Laravel Cache facade (GeolocationService via Cache::remember,
     |    RestaurantWebsiteScraperService via Cache::get/put/lock) — NOT quota-bound,
@@ -199,12 +195,10 @@ return [
         'preview_snapshot_days' => (int) env('PREVIEW_SNAPSHOT_DAYS', 7),
 
         // Other external sources — free/unlimited, shorter TTLs are fine.
-        // Defaults match prior hardcoded values (all 24h except Outscraper at 168h).
-        'outscraper_ttl_hours' => (int) env('OUTSCRAPER_CACHE_TTL_HOURS', 168), // 7 days (popular_times)
-        'google_ttl_hours' => (int) env('GOOGLE_CACHE_TTL_HOURS', 24),
+        // (Paid sources — Google Places / Outscraper / Foursquare — were removed;
+        // see spec-066 revert. Their TTLs are gone too.)
         'overpass_ttl_hours' => (int) env('OVERPASS_CACHE_TTL_HOURS', 24),
         'bizdata_ttl_hours' => (int) env('BIZDATA_CACHE_TTL_HOURS', 24),
-        'foursquare_ttl_hours' => (int) env('FOURSQUARE_CACHE_TTL_HOURS', 24),
         'socrata_ttl_hours' => (int) env('SOCRATA_CACHE_TTL_HOURS', 24),
 
         // TTL applied when a source returns an EMPTY result set (a 200 with no
@@ -218,22 +212,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Per-source toggles + budgets (spec-066: free quality sources)
+    | Per-source toggles
     |--------------------------------------------------------------------------
-    | Foursquare's rating (0-10, rescaled to 0-5) and Google Places' own rating
-    | are turned into the same google_rating/google_review_count fields the scorer
-    | already reads, so they relieve SerpApi's 50/mo bottleneck. Each has a
-    | kill-switch (default ON) and Google Places gets a hard monthly cost cap.
+    | Free-source knobs (paid sources Foursquare/Google Places/Outscraper were
+    | removed — see spec-066 revert; SerpApi is the only rating source).
     */
     'sources' => [
-        'foursquare' => [
-            // spec-067: fire Foursquare on unscoped ("any cuisine") searches too
-            // (it previously bailed when cuisine was null, contributing nothing
-            // to the default search). When on, the `query` param is omitted so
-            // the search returns all nearby dining/drinking.
-            'unscoped' => filter_var(env('FOURSQUARE_UNSCOPED', true), FILTER_VALIDATE_BOOL),
-        ],
-
         'overpass' => [
             // spec-067: broaden OSM from amenity=restaurant ONLY to a regex union
             // of food tags. OSM tags far more venues than restaurant (fast_food,
@@ -287,7 +271,7 @@ return [
     |--------------------------------------------------------------------------
     | Cross-source dedup thresholds
     |--------------------------------------------------------------------------
-    | Control how venues from different sources (BizData, Overpass, Foursquare,
+    | Control how venues from different sources (BizData, Overpass, SerpApi,
     | etc.) are matched as duplicates. Uses fuzzy name similarity (similar_text
     | percentage) AND haversine proximity within a radius.
     */

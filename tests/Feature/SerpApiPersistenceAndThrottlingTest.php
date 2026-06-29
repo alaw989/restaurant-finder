@@ -27,8 +27,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
 
         // This suite specifically tests SerpApi behavior
         Config::set('services.serpapi.api_key', 'test-serpapi-key');
-        Config::set('services.google.places_key', null);
-        Config::set('services.outscraper.api_key', null);
     }
 
     private function makeCuisine(): Cuisine
@@ -53,7 +51,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -98,7 +95,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
     {
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -162,7 +158,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
         // Now enrich with SerpApi data
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -213,7 +208,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
         $serpApiCallCount = 0;
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -274,7 +268,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -328,7 +321,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
@@ -377,7 +369,6 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
                     ],
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['data' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'socrata*/*' => Http::response(['data' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),

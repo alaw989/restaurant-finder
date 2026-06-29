@@ -24,7 +24,6 @@ class EnrichFreeOnlyTest extends TestCase
         // live (un-faked) HTTP calls and inflate the persisted row counts. The
         // Google Places key is controlled per-test as before.
         Config::set('services.serpapi.api_key', null);
-        Config::set('services.outscraper.api_key', null);
     }
 
     private function makeCuisine(): Cuisine
@@ -66,13 +65,11 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_enriches_from_bizdata_primary(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
                 'businesses' => [$this->bizDataVenue('Test Italian')],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -91,13 +88,11 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_google_is_skipped_without_a_key(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
                 'businesses' => [$this->bizDataVenue('Skip Google')],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -110,11 +105,9 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_falls_back_to_overpass_when_others_return_nothing(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [$this->osmNode(12345, 'OSM Trattoria', 37.78, -122.41, ['cuisine' => 'italian'])],
             ], 200),
@@ -134,13 +127,11 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_dedup_same_venue_from_multiple_sources(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
                 'businesses' => [$this->bizDataVenue('Shared Venue', ['lat' => 37.7749, 'lon' => -122.4194])],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             // OSM returns the same venue within 200m — should be deduped via processFreeVenue
             'overpass-api.de/*' => Http::response([
                 'elements' => [$this->osmNode(999, 'Shared Venue', 37.7749, -122.4194)],
@@ -155,59 +146,13 @@ class EnrichFreeOnlyTest extends TestCase
         $this->assertCount(1, Restaurant::where('name', 'Shared Venue')->get());
     }
 
-    public function test_paid_bonus_populates_google_when_key_present(): void
-    {
-        Config::set('services.google.places_key', 'test-google-key');
-
-        Http::fake([
-            'bizdata-web.vercel.app/*' => Http::response([
-                'businesses' => [$this->bizDataVenue('Google Match', ['lat' => 37.7749, 'lon' => -122.4194])],
-            ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
-            'overpass-api.de/*' => Http::response(['elements' => []], 200),
-            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
-            'maps.googleapis.com/maps/api/place/nearbysearch/*' => Http::response([
-                'status' => 'OK',
-                'results' => [
-                    [
-                        'place_id' => 'gpid-1',
-                        'name' => 'Google Match',
-                        'geometry' => ['location' => ['lat' => 37.7749, 'lng' => -122.4194]],
-                    ],
-                ],
-            ], 200),
-            'maps.googleapis.com/maps/api/place/details/*' => Http::response([
-                'status' => 'OK',
-                'result' => [
-                    'place_id' => 'gpid-1',
-                    'name' => 'Google Match',
-                    'rating' => 4.8,
-                    'user_ratings_total' => 5000,
-                ],
-            ], 200),
-        ]);
-
-        $service = app(RestaurantEnrichmentService::class);
-        $count = $service->enrichByCuisine(37.7749, -122.4194, $this->makeCuisine());
-
-        $this->assertSame(1, $count);
-
-        $restaurant = Restaurant::where('name', 'Google Match')->first();
-        $this->assertNotNull($restaurant);
-        $this->assertSame('gpid-1', $restaurant->google_place_id);
-        $this->assertSame(4.8, (float) $restaurant->google_rating);
-        $this->assertSame(5000, (int) $restaurant->google_review_count);
-    }
-
     public function test_persists_venue_without_coordinates(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
                 'businesses' => [$this->bizDataVenue('No Coords', [])],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response(['elements' => []], 200),
             'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
         ]);
@@ -225,11 +170,9 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_overpass_price_range_is_preserved(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response(['total' => 0, 'businesses' => []], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [$this->osmNode(4242, 'Pricey OSM Spot', 37.78, -122.41, ['price_range' => '€10-€30'])],
             ], 200),
@@ -246,7 +189,6 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_multiple_sources_merge_without_duplicates(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
@@ -254,7 +196,6 @@ class EnrichFreeOnlyTest extends TestCase
                     $this->bizDataVenue('BizData Place', ['lat' => 37.7749, 'lon' => -122.4194]),
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     $this->osmNode(1001, 'OSM Place', 37.78, -122.41, ['cuisine' => 'italian']),
@@ -274,7 +215,6 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_cross_source_dedup_with_fuzzy_names(): void
     {
-        Config::set('services.google.places_key', null);
 
         // Same physical venue from BizData and Overpass with slightly different names
         // "Tony's Pizza" vs "Tony's Pizzeria" — should collapse to one row
@@ -285,7 +225,6 @@ class EnrichFreeOnlyTest extends TestCase
                     $this->bizDataVenue('Tony\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4194], '555-0100'),
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     // Same coords, slightly different name — should be deduped (89% similar)
@@ -309,7 +248,6 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_cross_source_dedup_proximity_within_radius(): void
     {
-        Config::set('services.google.places_key', null);
 
         // Same venue from two sources, <200m apart (within MATCH_RADIUS_KM)
         Http::fake([
@@ -318,7 +256,6 @@ class EnrichFreeOnlyTest extends TestCase
                     $this->bizDataVenue('Tony\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4194]),
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     // ~120m away — within the 200m match radius
@@ -339,7 +276,6 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_cross_source_dedup_preserves_distinct_nearby_venues(): void
     {
-        Config::set('services.google.places_key', null);
 
         // Two genuinely different restaurants with similar names within 200m
         // Should NOT be merged because the fuzzy threshold prevents over-merge
@@ -349,7 +285,6 @@ class EnrichFreeOnlyTest extends TestCase
                     $this->bizDataVenue('Mario\'s Italian', ['lat' => 37.7749, 'lon' => -122.4194]),
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     // Similar but different name ("Mario's Italian" vs "Mario's Pizza") — 67% similar, below 85% threshold
@@ -370,7 +305,6 @@ class EnrichFreeOnlyTest extends TestCase
 
     public function test_garbage_names_filtered_before_persistence(): void
     {
-        Config::set('services.google.places_key', null);
 
         Http::fake([
             'bizdata-web.vercel.app/*' => Http::response([
@@ -379,7 +313,6 @@ class EnrichFreeOnlyTest extends TestCase
                     $this->bizDataVenue('Joe\'s Pizza', ['lat' => 37.7749, 'lon' => -122.4195]),
                 ],
             ], 200),
-            'foursquare:*' => Http::response(['results' => []], 200),
             'overpass-api.de/*' => Http::response([
                 'elements' => [
                     $this->osmNode(5001, '1803', 37.7750, -122.4190),

@@ -6,7 +6,6 @@ use App\Models\Cuisine;
 use App\Models\CuisineCategory;
 use App\Services\BizDataApiService;
 use App\Services\CuisineMatcher;
-use App\Services\FoursquareService;
 use App\Services\Http\RequestSpec;
 use App\Services\LiveSearchService;
 use App\Services\OverpassService;
@@ -264,7 +263,6 @@ class LiveSearchScoringTest extends TestCase
         $classes = [
             'overpass' => OverpassService::class,
             'bizdata' => BizDataApiService::class,
-            'foursquare' => FoursquareService::class,
             'serpapi' => SerpApiService::class,
             'socrata' => SocrataOpenDataService::class,
         ];
@@ -291,7 +289,6 @@ class LiveSearchScoringTest extends TestCase
         $service = new LiveSearchService(
             $mocks['overpass'],
             $mocks['bizdata'],
-            $mocks['foursquare'],
             $mocks['serpapi'],
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
@@ -305,7 +302,7 @@ class LiveSearchScoringTest extends TestCase
         sort($sources);
 
         $this->assertSame(
-            ['bizdata', 'foursquare', 'overpass', 'serpapi', 'socrata'],
+            ['bizdata', 'overpass', 'serpapi', 'socrata'],
             $sources,
             'Live search must dispatch every source through the concurrent pool interface.'
         );
@@ -348,7 +345,6 @@ class LiveSearchScoringTest extends TestCase
         $classes = [
             'overpass' => OverpassService::class,
             'bizdata' => BizDataApiService::class,
-            'foursquare' => FoursquareService::class,
             'serpapi' => SerpApiService::class,
             'socrata' => SocrataOpenDataService::class,
         ];
@@ -372,7 +368,6 @@ class LiveSearchScoringTest extends TestCase
         return new LiveSearchService(
             $mocks['overpass'],
             $mocks['bizdata'],
-            $mocks['foursquare'],
             $mocks['serpapi'],
             $mocks['socrata'],
             $this->app->make(PopularityScoreService::class),
@@ -1171,27 +1166,6 @@ class LiveSearchScoringTest extends TestCase
         $keyB = $service->cacheKeyFor(30.65, -88.20, 'chinese');
 
         $this->assertNotSame($keyA, $keyB);
-    }
-
-    public function test_foursquare_fires_unscoped_when_switch_on(): void
-    {
-        // spec-067: Foursquare no longer bails on null cuisine; it fires with no
-        // `query` param (adding abundance to "any cuisine" searches).
-        Config::set('services.foursquare.api_key', 'fsq-key');
-        Config::set('restaurant-finder.sources.foursquare.unscoped', true);
-
-        $specs = (new FoursquareService)->poolRequestsFor(30.65, -88.20, null, ['read_path' => true]);
-
-        $this->assertCount(1, $specs);
-        $this->assertArrayNotHasKey('query', $specs[0]->query);
-    }
-
-    public function test_foursquare_skipped_unscoped_when_switch_off(): void
-    {
-        Config::set('services.foursquare.api_key', 'fsq-key');
-        Config::set('restaurant-finder.sources.foursquare.unscoped', false);
-
-        $this->assertSame([], (new FoursquareService)->poolRequestsFor(30.65, -88.20, null, ['read_path' => true]));
     }
 
     public function test_phone_dedup_matches_same_venue_despite_name_divergence(): void

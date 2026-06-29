@@ -15,10 +15,11 @@ use Illuminate\Support\Facades\Log;
 /**
  * Free-first restaurant enrichment.
  *
- * Persisting flow uses parallel fetch from BizData, Foursquare, and Overpass,
- * then writes real rows to the `restaurants` table (positive IDs, real slugs).
- * Paid Google Places + Outscraper popular-times run only as an OPTIONAL bonus
- * when keys are configured; Wikidata awards are free (no key) and always run.
+ * Persisting flow uses parallel fetch from BizData and Overpass (+ SerpApi /
+ * Socrata when configured), then writes real rows to the `restaurants` table
+ * (positive IDs, real slugs). Wikidata awards are free (no key) and always run.
+ * (Paid Google Places / Outscraper / Foursquare sources were removed — ratings
+ * are a walled garden; SerpApi is the only free rating source. See spec-066 revert.)
  */
 class RestaurantEnrichmentService
 {
@@ -26,11 +27,8 @@ class RestaurantEnrichmentService
     private const AWARD_BOX_DEGREES = 0.25;
 
     public function __construct(
-        private GooglePlacesService $googlePlaces,
-        private OutscraperService $outscraper,
         private OverpassService $overpass,
         private BizDataApiService $bizData,
-        private FoursquareService $foursquareService,
         private SerpApiService $serpApiService,
         private SocrataOpenDataService $socrataService,
         private WikidataService $wikidata,
@@ -89,9 +87,6 @@ class RestaurantEnrichmentService
         }
 
         $restaurants = Restaurant::whereIn('id', $restaurantIds)->get();
-
-        // Optional paid bonus (Google + Outscraper) — mutates models in place
-        $this->enrichPaidBonus($restaurants, $lat, $lng, $cuisine);
 
         // Optional award (Wikidata, free) — one box query, match each row
         $this->enrichAwards($restaurants, $lat, $lng);
@@ -176,7 +171,6 @@ class RestaurantEnrichmentService
         $context = ['read_path' => false];
         $specs = [
             'bizdata' => $this->bizData->poolRequestsFor($lat, $lng, $cuisine, $context),
-            'foursquare' => $this->foursquareService->poolRequestsFor($lat, $lng, $cuisine, $context),
             'overpass' => $this->overpass->poolRequestsFor($lat, $lng, $cuisine, $context),
             'serpapi' => $this->serpApiService->poolRequestsFor($lat, $lng, $cuisine, $context),
             'socrata' => $this->socrataService->poolRequestsFor($lat, $lng, $cuisine, $context),
@@ -249,7 +243,6 @@ class RestaurantEnrichmentService
             $cacheKey = $this->buildCacheKey($label, $lat, $lng, $cuisine);
             $normalized = match ($label) {
                 'bizdata' => $this->bizData->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
-                'foursquare' => $this->foursquareService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
                 'serpapi' => $this->serpApiService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
                 'socrata' => $this->socrataService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
                 'overpass' => $this->consumeOverpassResponses($responses, $lat, $lng, $cuisine, $cacheKey),
@@ -260,7 +253,6 @@ class RestaurantEnrichmentService
             foreach ($normalized as $r) {
                 $venues[] = match ($label) {
                     'bizdata' => $this->bizData->normalizeForEnrichment($r),
-                    'foursquare' => $this->foursquareService->normalizeForEnrichment($r),
                     'serpapi' => $this->serpApiService->normalizeForEnrichment($r),
                     'socrata' => $this->socrataService->normalizeForEnrichment($r),
                     'overpass' => $this->overpass->normalizeForEnrichment($r),
@@ -412,94 +404,6 @@ class RestaurantEnrichmentService
     }
 
     /**
-     * Optional paid bonus: Google Places details + Outscraper popular times.
-     * Self-protecting (key guards live in the services); skipped entirely
-     * without a Google key. Mutates the passed models in place.
-     */
-    private function enrichPaidBonus(Collection $restaurants, float $lat, float $lng, Cuisine $cuisine): void
-    {
-        if (empty(config('services.google.places_key'))) {
-            return;
-        }
-
-        $googlePlaces = $this->googlePlaces->searchNearbyRestaurants($lat, $lng, $cuisine->name);
-        if (empty($googlePlaces)) {
-            return;
-        }
-
-        $outscraperKey = ! empty(config('services.outscraper.api_key'));
-
-        foreach ($restaurants as $restaurant) {
-            try {
-                $place = $this->matchGooglePlace(
-                    $restaurant->name,
-                    (float) $restaurant->latitude,
-                    (float) $restaurant->longitude,
-                    $googlePlaces,
-                );
-
-                if ($place === null || empty($place['place_id'])) {
-                    continue;
-                }
-
-                $details = $this->googlePlaces->getPlaceDetails($place['place_id']);
-
-                $updates = ['google_place_id' => $place['place_id']];
-                if (isset($details['rating'])) {
-                    $updates['google_rating'] = $details['rating'];
-                }
-                if (isset($details['user_ratings_total'])) {
-                    $updates['google_review_count'] = $details['user_ratings_total'];
-                }
-                if (isset($details['price_level']) && $restaurant->price_range === null) {
-                    $updates['price_range'] = $this->mapPriceLevel((int) $details['price_level']);
-                }
-                if (! empty($details['photos'][0]['photo_reference']) && $restaurant->photo_url === null) {
-                    $updates['photo_url'] = $this->buildGooglePhotoUrl($details['photos'][0]['photo_reference']);
-                }
-
-                // Capture the full Google photo set (up to 6) for the list-card
-                // hover gallery. These references are already in the cached Places
-                // details, so this is free — no extra API call. One-time backfill.
-                if ($restaurant->photos === null && ! empty($details['photos'])) {
-                    $photoUrls = [];
-                    foreach ($details['photos'] as $gp) {
-                        if (! empty($gp['photo_reference'])) {
-                            $photoUrls[] = $this->buildGooglePhotoUrl($gp['photo_reference']);
-                            if (count($photoUrls) >= 6) {
-                                break;
-                            }
-                        }
-                    }
-                    if (! empty($photoUrls)) {
-                        $updates['photos'] = $photoUrls;
-                    }
-                }
-                if (! empty($details['website']) && empty($restaurant->website_url)) {
-                    $updates['website_url'] = $details['website'];
-                }
-
-                $restaurant->update($updates);
-
-                if ($outscraperKey) {
-                    $popularTimes = $this->outscraper->getPopularTimes($place['place_id']);
-                    if (! empty($popularTimes)) {
-                        $busyness = $this->computeAverageBusyness($popularTimes);
-                        if ($busyness !== null) {
-                            $restaurant->update(['popular_times_avg_busyness' => $busyness]);
-                        }
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('Paid enrichment failed for restaurant', [
-                    'restaurant_id' => $restaurant->id,
-                    'message' => $e->getMessage(),
-                ]);
-            }
-        }
-    }
-
-    /**
      * Optional award enrichment (Wikidata, free): one SPARQL box query for the
      * search area, then match each persisted restaurant by name + proximity.
      */
@@ -622,85 +526,6 @@ class RestaurantEnrichmentService
                 (float) $r->latitude,
                 (float) $r->longitude,
             ) <= config('restaurant-finder.dedup.match_radius_km', 0.2));
-    }
-
-    /**
-     * Match a restaurant to a Google Place by name proximity + ≤200m distance.
-     */
-    private function matchGooglePlace(?string $name, float $lat, float $lng, array $googlePlaces): ?array
-    {
-        if ($name === null) {
-            return null;
-        }
-
-        $normalizedName = strtolower(trim($name));
-
-        foreach ($googlePlaces as $place) {
-            $placeName = strtolower(trim($place['name'] ?? ''));
-
-            if (! $this->venuePipeline->namesMatch($normalizedName, $placeName)) {
-                continue;
-            }
-
-            $placeLat = $place['geometry']['location']['lat'] ?? null;
-            $placeLng = $place['geometry']['location']['lng'] ?? null;
-
-            if ($placeLat === null || $placeLng === null) {
-                continue;
-            }
-
-            if ($this->venuePipeline->haversineKm($lat, $lng, (float) $placeLat, (float) $placeLng) <= config('restaurant-finder.dedup.match_radius_km', 0.2)) {
-                return $place;
-            }
-        }
-
-        return null;
-    }
-
-    private function buildGooglePhotoUrl(string $photoReference): string
-    {
-        return 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference='
-            .$photoReference
-            .'&key='.config('services.google.places_key');
-    }
-
-    /**
-     * Compute the average busyness value from popular times data.
-     */
-    private function computeAverageBusyness(array $popularTimes): ?float
-    {
-        $values = [];
-
-        foreach ($popularTimes as $dayData) {
-            if (is_array($dayData) && isset($dayData['data'])) {
-                foreach ($dayData['data'] as $hourData) {
-                    if (isset($hourData['value'])) {
-                        $values[] = (float) $hourData['value'];
-                    }
-                }
-            }
-        }
-
-        if (empty($values)) {
-            return null;
-        }
-
-        return round(array_sum($values) / count($values), 2);
-    }
-
-    /**
-     * Map Google price level (0-4) to a human-readable price range string.
-     */
-    private function mapPriceLevel(?int $priceLevel): ?string
-    {
-        return match ($priceLevel) {
-            0 => 'Free',
-            1 => '$',
-            2 => '$$',
-            3 => '$$$',
-            4 => '$$$$',
-            default => null,
-        };
     }
 
     /**

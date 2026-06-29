@@ -35,20 +35,8 @@ return [
         ],
     ],
 
-    'google' => [
-        'places_key' => env('GOOGLE_PLACES_API_KEY'),
-    ],
-
-    'outscraper' => [
-        'api_key' => env('OUTSCRAPER_API_KEY'),
-    ],
-
     'serpapi' => [
         'api_key' => env('SERPAPI_API_KEY'),
-    ],
-
-    'foursquare' => [
-        'api_key' => env('FOURSQUARE_API_KEY'),
     ],
 
     'socrata' => [
