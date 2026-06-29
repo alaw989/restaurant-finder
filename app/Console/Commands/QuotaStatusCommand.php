@@ -54,7 +54,7 @@ class QuotaStatusCommand extends Command
 
         // Google Places (cost-metered read-path source, spec-066)
         $gpBudget = (int) config('restaurant-finder.sources.google_places.monthly_budget', 500);
-        $gpBurned = (int) ($stats['google_places_calls_last_30d'] ?? 0);
+        $gpBurned = (int) $stats['google_places_calls_last_30d'];
         $gpRemaining = max(0, $gpBudget - $gpBurned);
         $this->newLine();
         $this->line('<options=bold>Google Places (read path, last 30 days)</>');

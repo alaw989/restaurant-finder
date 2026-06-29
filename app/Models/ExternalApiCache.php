@@ -94,7 +94,7 @@ class ExternalApiCache extends Model
      * Get cache statistics including quota usage.
      *
      * @param  int  $expiringDays  Number of days to look ahead for expiring entries
-     * @return array{total_rows: int, by_source: array<string, int>, expiring_within: int, serpapi_calls_last_30d: int}
+     * @return array{total_rows: int, by_source: array<string, int>, expiring_within: int, serpapi_calls_last_30d: int, google_places_calls_last_30d: int}
      */
     public static function stats(int $expiringDays = 7): array
     {
