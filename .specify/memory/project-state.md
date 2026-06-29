@@ -137,21 +137,31 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-27):** specs **001–046 are ALL COMPLETE.** A **full-optimization audit**
-(frontend + backend) produced a new **19-spec backlog (047–065)**, authored as PROPOSED specs in `specs/`.
-Full audit + prioritization + binding-constraint notes live in the plan:
-`/home/alaw989/.claude/plans/lets-make-a-plan-majestic-crayon.md`. Ralph implements them **lowest-number-first**
-(one per iteration); balanced ordering = safety → code-health → perf → architecture:
+**▶ Resume point (2026-06-28):** specs **001–063 + 065 are ALL COMPLETE/SHIPPED.** The
+full-optimization backlog (047–060) shipped, and the **Lighthouse ≥90 plan** (052 a11y/BP, 061 bundle
+diet, 062 CSS split, 063 SSR) shipped in commit `dc383a0` and is **LIVE-VERIFIED on staging** — every
+category is now ≥ 90:
+
+| Category | Mobile | Desktop |
+|---|---|---|
+| Performance | 98 | 100 |
+| Accessibility | 100 | 100 |
+| Best Practices | 100 | 100 |
+| SEO | 100 | 100 |
+
+Mobile Performance 70→98 via Inertia SSR (hero in the initial HTML; FCP/LCP ~4.8s→1.95s). **The only
+PROPOSED spec left is 064 (Vitest — first frontend tests).** The tier breakdown below is retained as
+historical reference (those specs have all shipped); `lets-make-a-plan-majestic-crayon.md` was the
+047–060 audit plan and `crispy-stargazing-crane.md` the Lighthouse plan.
 
 - **Tier 1 — Safety/tooling:** 047 CI quality gate (tests+pint+build) · 048 larastan static analysis ·
   049 dead-code/cruft sweep · 050 `.env.example` + secret-scanning. *Land 047 first — it test-gates every later spec.*
 - **Tier 2 — Correctness:** 051 FavoriteController hardening + its missing tests · 065 batched scoring writes
   (renumbered from 052 to free 052 for Lighthouse) · 053 hot-path DB indexes.
-- **052 — Lighthouse a11y + Best Practices** (Accessibility 90→100, Best Practices 96→100). **Renumbered up
-  from 065 to jump the queue** — frontend-only, no droplet changes. Pairs with [[061]] (bundle diet) + [[063]]
-  (SSR) for Mobile Performance 70→90. Plan: `.claude/plans/crispy-stargazing-crane.md`. (Other Lighthouse-track
-  amendments: 063 gained the load-bearing `ssr.noExternal` blocker; 061 gained the `@routes` trim +
-  `RestaurantCard` lazy-load.)
+- **052 / 061 / 062 / 063 — Lighthouse ≥90 track: SHIPPED** (`dc383a0`, 2026-06-28, live-verified — see the
+  score table above). 052 a11y+BP→100; 061 bundle diet (`@routes` trim, lazy `ResultsGrid`, vendor split);
+  062 transition CSS extracted to a route-scoped chunk; 063 Inertia SSR enabled (mobile perf 70→98).
+  Plan: `.claude/plans/crispy-stargazing-crane.md`.
 - **Tier 3 — Code health:** 054 shared venue pipeline (the ~250-LOC dedup of the two 1k-LOC services) ·
   055 single Restaurant formatter (API Resources) · 056 decompose `Welcome.vue` (663 LOC) · 057 frontend
   shared layer (`api.ts`/`<SeoMeta>`/canonical types/icons) · 058 cache TTL consolidation · 059 real

@@ -4,7 +4,11 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE (2026-06-28) — commit `dc383a0`; deployed + live-verified. Shipped:
+`config/ziggy.php` `only`-allowlist (13 routes → inline `@routes` ~40KB→~1KB), lazy `ResultsGrid`
+(defineAsyncComponent) deferring the RestaurantCard tree off the idle homepage entry, and a
+`vendor` manualChunks split (vue+@vue+@inertiajs). `@vueuse/motion` was already gone; latin-font
++ 640KB logo skipped as low-value (unicode-range lazy-fetch / JSON-LD-only).
 
 **Series**: Tier 4 — Performance. Frontend build only. Pairs with 049 (unused
 dep removal) and 062 (CSS extraction). Part of the **Lighthouse ≥90 plan** (with

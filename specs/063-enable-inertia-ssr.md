@@ -4,7 +4,14 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: **SHIPPED** (2026-06-28) — commit `dc383a0`; deployed GHA-green; **SSR is LIVE**
+(initial HTML carries the hero + a 1224-char pre-rendered tree in `<div id="app">`). Mobile
+Performance **70→98** (FCP/LCP ~4.8s→1.95s). The `vite.config.js` `ssr.noExternal` made the bundle
+self-contained (verified `node bootstrap/ssr/ssr.js` runs without node_modules); both first-time
+droplet steps (NodeSource Node 22 + supervisor `ipop360-ssr`) passed first try. Steps are
+`continue-on-error` + restart is `|| true` so a future SSR hiccup falls back to CSR (no outage).
+Desktop reaches 100/100/100/100. `config/inertia.php` skipped (vendor default enables SSR @13714);
+`JsonLd.vue` left as-is (already SSR-safe).
 
 **Series**: Tier 5 — Architecture. **The biggest deferred SEO lever** (project-state
 calls it out; spec-040 US2 caveat + [[inertia-head-drops-script-tags]]). Touches

@@ -4,7 +4,10 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE (2026-06-28) — commit `dc383a0`; deployed + live-verified. The transition
++ `prefers-reduced-motion` blocks moved to `resources/css/transitions.css`, imported only from
+`Welcome.vue` → ships as route-scoped `Welcome-*.css` (2.7KB); global `app.css` 91K→87K; auth/profile
+pages no longer load any of it. Behavior preserved (verbatim move); home transitions re-verified.
 
 **Series**: Tier 4 — Performance. Frontend CSS only. Behavior-preserving.
 

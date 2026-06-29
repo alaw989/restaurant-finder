@@ -4,7 +4,11 @@
 
 **Created**: 2026-06-28
 
-**Status**: PROPOSED (from the Lighthouse ≥90 plan — `.claude/plans/crispy-stargazing-crane.md`)
+**Status**: **SHIPPED** (2026-06-28) — commit `dc383a0`; deployed GHA-green; live-verified on
+staging: **Accessibility 100 + Best Practices 100** (mobile + desktop). Fixes: destructive badge →
+filled (`--destructive-solid`/`--destructive-foreground`; plain `--destructive` was only ~4.17:1);
+Welcome content → `<main>`; HeroSearch hero → `<h2>`; GuestLayout `<main>`+sr-only `<h1>`; Auth pages
+`<h2>` titles; `Show.vue` h3→h2; dropped the on-load `getCurrentPosition` (geolocation-on-start).
 
 **Series**: Tier 4 — Performance/A11y. Frontend-only, **no droplet changes**. This is the
 **score-moving gap**: none of the existing 047–064 backlog specs covered these four
