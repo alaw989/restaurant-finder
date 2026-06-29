@@ -378,7 +378,10 @@ class OverpassService
             fn ($a) => $a !== ''
         ));
 
-        return implode('|', $amenities ?: ['restaurant']);
+        // Anchor the regex (^...$): Overpass `~` matches substrings, so an
+        // unanchored `pub` also matched `public_bookcase`/`public_hall`. OSM
+        // amenity values are single tokens, so an exact union is what we want.
+        return '^('.implode('|', $amenities ?: ['restaurant']).')$';
     }
 
     /**
