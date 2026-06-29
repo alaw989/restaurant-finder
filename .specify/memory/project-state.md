@@ -160,13 +160,22 @@ user-sorted array) → **069-4A** (phone dedup) + **069-4C** (credibility rating
 (cuisine lexicon: Nepalese/Afghan/Tibetan/Burmese/Russian). 064 (Vitest) remains the only other
 open spec. Detail: `history.md` + `specs/066|067-…md`.
 
-**▶ UPDATE 2026-06-29:** **069 SHIPPED** (ranking fidelity: 4A phone-based dedup `dedup.phone_match`;
-4B sort-before-bound — `VenuePipeline::sortVenues` + `LiveSearchService::search` takes `$sort` and
-sorts the full set before `boundResults`, controller no longer re-sorts, dead `sortLiveResults`
-removed; 4C credibility rating sort `ranking.rating_sort_min_reviews`/`rating_sort_credibility`).
-323 tests green. **So 4B is DONE standalone** — only **068 (pagination)** and **070 (cuisine lexicon)**
-remain of this plan. 068 now just snapshots+slices the already-user-sorted array the controller
-receives (frontend `loadMore`/`next_page_url` already exist).
+**▶ UPDATE 2026-06-29 — ALL 5 SPECS (066–070) COMPLETE + DEPLOYED GREEN.** Remaining work shipped:
+- **069** = ranking fidelity: 4A phone-based dedup `dedup.phone_match`; 4B sort-before-bound
+  (`VenuePipeline::sortVenues` + `LiveSearchService::search` takes `$sort`, sorts full set before
+  `boundResults`, controller no longer re-sorts, dead `sortLiveResults` removed); 4C credibility
+  rating sort `ranking.rating_sort_min_reviews`/`rating_sort_credibility`.
+- **070** = cuisine lexicon breadth: Nepalese/Tibetan/Burmese (asian), Afghan (middle-eastern),
+  Russian (european) — config `cuisine-keywords` + `CuisineSeeder` + migration
+  `2026_06_29_120000_add_breadth_cuisines` (idempotent, reaches prod via migrate --force).
+- **068** = live-search pagination: snapshot-and-slice in `RestaurantController::apiIndex`
+  (`live_page:{…}` snapshot, real `next_page_url`, `page_size` 20, kill-switch `live_search.paginate`);
+  frontend `loadMore`/`next_page_url` already existed → backend-only.
+
+326 tests green, PHPStan 0, Pint clean across all 5. **The Coverage & Quality plan is DONE.** To
+materialize 066's Foursquare/Google Places benefits the user must provision `FOURSQUARE_API_KEY` +
+`GOOGLE_PLACES_API_KEY` (both currently no-ops; Google Places capped at 500 calls/30d). 064 (Vitest)
+remains the only open spec repo-wide.
 
 **▶ Resume point (2026-06-28):** specs **001–063 + 065 are ALL COMPLETE/SHIPPED.** The
 full-optimization backlog (047–060) shipped, and the **Lighthouse ≥90 plan** (052 a11y/BP, 061 bundle

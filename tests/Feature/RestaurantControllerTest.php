@@ -9,6 +9,7 @@ use App\Models\Restaurant;
 use App\Services\LiveSearchService;
 use App\Services\VenuePipeline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 class RestaurantControllerTest extends TestCase
@@ -481,6 +482,57 @@ class RestaurantControllerTest extends TestCase
         $response->assertJsonPath('total', 3);
         $response->assertJsonPath('next_page_url', null);
         $this->assertCount(3, $response->json('data'));
+    }
+
+    public function test_api_live_pagination_slices_pages_with_next_url(): void
+    {
+        // spec-068: 25 results → page 1 = 20 rows + next_page_url(page=2); page 2 = 5, next null.
+        $rows = [];
+        for ($i = 1; $i <= 25; $i++) {
+            $rows[] = $this->liveRow(['name' => "Venue {$i}", 'slug' => "venue-{$i}"]);
+        }
+        $this->bindLiveSearchResults($rows);
+
+        $r1 = $this->get('/api/restaurants?lat=30.0&lng=-88.0');
+        $r1->assertStatus(200);
+        $this->assertCount(20, $r1->json('data'));
+        $this->assertSame(25, $r1->json('total'));
+        $this->assertSame(1, $r1->json('current_page'));
+        $this->assertSame(2, $r1->json('last_page'));
+        $this->assertNotNull($r1->json('next_page_url'));
+        $this->assertStringContainsString('page=2', $r1->json('next_page_url'));
+
+        // Page 2 serves from the page-1 snapshot.
+        $r2 = $this->get('/api/restaurants?lat=30.0&lng=-88.0&page=2');
+        $r2->assertStatus(200);
+        $this->assertCount(5, $r2->json('data'));
+        $this->assertSame(25, $r2->json('total'));
+        $this->assertNull($r2->json('next_page_url'));
+    }
+
+    public function test_api_live_pagination_page2_uses_snapshot_not_search(): void
+    {
+        // search() runs ONCE (page 1); page 2 must slice the snapshot, not re-search.
+        $rows = array_map(fn ($i) => $this->liveRow(['name' => "V{$i}", 'slug' => "v{$i}"]), range(1, 25));
+        $this->mock(LiveSearchService::class, function ($mock) use ($rows) {
+            $mock->shouldReceive('search')->once()->andReturn($rows);
+        });
+
+        $this->get('/api/restaurants?lat=30.0&lng=-88.0')->assertStatus(200);
+        $this->get('/api/restaurants?lat=30.0&lng=-88.0&page=2')->assertStatus(200);
+        // Mockery's `once()` is verified at teardown — page 2 must not call search().
+    }
+
+    public function test_api_live_pagination_kill_switch_returns_all_on_one_page(): void
+    {
+        Config::set('restaurant-finder.live_search.paginate', false);
+        $rows = array_map(fn ($i) => $this->liveRow(['name' => "V{$i}", 'slug' => "v{$i}"]), range(1, 25));
+        $this->bindLiveSearchResults($rows);
+
+        $r = $this->get('/api/restaurants?lat=30.0&lng=-88.0');
+        $r->assertStatus(200);
+        $this->assertCount(25, $r->json('data'));
+        $this->assertNull($r->json('next_page_url'));
     }
 
     public function test_api_live_results_are_snapshotted_by_slug_for_preview(): void

@@ -273,32 +273,72 @@ class RestaurantController extends Controller
         $restaurants = $query->paginate(20)->withQueryString();
 
         if ($restaurants->isEmpty() && $coords !== null) {
-            $liveResults = $this->liveSearchService->search(
-                $coords['lat'],
-                $coords['lng'],
-                $cuisineSlug,
-                $categorySlug,
-                false, // cacheOnly
-                $sort,  // spec-069 4B: sort happens inside search(), before the bound
-            );
+            // spec-068: paginate the live result set. Page 1 runs the (cache-warm,
+            // zero-quota) live search and snapshots the full user-sorted set under
+            // live_page:{coords+cuisine+category+sort}; pages 2+ slice that snapshot
+            // (deterministic across pages, no re-search). The frontend's loadMore()
+            // already consumes next_page_url, so this is backend-only.
+            $paginate = filter_var(config('restaurant-finder.live_search.paginate', true), FILTER_VALIDATE_BOOL);
+            $perPage = (int) config('restaurant-finder.live_search.page_size', 20);
+            $page = max(1, (int) $request->query('page', '1'));
 
-            // Snapshot each shown result under preview:{slug} so the detail page
-            // (/restaurants/preview/{slug}) can render it WITHOUT re-running the
-            // live search (zero quota, no restaurants write). Stored AFTER sort +
-            // boundResults so it's exactly what the user saw. Replaces the fragile
-            // cache-only reconstruction — see spec-040 / preview().
-            $this->snapshotLiveResults($liveResults);
+            $pageKey = 'live_page:'.md5(serialize([
+                'lat' => $coords['lat'],
+                'lng' => $coords['lng'],
+                'cuisine' => $cuisineSlug,
+                'category' => $categorySlug,
+                'sort' => $sort,
+            ]));
+
+            if ($paginate && $page > 1) {
+                // Pages 2+: serve from the page-1 snapshot. If it expired mid-
+                // pagination, return an empty page (the frontend surfaces its
+                // "couldn't load more" state) rather than re-burning the search.
+                $snapshotted = ExternalApiCache::findByKey($pageKey);
+                $liveResults = is_array($snapshotted) ? $snapshotted : [];
+            } else {
+                $liveResults = $this->liveSearchService->search(
+                    $coords['lat'],
+                    $coords['lng'],
+                    $cuisineSlug,
+                    $categorySlug,
+                    false, // cacheOnly
+                    $sort,  // spec-069 4B: sort happens inside search(), before the bound
+                );
+
+                if ($paginate) {
+                    ExternalApiCache::storeByKey(
+                        $pageKey,
+                        $liveResults,
+                        now()->addMinutes((int) config('restaurant-finder.live_search.page_snapshot_minutes', 10))
+                    );
+                }
+            }
+
+            $total = count($liveResults);
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $effectivePage = $paginate ? min($page, $lastPage) : 1;
+            $slice = $paginate
+                ? array_slice($liveResults, ($effectivePage - 1) * $perPage, $perPage)
+                : $liveResults;
+
+            // Snapshot each SHOWN result under preview:{slug} so the detail page
+            // (/restaurants/preview/{slug}) can render it without re-running the
+            // live search (zero quota, no restaurants write). See spec-040.
+            $this->snapshotLiveResults($slice);
+
+            $hasNext = $paginate && $effectivePage < $lastPage;
 
             return response()->json([
-                'data' => LiveRestaurantResource::collection($liveResults)->resolve(),
-                'current_page' => 1,
-                'last_page' => 1,
-                'per_page' => count($liveResults),
-                'total' => count($liveResults),
-                'next_page_url' => null,
+                'data' => LiveRestaurantResource::collection($slice)->resolve(),
+                'current_page' => $effectivePage,
+                'last_page' => $lastPage,
+                'per_page' => $paginate ? $perPage : $total,
+                'total' => $total,
+                'next_page_url' => $hasNext ? $request->fullUrlWithQuery(['page' => $effectivePage + 1]) : null,
                 'prev_page_url' => null,
-                'from' => $liveResults ? 1 : null,
-                'to' => count($liveResults),
+                'from' => $total ? ($effectivePage - 1) * $perPage + 1 : null,
+                'to' => $total ? min($effectivePage * $perPage, $total) : null,
                 'is_live' => true,
             ]);
         }

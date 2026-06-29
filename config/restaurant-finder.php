@@ -159,6 +159,16 @@ return [
         // max_results cap is the primary bound; set LIVE_SEARCH_MIN_SCORE (e.g.
         // 0.10) to additionally trim weak tails in dense areas.
         'min_score' => (float) env('LIVE_SEARCH_MIN_SCORE', 0.0),
+
+        // spec-068: paginate the live result set (Google-Maps "load more"). Page 1
+        // runs the search + snapshots the full user-sorted set; pages 2+ slice the
+        // snapshot. Kill-switch LIVE_SEARCH_PAGINATE reverts to one-page-all-results.
+        'paginate' => filter_var(env('LIVE_SEARCH_PAGINATE', true), FILTER_VALIDATE_BOOL),
+        'page_size' => (int) env('LIVE_SEARCH_PAGE_SIZE', 20),
+        // TTL of the per-search page-1 snapshot (holds the full bounded set so
+        // pages 2+ can slice it without re-searching). If a user pages past this,
+        // they hit the "couldn't load more" state and re-search.
+        'page_snapshot_minutes' => (int) env('LIVE_SEARCH_PAGE_SNAPSHOT_MINUTES', 10),
     ],
 
     /*
