@@ -16,6 +16,10 @@ class VenuePipeline
     /** Haversine match threshold (km) for cross-source dedup/matching. */
     private const MATCH_RADIUS_KM = 0.2;
 
+    public function __construct(
+        private PriceLevelNormalizer $priceLevelNormalizer,
+    ) {}
+
     /**
      * Rating-source authority rank (spec-066). Google's own ratings (SerpApi
      * google_maps, Google Places) are most authoritative; Foursquare's (rescaled
@@ -122,13 +126,22 @@ class VenuePipeline
 
     /**
      * Determine if two venues represent the same physical place.
-     * Requires fuzzy name similarity AND haversine proximity within radius.
+     * Matches on EITHER (a) a normalized phone match within radius (spec-069 4A —
+     * catches name variants >15% apart so a rating attaches to its counterpart),
+     * OR (b) the classic fuzzy-name + haversine-proximity match.
      *
      * @param  array<string,mixed>  $a
      * @param  array<string,mixed>  $b
      */
     public function venuesMatch(array $a, array $b, float $radius, float $similarityThreshold): bool
     {
+        // 4A phone fast-path: same last-10-digits phone + within radius. Bypasses
+        // the name check (the whole point — names diverge), but keeps proximity so
+        // two distinct same-phone venues (chain central booking) don't false-merge.
+        if ($this->phonesMatch($a, $b) && $this->withinRadius($a, $b, $radius)) {
+            return true;
+        }
+
         $nameA = strtolower(trim($a['name'] ?? ''));
         $nameB = strtolower(trim($b['name'] ?? ''));
 
@@ -147,7 +160,14 @@ class VenuePipeline
             return false;
         }
 
-        // Proximity check
+        return $this->withinRadius($a, $b, $radius);
+    }
+
+    /**
+     * Haversine proximity check with a null-island guard (0,0 coords = unknown).
+     */
+    private function withinRadius(array $a, array $b, float $radius): bool
+    {
         $latA = (float) ($a['lat'] ?? $a['latitude'] ?? 0);
         $lngA = (float) ($a['lng'] ?? $a['longitude'] ?? 0);
         $latB = (float) ($b['lat'] ?? $b['latitude'] ?? 0);
@@ -157,9 +177,40 @@ class VenuePipeline
             return false;
         }
 
-        $distance = $this->haversineKm($latA, $lngA, $latB, $lngB);
+        return $this->haversineKm($latA, $lngA, $latB, $lngB) <= $radius;
+    }
 
-        return $distance <= $radius;
+    /**
+     * spec-069 4A: two venues match by phone when both carry a phone whose last
+     * 10 digits are equal (the unique-enough tail; the area/country prefix is
+     * noisy across sources). Requires ≥10 digits so a shared short reservation
+     * line can't false-merge. Gated by dedup.phone_match.
+     */
+    private function phonesMatch(array $a, array $b): bool
+    {
+        if (! filter_var(config('restaurant-finder.dedup.phone_match', true), FILTER_VALIDATE_BOOL)) {
+            return false;
+        }
+
+        $pa = $this->normalizePhone($a['phone'] ?? null);
+        $pb = $this->normalizePhone($b['phone'] ?? null);
+
+        return $pa !== null && $pb !== null && $pa === $pb;
+    }
+
+    private function normalizePhone(?string $phone): ?string
+    {
+        if ($phone === null || $phone === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone);
+
+        if (! is_string($digits) || strlen($digits) < 10) {
+            return null;
+        }
+
+        return substr($digits, -10);
     }
 
     /**
@@ -241,6 +292,103 @@ class VenuePipeline
     private function ratingAuthority(?string $source): int
     {
         return self::RATING_AUTHORITY[$source ?? ''] ?? 0;
+    }
+
+    /**
+     * Re-sort the live-search venue array by the user's sort mode (spec-069 4B).
+     * Called by LiveSearchService BEFORE boundResults() so the cap/page-slice
+     * applies to the user-sorted set, not a score-pre-selected one (the old
+     * bound-then-sort made ?sort=nearest miss the true nearest past #N).
+     *
+     * NULLS LAST in both directions; tiebreak = popularity_score DESC then name
+     * ASC. The explicit null guards are LOAD-BEARING (PHP 8 TypeError on
+     * `null <=> int`).
+     *
+     * spec-069 4C: the `rating` mode is credibility-aware — venues with fewer
+     * than rating_sort_min_reviews sink below credible ones so a 5.0/3-review
+     * venue can't beat 4.8/5000. Kill-switch ranking.rating_sort_credibility.
+     */
+    public function sortVenues(array $venues, string $sort, bool $hasCoords): array
+    {
+        if (count($venues) <= 1) {
+            return $venues;
+        }
+
+        // nearest without coords falls back to best_match (parity with applySortMode).
+        $effective = ($sort === 'nearest' && ! $hasCoords) ? 'best_match' : $sort;
+
+        if ($effective === 'best_match') {
+            return $venues; // already popularity_score desc from scoring
+        }
+
+        $minReviews = (int) config('restaurant-finder.ranking.rating_sort_min_reviews', 20);
+        $credibility = filter_var(
+            config('restaurant-finder.ranking.rating_sort_credibility', true), FILTER_VALIDATE_BOOL
+        );
+
+        $ratingKey = function (array $r) use ($minReviews, $credibility): ?float {
+            $rating = $r['google_rating'] ?? $r['yelp_rating'] ?? null;
+            if ($rating === null || ! is_numeric($rating)) {
+                return null;
+            }
+            $rating = (float) $rating;
+            $reviews = (float) ($r['google_review_count'] ?? $r['yelp_review_count'] ?? 0);
+
+            // Sink non-credible ratings below all credible ones (ratings are 0-5,
+            // so -10 guarantees the bucket). Among non-credible they still sort by
+            // rating desc. With credibility off, the raw rating is the key.
+            return ($credibility && $reviews < $minReviews) ? $rating - 10.0 : $rating;
+        };
+
+        usort($venues, function (array $a, array $b) use ($effective, $ratingKey): int {
+            [$va, $vb, $desc] = match ($effective) {
+                'nearest' => [$a['distance'] ?? null, $b['distance'] ?? null, false], // ASC: closest first
+                'rating' => [$ratingKey($a), $ratingKey($b), true],                   // DESC: highest first
+                'reviews' => [
+                    $a['google_review_count'] ?? $a['yelp_review_count'] ?? null,
+                    $b['google_review_count'] ?? $b['yelp_review_count'] ?? null,
+                    true,
+                ],
+                'price' => [
+                    $this->priceLevelNormalizer->normalize($a['price_range'] ?? null),
+                    $this->priceLevelNormalizer->normalize($b['price_range'] ?? null),
+                    false, // ASC: cheapest first
+                ],
+                default => [$a['popularity_score'] ?? null, $b['popularity_score'] ?? null, true],
+            };
+
+            // NULLS LAST in BOTH directions (null always sinks, regardless of $desc).
+            if ($va === null && $vb === null) {
+                return $this->sortTiebreak($a, $b);
+            }
+            if ($va === null) {
+                return 1;
+            }
+            if ($vb === null) {
+                return -1;
+            }
+
+            $cmp = $desc ? ($vb <=> $va) : ($va <=> $vb);
+
+            return $cmp !== 0 ? $cmp : $this->sortTiebreak($a, $b);
+        });
+
+        return $venues;
+    }
+
+    /**
+     * Deterministic tiebreak for live rows whose primary sort key is equal:
+     * popularity_score DESC, then name ASC.
+     */
+    private function sortTiebreak(array $a, array $b): int
+    {
+        $pa = (float) ($a['popularity_score'] ?? 0);
+        $pb = (float) ($b['popularity_score'] ?? 0);
+        if ($pa !== $pb) {
+            return $pb <=> $pa;
+        }
+
+        return ($a['name'] ?? '') <=> ($b['name'] ?? '');
     }
 
     /**

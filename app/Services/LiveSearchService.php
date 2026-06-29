@@ -27,7 +27,7 @@ class LiveSearchService
      * Search for restaurants near coordinates using external APIs.
      * All sources fire concurrently (BizData, Foursquare, Overpass) and are merged together.
      */
-    public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null, bool $cacheOnly = false): array
+    public function search(float $lat, float $lng, ?string $cuisineSlug = null, ?string $categorySlug = null, bool $cacheOnly = false, string $sort = 'best_match'): array
     {
         $scope = $this->cuisineMatcher->resolveScope($cuisineSlug, $categorySlug);
 
@@ -64,6 +64,11 @@ class LiveSearchService
         $results = $this->filterByDistance($results, $lat, $lng);
 
         $results = $this->scoreWithUnifiedService($results, $lat, $lng);
+
+        // spec-069 4B: sort the FULL scored set by the user's mode BEFORE bounding,
+        // so ?sort=nearest returns the true nearest — not the top-N-by-score set
+        // re-sorted (which silently dropped the #N+1 nearest venue).
+        $results = $this->venuePipeline->sortVenues($results, $sort, true);
 
         // Bound the list: drop the weak tail and cap the count (scored + sorted).
         $results = $this->boundResults($results);

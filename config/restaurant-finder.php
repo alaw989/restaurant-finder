@@ -98,6 +98,12 @@ return [
         // Similarity (0-1) above which a Wikidata entity name is considered to
         // match a restaurant name in WikidataService::hasAward().
         'award_name_similarity' => (float) env('RANK_AWARD_NAME_SIMILARITY', 0.7),
+
+        // spec-069 4C: ?sort=rating credibility bucketing. Venues with fewer than
+        // this many reviews sink below credible ones so a 5.0/3-review venue
+        // can't outrank 4.8/5000. Kill-switch RANK_RATING_SORT_CREDIBILITY.
+        'rating_sort_min_reviews' => (int) env('RANK_RATING_SORT_MIN_REVIEWS', 20),
+        'rating_sort_credibility' => filter_var(env('RANK_RATING_SORT_CREDIBILITY', true), FILTER_VALIDATE_BOOL),
     ],
 
     /*
@@ -304,6 +310,12 @@ return [
 
         // Name similarity (0-100) above which two names are considered a match.
         'name_similarity_threshold' => (float) env('DEDUP_NAME_SIMILARITY_THRESHOLD', 85.0),
+
+        // spec-069 4A: also match two venues as the same when their phones' last
+        // 10 digits agree (within match_radius_km), bypassing the name check —
+        // catches name variants >15% apart so a rating attaches to its
+        // OSM/SerpApi counterpart and duplicate rows collapse.
+        'phone_match' => filter_var(env('DEDUP_PHONE_MATCH', true), FILTER_VALIDATE_BOOL),
     ],
 
     /*

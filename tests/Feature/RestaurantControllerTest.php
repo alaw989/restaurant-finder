@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\RestaurantController;
 use App\Models\Cuisine;
 use App\Models\CuisineCategory;
 use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\LiveSearchService;
+use App\Services\VenuePipeline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -366,111 +366,104 @@ class RestaurantControllerTest extends TestCase
         ], $overrides);
     }
 
-    public function test_api_live_sort_best_match_preserves_score_order(): void
+    // spec-069: sort logic lives in VenuePipeline::sortVenues (called inside
+    // LiveSearchService::search before bounding). These unit-test it directly;
+    // the controller wiring is covered by test_api_live_sort_preserves_response_shape.
+
+    public function test_sort_venues_best_match_preserves_score_order(): void
     {
-        // The service returns popularity_score desc; best_match must leave it.
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'High', 'popularity_score' => 0.9]),
-            $this->liveRow(['name' => 'Mid', 'popularity_score' => 0.5]),
-            $this->liveRow(['name' => 'Low', 'popularity_score' => 0.1]),
-        ]);
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'High', 'popularity_score' => 0.9],
+            ['name' => 'Mid', 'popularity_score' => 0.5],
+            ['name' => 'Low', 'popularity_score' => 0.1],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0');
-
-        $response->assertStatus(200);
-        $this->assertSame(['High', 'Mid', 'Low'], array_column($response->json('data'), 'name'));
+        $this->assertSame(['High', 'Mid', 'Low'], array_column($pipeline->sortVenues($rows, 'best_match', true), 'name'));
     }
 
-    public function test_api_live_sort_nearest_orders_by_distance_asc(): void
+    public function test_sort_venues_nearest_orders_by_distance_asc(): void
     {
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'Far', 'distance' => 5.0, 'popularity_score' => 0.9]),
-            $this->liveRow(['name' => 'Close', 'distance' => 0.5, 'popularity_score' => 0.1]),
-            $this->liveRow(['name' => 'Mid', 'distance' => 2.0, 'popularity_score' => 0.5]),
-        ]);
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'Far', 'distance' => 5.0, 'popularity_score' => 0.9],
+            ['name' => 'Close', 'distance' => 0.5, 'popularity_score' => 0.1],
+            ['name' => 'Mid', 'distance' => 2.0, 'popularity_score' => 0.5],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0&sort=nearest');
-
-        $response->assertStatus(200);
-        $this->assertSame(['Close', 'Mid', 'Far'], array_column($response->json('data'), 'name'));
+        $this->assertSame(['Close', 'Mid', 'Far'], array_column($pipeline->sortVenues($rows, 'nearest', true), 'name'));
     }
 
-    public function test_api_live_sort_rating_orders_desc_with_nulls_last(): void
+    public function test_sort_venues_rating_orders_desc_with_nulls_last(): void
     {
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'RatedLow', 'google_rating' => 3.5, 'popularity_score' => 0.3]),
-            $this->liveRow(['name' => 'RatedHigh', 'google_rating' => 4.8, 'popularity_score' => 0.2]),
-            $this->liveRow(['name' => 'UnratedPopular', 'popularity_score' => 0.99]),
-            $this->liveRow(['name' => 'UnratedOther', 'popularity_score' => 0.4]),
-        ]);
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'RatedLow', 'google_rating' => 3.5, 'google_review_count' => 500, 'popularity_score' => 0.3],
+            ['name' => 'RatedHigh', 'google_rating' => 4.8, 'google_review_count' => 500, 'popularity_score' => 0.2],
+            ['name' => 'UnratedPopular', 'popularity_score' => 0.99],
+            ['name' => 'UnratedOther', 'popularity_score' => 0.4],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0&sort=rating');
-
-        $response->assertStatus(200);
-        // Rated rows desc; nulls sink to the bottom (even the popular one),
-        // ordered among themselves by the popularity_score tiebreak.
         $this->assertSame(
             ['RatedHigh', 'RatedLow', 'UnratedPopular', 'UnratedOther'],
-            array_column($response->json('data'), 'name')
+            array_column($pipeline->sortVenues($rows, 'rating', true), 'name')
         );
     }
 
-    public function test_api_live_sort_reviews_orders_desc_with_zero_ranked_above_null(): void
+    public function test_sort_venues_rating_credibility_sinks_low_review_ratings(): void
     {
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'Hundreds', 'google_review_count' => 500, 'popularity_score' => 0.3]),
-            $this->liveRow(['name' => 'Tens', 'google_review_count' => 100, 'popularity_score' => 0.3]),
-            $this->liveRow(['name' => 'Zero', 'google_review_count' => 0, 'popularity_score' => 0.3]),
-            // No review keys at all → null (sinks below an explicit 0).
-            ['name' => 'Missing', 'slug' => 'missing', 'popularity_score' => 0.99, 'distance' => null],
-        ]);
+        // spec-069 4C: a 4.9★/5-review venue sinks below a 4.7★/500-review venue.
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'Shaky', 'google_rating' => 4.9, 'google_review_count' => 5, 'popularity_score' => 0.5],
+            ['name' => 'Solid', 'google_rating' => 4.7, 'google_review_count' => 500, 'popularity_score' => 0.5],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0&sort=reviews');
+        $this->assertSame(['Solid', 'Shaky'], array_column($pipeline->sortVenues($rows, 'rating', true), 'name'));
+    }
 
-        $response->assertStatus(200);
+    public function test_sort_venues_reviews_orders_desc_with_nulls_last(): void
+    {
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'Tens', 'google_review_count' => 100, 'popularity_score' => 0.3],
+            ['name' => 'Hundreds', 'google_review_count' => 500, 'popularity_score' => 0.3],
+            ['name' => 'Zero', 'google_review_count' => 0, 'popularity_score' => 0.3],
+            ['name' => 'Missing', 'popularity_score' => 0.99],
+        ];
+
         $this->assertSame(
             ['Hundreds', 'Tens', 'Zero', 'Missing'],
-            array_column($response->json('data'), 'name')
+            array_column($pipeline->sortVenues($rows, 'reviews', true), 'name')
         );
     }
 
-    public function test_api_live_sort_price_orders_asc_using_normalizer(): void
+    public function test_sort_venues_price_orders_asc_using_normalizer(): void
     {
-        // '$5' normalizes to level 1 (numeric avg 5); the DB-path SQL CASE
-        // would bucket it as 2 (GLOB '$*'). This fixture only orders correctly
-        // under PriceLevelNormalizer, proving the live path uses it.
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'Single', 'price_range' => '$', 'popularity_score' => 0.1]),
-            $this->liveRow(['name' => 'FiveDollar', 'price_range' => '$5', 'popularity_score' => 0.9]),
-            $this->liveRow(['name' => 'Four', 'price_range' => '$$$$', 'popularity_score' => 0.5]),
-            $this->liveRow(['name' => 'Unknown', 'price_range' => null, 'popularity_score' => 0.3]),
-        ]);
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'Single', 'price_range' => '$', 'popularity_score' => 0.1],
+            ['name' => 'FiveDollar', 'price_range' => '$5', 'popularity_score' => 0.9],
+            ['name' => 'Four', 'price_range' => '$$$$', 'popularity_score' => 0.5],
+            ['name' => 'Unknown', 'price_range' => null, 'popularity_score' => 0.3],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0&sort=price');
-
-        $response->assertStatus(200);
-        // '$' and '$5' both normalize to level 1 → tiebreak by popularity desc
-        // → FiveDollar(0.9) before Single(0.1). '$$$$' = 4. null sinks last.
         $this->assertSame(
             ['FiveDollar', 'Single', 'Four', 'Unknown'],
-            array_column($response->json('data'), 'name')
+            array_column($pipeline->sortVenues($rows, 'price', true), 'name')
         );
     }
 
-    public function test_api_live_sort_tiebreak_by_popularity_then_name(): void
+    public function test_sort_venues_tiebreak_by_popularity_then_name(): void
     {
-        // Equal rating → popularity desc; equal popularity → name asc.
-        $this->bindLiveSearchResults([
-            $this->liveRow(['name' => 'Zeta', 'google_rating' => 4.5, 'popularity_score' => 0.5]),
-            $this->liveRow(['name' => 'Alpha', 'google_rating' => 4.5, 'popularity_score' => 0.5]),
-            $this->liveRow(['name' => 'Beta', 'google_rating' => 4.5, 'popularity_score' => 0.9]),
-        ]);
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
+            ['name' => 'Zeta', 'google_rating' => 4.5, 'google_review_count' => 500, 'popularity_score' => 0.5],
+            ['name' => 'Alpha', 'google_rating' => 4.5, 'google_review_count' => 500, 'popularity_score' => 0.5],
+            ['name' => 'Beta', 'google_rating' => 4.5, 'google_review_count' => 500, 'popularity_score' => 0.9],
+        ];
 
-        $response = $this->get('/api/restaurants?lat=30.0&lng=-88.0&sort=rating');
-
-        $response->assertStatus(200);
-        // All rated 4.5: Beta(0.9) first; then Alpha/Zeta at 0.5 → name asc.
-        $this->assertSame(['Beta', 'Alpha', 'Zeta'], array_column($response->json('data'), 'name'));
+        $this->assertSame(['Beta', 'Alpha', 'Zeta'], array_column($pipeline->sortVenues($rows, 'rating', true), 'name'));
     }
 
     public function test_api_live_sort_preserves_response_shape(): void
@@ -507,24 +500,16 @@ class RestaurantControllerTest extends TestCase
         $this->assertSame('Beta', ExternalApiCache::findByKey('preview:beta-bbbbbb')['name']);
     }
 
-    public function test_sort_live_results_nearest_without_coords_falls_back_to_best_match(): void
+    public function test_sort_venues_nearest_without_coords_falls_back_to_best_match(): void
     {
-        // The live HTTP branch always has coords, so this guard is unreachable
-        // through apiIndex — exercise sortLiveResults directly. 'nearest'
-        // without coords must NOT reorder by distance (falls back to best_match).
-        $controller = $this->app->make(RestaurantController::class);
-
-        $results = [
+        // 'nearest' without coords must NOT reorder by distance (falls back to
+        // best_match = score order, unchanged).
+        $pipeline = $this->app->make(VenuePipeline::class);
+        $rows = [
             ['name' => 'Far', 'distance' => 5.0, 'popularity_score' => 0.9],
             ['name' => 'Close', 'distance' => 0.5, 'popularity_score' => 0.1],
         ];
 
-        $method = new \ReflectionMethod($controller, 'sortLiveResults');
-        $method->setAccessible(true);
-
-        $sorted = $method->invoke($controller, $results, 'nearest', false);
-
-        // Unchanged — Far stays first (not reordered by distance).
-        $this->assertSame(['Far', 'Close'], array_column($sorted, 'name'));
+        $this->assertSame(['Far', 'Close'], array_column($pipeline->sortVenues($rows, 'nearest', false), 'name'));
     }
 }

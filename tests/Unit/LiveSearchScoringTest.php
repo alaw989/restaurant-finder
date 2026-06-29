@@ -1303,6 +1303,59 @@ class LiveSearchScoringTest extends TestCase
         $this->assertSame([], (new FoursquareService)->poolRequestsFor(30.65, -88.20, null, ['read_path' => true]));
     }
 
+    public function test_phone_dedup_matches_same_venue_despite_name_divergence(): void
+    {
+        // spec-069 4A: same phone (last 10 digits) + within radius = same venue,
+        // even when names are <85% similar (so a rating attaches to its counterpart).
+        $pipeline = $this->app->make(VenuePipeline::class);
+
+        $this->assertTrue($pipeline->venuesMatch(
+            ['name' => 'Tony Pizza Napoletana', 'phone' => '+1 (212) 555-0142', 'lat' => 40.72, 'lng' => -74.00],
+            ['name' => 'Tonys Pizza', 'phone' => '2125550142', 'lat' => 40.7201, 'lng' => -74.0001],
+            0.2, 85.0
+        ));
+    }
+
+    public function test_phone_dedup_requires_enough_digits(): void
+    {
+        // A short shared number (e.g. a reservation line) must NOT false-merge.
+        $pipeline = $this->app->make(VenuePipeline::class);
+
+        $this->assertFalse($pipeline->venuesMatch(
+            ['name' => 'Alpha Diner', 'phone' => '555-0199', 'lat' => 40.72, 'lng' => -74.00],
+            ['name' => 'Beta Bistro', 'phone' => '555-0199', 'lat' => 40.7201, 'lng' => -74.0001],
+            0.2, 85.0
+        ));
+    }
+
+    public function test_phone_dedup_kill_switch_reverts_to_name_only(): void
+    {
+        Config::set('restaurant-finder.dedup.phone_match', false);
+        $pipeline = $this->app->make(VenuePipeline::class);
+
+        $this->assertFalse($pipeline->venuesMatch(
+            ['name' => 'Tony Pizza Napoletana', 'phone' => '+1 (212) 555-0142', 'lat' => 40.72, 'lng' => -74.00],
+            ['name' => 'Tonys Pizza', 'phone' => '2125550142', 'lat' => 40.7201, 'lng' => -74.0001],
+            0.2, 85.0
+        ));
+    }
+
+    public function test_sort_before_bound_returns_true_nearest_past_score_cap(): void
+    {
+        // spec-069 4B: with 3 venues and sort=nearest, the true nearest must win
+        // even if it has the lowest score (previously bound-then-sort dropped it).
+        // driveViaSearch runs the full pipeline incl. sortVenues-before-bound.
+        $venues = [
+            ['name' => 'FarHigh', 'source' => 'serpapi', 'lat' => 30.70, 'lng' => -88.20, 'google_rating' => 4.9, 'google_review_count' => 500],
+            ['name' => 'CloseLow', 'source' => 'serpapi', 'lat' => 30.6210, 'lng' => -88.1970, 'google_rating' => 3.0, 'google_review_count' => 500],
+        ];
+        $service = $this->makeServiceWithVenues(['serpapi' => $venues]);
+
+        $results = $service->search(30.6199783, -88.1967496, null, null, false, 'nearest');
+
+        $this->assertSame(['CloseLow', 'FarHigh'], array_column($results, 'name'));
+    }
+
     /**
      * Create a cuisine (with the category row its FK requires). Cuisine
      * resolution now reads config/cuisine-keywords.php via CuisineMatcher, so a

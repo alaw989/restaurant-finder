@@ -160,6 +160,14 @@ user-sorted array) → **069-4A** (phone dedup) + **069-4C** (credibility rating
 (cuisine lexicon: Nepalese/Afghan/Tibetan/Burmese/Russian). 064 (Vitest) remains the only other
 open spec. Detail: `history.md` + `specs/066|067-…md`.
 
+**▶ UPDATE 2026-06-29:** **069 SHIPPED** (ranking fidelity: 4A phone-based dedup `dedup.phone_match`;
+4B sort-before-bound — `VenuePipeline::sortVenues` + `LiveSearchService::search` takes `$sort` and
+sorts the full set before `boundResults`, controller no longer re-sorts, dead `sortLiveResults`
+removed; 4C credibility rating sort `ranking.rating_sort_min_reviews`/`rating_sort_credibility`).
+323 tests green. **So 4B is DONE standalone** — only **068 (pagination)** and **070 (cuisine lexicon)**
+remain of this plan. 068 now just snapshots+slices the already-user-sorted array the controller
+receives (frontend `loadMore`/`next_page_url` already exist).
+
 **▶ Resume point (2026-06-28):** specs **001–063 + 065 are ALL COMPLETE/SHIPPED.** The
 full-optimization backlog (047–060) shipped, and the **Lighthouse ≥90 plan** (052 a11y/BP, 061 bundle
 diet, 062 CSS split, 063 SSR) shipped in commit `dc383a0` and is **LIVE-VERIFIED on staging** — every
