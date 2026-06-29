@@ -564,23 +564,17 @@ class PopularityScoreService
     }
 
     /**
-     * Whether any external quality source (SerpApi, Google Places, Outscraper,
-     * or Foursquare-with-rating) is configured. The google_* rating/review
-     * columns are only trusted to contribute when at least one such source is
-     * live, so stale seeded or legacy values don't distort scores on a no-key
-     * deploy. Foursquare is included (spec-066) because its rescaled rating now
-     * feeds google_rating/google_review_count.
+     * Whether any external quality source (SerpApi, Google Places, or Outscraper)
+     * is configured. The google_* rating/review columns are only trusted to
+     * contribute when at least one such source is live, so stale seeded or
+     * legacy values don't distort scores on a no-key deploy.
      */
     private function qualitySourceConfigured(): bool
     {
         try {
-            $foursquareActive = ! empty(config('services.foursquare.api_key'))
-                && filter_var(config('restaurant-finder.sources.foursquare.use_rating', true), FILTER_VALIDATE_BOOL);
-
             return ! empty(config('services.serpapi.api_key'))
                 || ! empty(config('services.google.places_key'))
-                || ! empty(config('services.outscraper.api_key'))
-                || $foursquareActive;
+                || ! empty(config('services.outscraper.api_key'));
         } catch (\Throwable $e) {
             // Pure unit-test context (no booted container): assume present so the
             // quality-signal path remains testable.

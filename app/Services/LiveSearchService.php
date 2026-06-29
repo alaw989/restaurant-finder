@@ -17,7 +17,6 @@ class LiveSearchService
         private FoursquareService $foursquareService,
         private SerpApiService $serpApiService,
         private SocrataOpenDataService $socrataService,
-        private GooglePlacesService $googlePlacesService,
         private PopularityScoreService $scoreService,
         private CuisineMatcher $cuisineMatcher,
         private VenuePipeline $venuePipeline,
@@ -93,7 +92,6 @@ class LiveSearchService
             'bizdata' => $this->bizDataService,
             'foursquare' => $this->foursquareService,
             'serpapi' => $this->serpApiService,
-            'google_places' => $this->googlePlacesService,
             'socrata' => $this->socrataService,
             'overpass' => $this->overpassService,
         ];
@@ -251,7 +249,6 @@ class LiveSearchService
             'bizdata' => $this->bizDataService->normalizeRaw($cached, $lat, $lng, $cuisine),
             'foursquare' => $this->foursquareService->normalizeRaw($cached),
             'serpapi' => $this->serpApiService->normalizeRaw($cached, $lat, $lng),
-            'google_places' => $this->googlePlacesService->normalizeRaw($cached, $lat, $lng),
             'socrata' => $this->socrataService->normalizeRaw($cached, $lat, $lng),
             'overpass' => $this->overpassService->normalizeRaw($cached, $lat, $lng),
             default => [],

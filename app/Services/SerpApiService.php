@@ -319,7 +319,6 @@ class SerpApiService
                 'opening_hours' => $r['operating_hours'] ?? null,
                 'google_rating' => is_numeric($rating) ? (float) $rating : null,
                 'google_review_count' => is_numeric($reviews) ? (int) $reviews : 0,
-                'rating_source' => is_numeric($rating) ? 'serpapi' : null,
                 'yelp_rating' => null,
                 'yelp_review_count' => 0,
                 'has_award' => false,

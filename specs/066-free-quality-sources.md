@@ -4,9 +4,36 @@
 
 **Created**: 2026-06-29
 
-**Status**: COMPLETE
+**Status**: REVERTED 2026-06-29 — the "free quality sources" premise was wrong.
 
-**Series**: Coverage & Quality plan — Tier 1 (relieves the SerpApi 50/mo bottleneck).
+**Series**: Coverage & Quality plan — Tier 1.
+
+> ## ⚠️ REVERTED — these are NOT free
+> The spec shipped on the assumption that Foursquare ratings and Google Places were
+> free/cheap. They are not (verified against the vendor pricing pages, 2026-06-29):
+> - **Foursquare**: the `rating`/`rating_signals`/`popularity`/`price`/`photos` fields
+>   are **premium-tier** → every call is a Premium endpoint at **$18.75/1k from call 1,
+>   no free tier** ([foursquare.com/pricing](https://foursquare.com/pricing/),
+>   [field tiers](https://docs.foursquare.com/data-products/docs/places-pro-and-premium)).
+>   The "0–500 free / 10k Pro" allowance covers ONLY default fields — not ratings.
+> - **Google Places**: Nearby Search is **~$32/1k** (one of the priciest Maps SKUs);
+>   the recurring **$200/mo credit** makes it free-for-low-volume (~6k/mo) BUT requires
+>   a billing account (card on file) and is metered beyond
+>   ([usage & billing](https://developers.google.com/maps/documentation/places/web-service/usage-and-billing)).
+>
+> Per the user's decision to **stay SerpApi-only (truly free)**, the entire spec was
+> reverted: Google Places removed from the read path (restored to enrichment-only),
+> Foursquare rating recovery + `rating_signals` undone, the authority-aware dedup +
+> `rating_source` removed, `qualitySourceConfigured` restored, the Google Places
+> budget counter / `quota:status` block / config removed. **SerpApi (~50/mo) is again
+> the only rating source.** The genuinely-free abundance work (spec-067 OSM) stands.
+> 311 tests green.
+>
+> Residual note: Foursquare's *pre-existing* query still requests premium fields
+> (`rating,popularity,price,photos`) even though the rating is discarded — so a
+> `FOURSQUARE_API_KEY` would still bill (~$0.019/call) for unrated abundance. It's a
+> no-op without a key; dropping those fields would make Foursquare free-tier (Pro,
+> 0–500/mo) if abundance-without-ratings is ever wanted. Not done here.
 
 ## The problem
 

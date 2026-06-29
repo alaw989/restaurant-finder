@@ -49,7 +49,7 @@ class FoursquareService
                 'query' => $cuisine,
                 'categories' => '13065',
                 'limit' => 50,
-                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,rating_signals,popularity,price,categories,photos',
+                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
             ]);
 
             if ($response->failed()) {
@@ -110,7 +110,7 @@ class FoursquareService
                 'query' => $cuisine,
                 'categories' => '13065',
                 'limit' => 50,
-                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,rating_signals,popularity,price,categories,photos',
+                'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
             ]);
 
             if ($response->failed()) {
@@ -186,7 +186,7 @@ class FoursquareService
             'radius' => 25000,
             'categories' => '13065',
             'limit' => 50,
-            'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,rating_signals,popularity,price,categories,photos',
+            'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,popularity,price,categories,photos',
         ];
         // Omit `query` on unscoped searches so the API returns all nearby dining.
         if (! empty($cuisine)) {
@@ -278,21 +278,6 @@ class FoursquareService
             }
         }
 
-        // spec-066: recover Foursquare's rating as a free quality signal.
-        // Foursquare rates on a 0-10 scale → rescale to 0-5 (the scale the
-        // Bayesian quality + Google rating normalization assume). rating_signals
-        // is Foursquare's documented vote count — a real review count, which the
-        // Bayesian needs or the rating collapses to the prior mean (v=0 → Q=C).
-        // Gated by sources.foursquare.use_rating; falls back to the pre-066
-        // discarded-rating behavior when off.
-        $useRating = filter_var(
-            config('restaurant-finder.sources.foursquare.use_rating', true), FILTER_VALIDATE_BOOL
-        );
-        $rawRating = isset($r['rating']) && is_numeric($r['rating']) ? (float) $r['rating'] : null;
-        $rating05 = ($rawRating !== null && $rawRating > 0.0) ? round($rawRating / 2.0, 2) : null;
-        $ratingSignals = isset($r['rating_signals']) && is_numeric($r['rating_signals']) ? (int) $r['rating_signals'] : 0;
-        $useRatingValue = $useRating && $rating05 !== null;
-
         return [
             'id' => -1 * abs(crc32('foursquare:'.($r['fsq_id'] ?? ''))),
             'name' => $r['name'] ?? 'Unknown',
@@ -308,10 +293,11 @@ class FoursquareService
             'price_range' => $r['price'] ?? null,
             'phone' => $r['tel'] ?? null,
             'website_url' => $r['website'] ?? null,
-            'google_rating' => $useRatingValue ? $rating05 : null,
-            'google_review_count' => $useRatingValue ? $ratingSignals : 0,
-            'foursquare_rating' => $rawRating,
-            'rating_source' => $useRatingValue ? 'foursquare' : null,
+            // Foursquare's rating is a premium-tier field (paid from call 1) and
+            // discarded here on purpose — SerpApi stays the only (free) rating
+            // source. See spec-066 revert.
+            'google_rating' => null,
+            'google_review_count' => 0,
             'yelp_rating' => null,
             'yelp_review_count' => 0,
             'has_award' => false,

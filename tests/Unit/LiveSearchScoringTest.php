@@ -4,11 +4,9 @@ namespace Tests\Unit;
 
 use App\Models\Cuisine;
 use App\Models\CuisineCategory;
-use App\Models\ExternalApiCache;
 use App\Services\BizDataApiService;
 use App\Services\CuisineMatcher;
 use App\Services\FoursquareService;
-use App\Services\GooglePlacesService;
 use App\Services\Http\RequestSpec;
 use App\Services\LiveSearchService;
 use App\Services\OverpassService;
@@ -268,7 +266,6 @@ class LiveSearchScoringTest extends TestCase
             'bizdata' => BizDataApiService::class,
             'foursquare' => FoursquareService::class,
             'serpapi' => SerpApiService::class,
-            'google_places' => GooglePlacesService::class,
             'socrata' => SocrataOpenDataService::class,
         ];
 
@@ -297,7 +294,6 @@ class LiveSearchScoringTest extends TestCase
             $mocks['foursquare'],
             $mocks['serpapi'],
             $mocks['socrata'],
-            $mocks['google_places'],
             $this->app->make(PopularityScoreService::class),
             $this->app->make(CuisineMatcher::class),
             $this->app->make(VenuePipeline::class),
@@ -309,7 +305,7 @@ class LiveSearchScoringTest extends TestCase
         sort($sources);
 
         $this->assertSame(
-            ['bizdata', 'foursquare', 'google_places', 'overpass', 'serpapi', 'socrata'],
+            ['bizdata', 'foursquare', 'overpass', 'serpapi', 'socrata'],
             $sources,
             'Live search must dispatch every source through the concurrent pool interface.'
         );
@@ -354,7 +350,6 @@ class LiveSearchScoringTest extends TestCase
             'bizdata' => BizDataApiService::class,
             'foursquare' => FoursquareService::class,
             'serpapi' => SerpApiService::class,
-            'google_places' => GooglePlacesService::class,
             'socrata' => SocrataOpenDataService::class,
         ];
 
@@ -380,7 +375,6 @@ class LiveSearchScoringTest extends TestCase
             $mocks['foursquare'],
             $mocks['serpapi'],
             $mocks['socrata'],
-            $mocks['google_places'],
             $this->app->make(PopularityScoreService::class),
             $this->app->make(CuisineMatcher::class),
             $this->app->make(VenuePipeline::class),
@@ -1134,109 +1128,6 @@ class LiveSearchScoringTest extends TestCase
             $this->assertNotContains($drop, $names, "Brow/lash studio should drop: {$drop}");
         }
         $this->assertContains('Juice Joint', $names);  // genuine juice bar kept
-    }
-
-    public function test_google_places_cache_hit_is_served_via_normalize_arm(): void
-    {
-        // spec-066: the normalizeCachedHit 'google_places' match arm must return
-        // normalized venues from a warm cache. Cached reads serve keyless (the
-        // budget/key gate only blocks fresh outbound calls), so this also proves
-        // the easy-to-miss arm without needing a key.
-        Config::set('services.google.places_key', null);
-        Http::fake(fn (Request $request) => Http::response([])); // safety: no real call expected
-
-        $key = (new GooglePlacesService)->cacheKeyFor(30.6199783, -88.1967496, null);
-        ExternalApiCache::storeByKey($key, [[
-            'name' => 'Cached Google Place',
-            'place_id' => 'x1',
-            'geometry' => ['location' => ['lat' => 30.65, 'lng' => -88.20]],
-            'vicinity' => 'Main St',
-            'rating' => 4.4,
-            'user_ratings_total' => 300,
-            'types' => ['restaurant', 'food'],
-        ]], now()->addHours(24));
-
-        $results = $this->liveSearchService->search(30.6199783, -88.1967496, null);
-        $names = array_column($results, 'name');
-
-        $this->assertContains('Cached Google Place', $names);
-    }
-
-    public function test_quality_signal_active_with_foursquare_rating_only(): void
-    {
-        // spec-066: with ONLY Foursquare configured (+ use_rating), a Foursquare-
-        // rated venue activates the Bayesian quality signal — qualitySourceConfigured()
-        // now recognizes Foursquare. Without that change the rating would be inert.
-        Config::set('services.serpapi.api_key', null);
-        Config::set('services.google.places_key', null);
-        Config::set('services.outscraper.api_key', null);
-        Config::set('services.foursquare.api_key', 'fsq-key');
-        Config::set('restaurant-finder.sources.foursquare.use_rating', true);
-
-        $liveResult = [
-            'id' => -1,
-            'name' => 'Foursquare Rated',
-            'slug' => 'fsq',
-            'lat' => 37.7749,
-            'lng' => -122.4194,
-            'distance' => 1.0,
-            'address' => '123 Main St',
-            'phone' => '(415) 555-0100',
-            'price_range' => '$$',
-            'website_url' => 'https://example.com',
-            'photo_url' => null,
-            'google_rating' => 4.25,
-            'google_review_count' => 120,
-            'rating_source' => 'foursquare',
-            'yelp_rating' => null,
-            'yelp_review_count' => 0,
-            'has_award' => false,
-        ];
-
-        $breakdown = $this->scoreService->calculateBreakdownForArray($liveResult, new Collection([$liveResult]));
-        $labels = collect($breakdown['signals'])->pluck('label')->toArray();
-
-        $this->assertContains('Quality', $labels);
-        $this->assertGreaterThan(0, $breakdown['total']);
-    }
-
-    public function test_merge_prefers_google_rating_over_foursquare(): void
-    {
-        // spec-066 authority-aware merge: a Foursquare-rated target must yield its
-        // rating to a more-authoritative Google (serpapi) rating on the matching row.
-        $pipeline = $this->app->make(VenuePipeline::class);
-
-        $target = ['name' => 'Same Place', 'lat' => 30.65, 'lng' => -88.20,
-            'google_rating' => 4.0, 'google_review_count' => 50, 'rating_source' => 'foursquare',
-            'yelp_rating' => null, 'yelp_review_count' => 0];
-        $source = ['name' => 'Same Place', 'lat' => 30.65, 'lng' => -88.20,
-            'google_rating' => 4.6, 'google_review_count' => 1200, 'rating_source' => 'serpapi',
-            'yelp_rating' => null, 'yelp_review_count' => 0];
-
-        $merged = $pipeline->mergeVenues($target, $source);
-
-        $this->assertSame(4.6, $merged['google_rating']);
-        $this->assertSame(1200, $merged['google_review_count']);
-        $this->assertSame('serpapi', $merged['rating_source']);
-    }
-
-    public function test_merge_keeps_google_rating_against_foursquare_source(): void
-    {
-        // Inverse: a target already carrying a Google rating keeps it when a
-        // lower-authority Foursquare row is merged in (Foursquare must not displace).
-        $pipeline = $this->app->make(VenuePipeline::class);
-
-        $target = ['name' => 'Same Place', 'lat' => 30.65, 'lng' => -88.20,
-            'google_rating' => 4.6, 'google_review_count' => 1200, 'rating_source' => 'serpapi',
-            'yelp_rating' => null, 'yelp_review_count' => 0];
-        $source = ['name' => 'Same Place', 'lat' => 30.65, 'lng' => -88.20,
-            'google_rating' => 4.0, 'google_review_count' => 50, 'rating_source' => 'foursquare',
-            'yelp_rating' => null, 'yelp_review_count' => 0];
-
-        $merged = $pipeline->mergeVenues($target, $source);
-
-        $this->assertSame(4.6, $merged['google_rating']);
-        $this->assertSame('serpapi', $merged['rating_source']);
     }
 
     public function test_overpass_query_broadens_amenity_tags(): void

@@ -34,7 +34,7 @@
 - **Testing:** PHPUnit 12 (266 tests, 972 assertions)
 - **Infra:** DigitalOcean droplet, GitHub Actions CI/CD
 - **Free APIs:** BizData (bizdata-web.vercel.app), Overpass/OSM, Wikidata SPARQL, Nominatim, Photon
-- **Paid APIs (optional):** Foursquare Places (500/mo free), Google Places, Outscraper, SerpApi
+- **Paid APIs (optional):** Foursquare Places (free tier = Pro/default fields ONLY, 0–500/mo; the rating/popularity/price/photos fields are premium-tier → **$18.75/1k from call 1, NO free tier**), Google Places (~$32/1k Nearby Search; $200/mo recurring credit = free-for-low-volume but card-on-file + metered), Outscraper, SerpApi (~50/mo free — the ONLY free rating source; see `memory/paid-ratings-no-free-lunch.md`)
 
 ---
 

@@ -137,45 +137,42 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
-**▶ Resume point (2026-06-29) — Coverage & Quality plan IN PROGRESS.** A new 5-spec backlog
-(066–070) targets Google-Maps-level coverage + quality within the SerpApi quota constraint
-(headline findings: abundance artificially capped at 30 + OSM only queries `amenity=restaurant`;
-Foursquare's rating fetched-then-discarded; Google Places' rating implemented-but-dead).
-Plan: `~/.claude/plans/analyze-this-site-and-modular-kettle.md`. **066 + 067 SHIPPED**:
-- **066** = free quality sources (Foursquare rating recovery 0-10→0-5 + `rating_signals` as review
-  count; Google Places on the live read-path pool contract `google_places` tag, monthly cost budget
-  500; authority-aware dedup so Foursquare's rating can't displace Google's). Deployed +
-  LIVE-VERIFIED 2026-06-29. Safe-by-default no-op until `FOURSQUARE_API_KEY`/`GOOGLE_PLACES_API_KEY`
-  are provisioned.
+**▶ Resume point (2026-06-29) — Coverage & Quality plan: 4 of 5 specs SHIPPED, 066 REVERTED.**
+Plan: `~/.claude/plans/analyze-this-site-and-modular-kettle.md`. Shipped + deployed green + live-verified:
 - **067** = OSM tag broadening (`amenity` regex union `restaurant|fast_food|cafe|bar|pub|biergarten|
   ice_cream` from `sources.overpass.amenities`, **anchored `^(…)$`** so Overpass substring-matching
   doesn't leak `public_bookcase` via `pub`; folded into both Overpass cache keys; live `out` cap
-  50→80), Foursquare fires unscoped (`sources.foursquare.unscoped`), `max_results` 30→60. All free,
-  no quota impact. **Deployed + LIVE-VERIFIED 2026-06-29** (commits `04be029`+`6d83ef9`, GHA green;
-  Mobile/chinese→8/7 rated no regression; broadened query verified against overpass-api.de at NYC →
-  80 elements w/ the 7 intended tags only, no substring leaks).
+  50→80), Foursquare fires unscoped (`sources.foursquare.unscoped`), `max_results` 30→60. **Genuinely
+  free** (OSM unlimited). Live-verified against overpass-api.de.
+- **068** = live-search pagination (snapshot-and-slice in `RestaurantController::apiIndex`,
+  `live_page:{…}` snapshot, real `next_page_url`, `page_size` 20, kill-switch `live_search.paginate`;
+  frontend `loadMore` already existed → backend-only).
+- **069** = ranking fidelity (4A phone dedup `dedup.phone_match`; 4B sort-before-bound —
+  `VenuePipeline::sortVenues` + `LiveSearchService::search` takes `$sort`, sorts before `boundResults`,
+  controller no longer re-sorts; 4C credibility rating sort `rating_sort_min_reviews`/`rating_sort_credibility`).
+- **070** = cuisine breadth (Nepalese/Tibetan/Burmese/Afghan/Russian — config + `CuisineSeeder` +
+  migration `2026_06_29_120000_add_breadth_cuisines`, idempotent, reaches prod via `migrate --force`).
 
-**Next: 068 + 069 land together** (pagination + sort-before-bound; the snapshot stores the
-user-sorted array) → **069-4A** (phone dedup) + **069-4C** (credibility rating sort) → **070**
-(cuisine lexicon: Nepalese/Afghan/Tibetan/Burmese/Russian). 064 (Vitest) remains the only other
-open spec. Detail: `history.md` + `specs/066|067-…md`.
+**⚠️ 066 (free quality sources) was REVERTED 2026-06-29.** The premise was wrong: Foursquare's
+rating fields are **premium-tier ($18.75/1k from call 1, no free tier)** and Google Places Nearby is
+**~$32/1k** (free-for-low-volume via the $200/mo credit but card-on-file + metered). The repo's old
+"Foursquare 500/mo free" (in `constitution.md` + memory) is STALE/WRONG. Per the user's decision to
+**stay SerpApi-only (truly free)**, all of 066 was undone: Google Places off the read path
+(`GooglePlacesService` back to enrichment-only), Foursquare rating recovery + `rating_signals` undone,
+authority-aware dedup + `rating_source` removed, `qualitySourceConfigured` restored, the Google Places
+budget counter / `quota:status` block / config removed, `GooglePlacesServiceTest` deleted. **SerpApi
+(~50/mo) is again the only rating source.** 311 tests green, PHPStan 0, Pint clean.
 
-**▶ UPDATE 2026-06-29 — ALL 5 SPECS (066–070) COMPLETE + DEPLOYED GREEN.** Remaining work shipped:
-- **069** = ranking fidelity: 4A phone-based dedup `dedup.phone_match`; 4B sort-before-bound
-  (`VenuePipeline::sortVenues` + `LiveSearchService::search` takes `$sort`, sorts full set before
-  `boundResults`, controller no longer re-sorts, dead `sortLiveResults` removed); 4C credibility
-  rating sort `ranking.rating_sort_min_reviews`/`rating_sort_credibility`.
-- **070** = cuisine lexicon breadth: Nepalese/Tibetan/Burmese (asian), Afghan (middle-eastern),
-  Russian (european) — config `cuisine-keywords` + `CuisineSeeder` + migration
-  `2026_06_29_120000_add_breadth_cuisines` (idempotent, reaches prod via migrate --force).
-- **068** = live-search pagination: snapshot-and-slice in `RestaurantController::apiIndex`
-  (`live_page:{…}` snapshot, real `next_page_url`, `page_size` 20, kill-switch `live_search.paginate`);
-  frontend `loadMore`/`next_page_url` already existed → backend-only.
+**Residual (flagged, not changed):** Foursquare's *pre-existing* query still requests premium fields
+(`rating,popularity,price,photos`) even though the rating is discarded → a `FOURSQUARE_API_KEY` would
+still bill ~$0.019/call for UNRATED abundance. No-op without a key. To make Foursquare truly free if
+abundance-without-ratings is wanted, drop those fields (Pro tier, 0–500/mo free).
 
-326 tests green, PHPStan 0, Pint clean across all 5. **The Coverage & Quality plan is DONE.** To
-materialize 066's Foursquare/Google Places benefits the user must provision `FOURSQUARE_API_KEY` +
-`GOOGLE_PLACES_API_KEY` (both currently no-ops; Google Places capped at 500 calls/30d). 064 (Vitest)
-remains the only open spec repo-wide.
+**Lessons → [[paid-ratings-no-free-lunch]]**: ratings are a walled garden; beyond SerpApi's 50/mo
+there is no free source — Google Places/Foursquare are both metered. The plan's "relieve the SerpApi
+bottleneck with free sources" thesis was flawed.
+
+064 (Vitest) remains the only open spec repo-wide. Detail: `history.md` + `specs/066|067|068|069|070-…md`.
 
 **▶ Resume point (2026-06-28):** specs **001–063 + 065 are ALL COMPLETE/SHIPPED.** The
 full-optimization backlog (047–060) shipped, and the **Lighthouse ≥90 plan** (052 a11y/BP, 061 bundle
