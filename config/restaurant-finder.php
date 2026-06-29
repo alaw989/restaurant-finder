@@ -188,6 +188,14 @@ return [
         'bizdata_ttl_hours' => (int) env('BIZDATA_CACHE_TTL_HOURS', 24),
         'foursquare_ttl_hours' => (int) env('FOURSQUARE_CACHE_TTL_HOURS', 24),
         'socrata_ttl_hours' => (int) env('SOCRATA_CACHE_TTL_HOURS', 24),
+
+        // TTL applied when a source returns an EMPTY result set (a 200 with no
+        // rows, or a normalized []). Without this, an empty response was cached
+        // at the source's full TTL (up to 30d for SerpApi), so a single
+        // transient empty/failed fetch persisted as a 0-result search until it
+        // expired. A short retry window lets the next request re-fetch instead,
+        // while still coalescing repeats within the window (quota protection).
+        'empty_retry_hours' => (int) env('CACHE_EMPTY_RETRY_HOURS', 2),
     ],
 
     /*

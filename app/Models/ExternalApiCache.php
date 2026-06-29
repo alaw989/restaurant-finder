@@ -44,6 +44,10 @@ class ExternalApiCache extends Model
 
     public static function put(string $source, string $externalId, array $data, int $ttlHours = 24): self
     {
+        if (empty($data)) {
+            $ttlHours = (int) config('restaurant-finder.cache.empty_retry_hours', 2);
+        }
+
         return static::updateOrCreate(
             ['source' => $source, 'external_id' => $externalId],
             [
@@ -64,6 +68,17 @@ class ExternalApiCache extends Model
     public static function storeByKey(string $key, array $data, Carbon $expiresAt): self
     {
         [$source] = explode(':', $key, 2);
+
+        // Empty results are cached briefly (not at the caller's long TTL) so a
+        // transient empty/failed source response self-heals on the next request
+        // instead of persisting as a 0-result search for weeks. A 200-with-empty
+        // was previously cached at the full source TTL, which produced the
+        // no-category "no results" bug (cache key stayed empty for 30 days).
+        if (empty($data)) {
+            $expiresAt = Carbon::now()->addHours(
+                (int) config('restaurant-finder.cache.empty_retry_hours', 2)
+            );
+        }
 
         return static::updateOrCreate(
             ['source' => $source ?: 'unknown', 'external_id' => $key],
