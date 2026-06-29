@@ -49,6 +49,9 @@ return [
         'taiwanese' => ['taiwanese', 'bubble.tea', 'boba', 'beef.noodle', 'lu.rou.fan', 'gua.bao', 'scallion.pancake'],
         'cambodian' => ['cambodian', 'kuy.teav', 'prahok', 'num.ban.chok', 'kampot', 'amok'],
         'singaporean' => ['singaporean', 'hainanese', 'chili.crab', 'kaya', 'char.kway.teow', 'laksa', 'bak.kut.teh'],
+        'nepalese' => ['nepalese', 'nepali', 'momo', 'dal.bhat', 'sel.roti', 'newari', 'yomari'],
+        'tibetan' => ['tibetan', 'thenthuk', 'tsampa', 'shabhaleh', 'phingsha'],
+        'burmese' => ['burmese', 'myanmar', 'mohinga', 'laphet', 'khao.swe', 'tea.leaf'],
 
         // ── European ───────────────────────────────────────────────────────
         'italian' => ['italian', 'pizza', 'pasta', 'trattoria', 'ristorante', 'bella', 'mamma', 'napoli', 'milan', 'risotto', 'gnocchi', 'bruschetta'],
@@ -61,6 +64,7 @@ return [
         'polish' => ['polish', 'pierogi', 'kielbasa', 'borscht', 'bigos', 'golabki', 'paczek', 'zapiekanka'],
         'belgian' => ['belgian', 'moules.frites', 'waffle', 'frites', 'carbonnade', 'stoofvlees', 'waterzooi'],
         'swiss' => ['swiss', 'fondue', 'raclette', 'rosti', 'zurich', 'geschnetzeltes', 'nusstorte'],
+        'russian' => ['russian', 'borscht', 'pelmeni', 'blini', 'stroganoff', 'solyanka', 'pirozhki'],
 
         // ── Latin American ─────────────────────────────────────────────────
         'mexican' => ['mexican', 'taqueria', 'taco', 'burrito', 'cantina', 'jalapeno', 'fajita', 'quesadilla', 'enchilada', 'mole', 'tortilla', 'carnitas', 'margarita'],
@@ -79,6 +83,7 @@ return [
         'israeli' => ['israeli', 'shakshuka', 'sabich', 'shwarma', 'falafel', 'hummus', 'pita', 'shakshouka', 'bourekas'],
         'moroccan' => ['moroccan', 'tagine', 'couscous', 'harira', 'ras.el.hanout', 'pastilla', 'bastilla', 'zaalouk', 'kefta'],
         'egyptian' => ['egyptian', 'koshari', 'ful.medames', 'molokhia', 'feteer', 'tameya', 'karkadeh', 'om.ali'],
+        'afghan' => ['afghan', 'afghani', 'kabul', 'mantu', 'bolani', 'qabili', 'ashak', 'palaw'],
 
         // ── American ───────────────────────────────────────────────────────
         'southern' => ['southern', 'soul.food', 'fried.chicken', 'biscuit', 'grits', 'collard', 'cornbread', 'catfish', 'shrimp.and.grits', 'lowcountry'],
@@ -108,10 +113,10 @@ return [
     ],
 
     'categories' => [
-        'asian' => ['chinese', 'japanese', 'korean', 'thai', 'vietnamese', 'filipino', 'indian', 'malaysian', 'indonesian', 'taiwanese', 'cambodian', 'singaporean'],
-        'european' => ['italian', 'french', 'spanish', 'greek', 'german', 'british', 'portuguese', 'polish', 'belgian', 'swiss'],
+        'asian' => ['chinese', 'japanese', 'korean', 'thai', 'vietnamese', 'filipino', 'indian', 'malaysian', 'indonesian', 'taiwanese', 'cambodian', 'singaporean', 'nepalese', 'tibetan', 'burmese'],
+        'european' => ['italian', 'french', 'spanish', 'greek', 'german', 'british', 'portuguese', 'polish', 'belgian', 'swiss', 'russian'],
         'latin-american' => ['mexican', 'brazilian', 'peruvian', 'argentine', 'colombian', 'cuban', 'venezuelan', 'chilean'],
-        'middle-eastern' => ['lebanese', 'turkish', 'persian', 'israeli', 'moroccan', 'egyptian'],
+        'middle-eastern' => ['lebanese', 'turkish', 'persian', 'israeli', 'moroccan', 'egyptian', 'afghan'],
         'american' => ['southern', 'cajun-creole', 'tex-mex', 'bbq', 'new-american', 'hawaiian'],
         'african' => ['ethiopian', 'nigerian', 'south-african', 'west-african', 'kenyan'],
         'caribbean' => ['jamaican', 'puerto-rican', 'trinidadian', 'haitian'],
