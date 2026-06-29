@@ -52,6 +52,20 @@ class QuotaStatusCommand extends Command
             $monthlyBudget > 0 ? ($remainingFromBudget / $monthlyBudget) * 100 : 0,
         ));
 
+        // Google Places (cost-metered read-path source, spec-066)
+        $gpBudget = (int) config('restaurant-finder.sources.google_places.monthly_budget', 500);
+        $gpBurned = (int) ($stats['google_places_calls_last_30d'] ?? 0);
+        $gpRemaining = max(0, $gpBudget - $gpBurned);
+        $this->newLine();
+        $this->line('<options=bold>Google Places (read path, last 30 days)</>');
+        $this->line(sprintf(
+            '  Calls made: %d / %d (monthly budget) | Remaining: %d (%.0f%%)',
+            $gpBurned,
+            $gpBudget,
+            $gpRemaining,
+            $gpBudget > 0 ? ($gpRemaining / $gpBudget) * 100 : 0,
+        ));
+
         // Print cache inventory
         $this->newLine();
         $this->line('<options=bold>External API Cache Inventory</>');

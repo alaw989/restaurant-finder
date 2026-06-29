@@ -137,6 +137,20 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
+**▶ Resume point (2026-06-29) — Coverage & Quality plan IN PROGRESS.** A new 5-spec backlog
+(066–070) targets Google-Maps-level coverage + quality within the SerpApi quota constraint
+(headline findings: abundance artificially capped at 30 + OSM only queries `amenity=restaurant`;
+Foursquare's rating fetched-then-discarded; Google Places' rating implemented-but-dead).
+Plan: `~/.claude/plans/analyze-this-site-and-modular-kettle.md`. **066 SHIPPED** (free quality
+sources: Foursquare rating recovery 0-10→0-5 + `rating_signals` as review count; Google Places
+wired onto the live read-path pool contract `google_places` source tag, monthly cost budget 500;
+authority-aware dedup so Foursquare's rating can't displace Google's on merged rows; 313 tests,
+Pint clean, **safe-by-default no-op until `FOURSQUARE_API_KEY`/`GOOGLE_PLACES_API_KEY` are
+provisioned**). Order: **067** (broaden OSM tags `restaurant|fast_food|cafe|bar|pub|biergarten|
+ice_cream` + raise `max_results` 30→60 + Foursquare-on-unscoped) → **068 + 069** (pagination
++ sort-before-bound, land together) → **070** (cuisine lexicon: Nepalese/Afghan/Tibetan/Burmese/
+Russian). 064 (Vitest) remains the only other open spec. Detail: `history.md` + `specs/066-…md`.
+
 **▶ Resume point (2026-06-28):** specs **001–063 + 065 are ALL COMPLETE/SHIPPED.** The
 full-optimization backlog (047–060) shipped, and the **Lighthouse ≥90 plan** (052 a11y/BP, 061 bundle
 diet, 062 CSS split, 063 SSR) shipped in commit `dc383a0` and is **LIVE-VERIFIED on staging** — every

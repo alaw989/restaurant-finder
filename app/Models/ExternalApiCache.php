@@ -124,11 +124,30 @@ class ExternalApiCache extends Model
             ->where('fetched_at', '>=', $thirtyDaysAgo)
             ->count();
 
+        // Google Places calls in last 30 days (spec-066: a cost-metered read-path
+        // source; tracked for the monthly budget gate + quota:status reporting).
+        $googlePlacesCallsLast30d = static::where('source', 'google_places')
+            ->where('fetched_at', '>=', $thirtyDaysAgo)
+            ->count();
+
         return [
             'total_rows' => $totalRows,
             'by_source' => $bySource,
             'expiring_within' => $expiringWithin,
             'serpapi_calls_last_30d' => $serpapiCallsLast30d,
+            'google_places_calls_last_30d' => $googlePlacesCallsLast30d,
         ];
+    }
+
+    /**
+     * Count real Google Places Nearby-Search calls in the last 30 days
+     * (source='google_places'). Drives the read-path monthly budget gate
+     * (spec-066). Each cache-miss stores one row, so this is the real call count.
+     */
+    public static function countRealGooglePlacesCallsLast30Days(): int
+    {
+        return static::where('source', 'google_places')
+            ->where('fetched_at', '>=', Carbon::now()->subDays(30))
+            ->count();
     }
 }

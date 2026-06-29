@@ -125,6 +125,12 @@ return [
         // Socrata: drop the 3x exponential-backoff retry on the live path.
         'socrata_timeout' => (float) env('LIVE_SEARCH_SOCRATA_TIMEOUT', 8.0),
 
+        // Google Places (Nearby Search) on the read path — a second Google-rated
+        // source (spec-066). Metered by COST ($32/1k), not a free-tier cap, so it
+        // gets a hard monthly budget (sources.google_places.monthly_budget) as a
+        // backstop behind the 24h cache. Parity timeout with the other sources.
+        'google_places_timeout' => (float) env('LIVE_SEARCH_GOOGLE_PLACES_TIMEOUT', 8.0),
+
         // Drop live-search results farther than this (km) from the search center.
         // Guarantees geographic relevance regardless of which source returned a
         // row (defends against SerpApi out-of-area matches and the Socrata
@@ -196,6 +202,36 @@ return [
         // expired. A short retry window lets the next request re-fetch instead,
         // while still coalescing repeats within the window (quota protection).
         'empty_retry_hours' => (int) env('CACHE_EMPTY_RETRY_HOURS', 2),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Per-source toggles + budgets (spec-066: free quality sources)
+    |--------------------------------------------------------------------------
+    | Foursquare's rating (0-10, rescaled to 0-5) and Google Places' own rating
+    | are turned into the same google_rating/google_review_count fields the scorer
+    | already reads, so they relieve SerpApi's 50/mo bottleneck. Each has a
+    | kill-switch (default ON) and Google Places gets a hard monthly cost cap.
+    */
+    'sources' => [
+        'foursquare' => [
+            // When true, Foursquare's rating_signals-backed rating feeds the
+            // Bayesian quality signal (rescaled 0-10→0-5). When false, reverts to
+            // the pre-spec-066 behavior (rating fetched then discarded).
+            'use_rating' => filter_var(env('FOURSQUARE_USE_RATING', true), FILTER_VALIDATE_BOOL),
+        ],
+
+        'google_places' => [
+            // Kill-switch for Google Places on the live read path. When false,
+            // poolRequestsFor() returns [] (cached reads still serve).
+            'enabled' => filter_var(env('GOOGLE_PLACES_ENABLED', true), FILTER_VALIDATE_BOOL),
+
+            // Hard cap on real Nearby-Search calls per rolling 30-day window.
+            // Google Places is cost-metered ($32/1k), not free-tier-capped; this
+            // is the backstop behind the 24h cache. 500/mo ≈ $16, ~8% of the
+            // recurring $200 Google Maps Platform credit.
+            'monthly_budget' => (int) env('GOOGLE_PLACES_MONTHLY_BUDGET', 500),
+        ],
     ],
 
     /*

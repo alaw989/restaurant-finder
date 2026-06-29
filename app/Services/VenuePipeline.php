@@ -17,6 +17,19 @@ class VenuePipeline
     private const MATCH_RADIUS_KM = 0.2;
 
     /**
+     * Rating-source authority rank (spec-066). Google's own ratings (SerpApi
+     * google_maps, Google Places) are most authoritative; Foursquare's (rescaled
+     * 0-10→0-5) is a secondary free source; anything else / no rating is 0. Used
+     * by mergeVenues() so a Foursquare rating on a dedup-merged row can't
+     * displace a more authoritative Google rating.
+     */
+    private const RATING_AUTHORITY = [
+        'serpapi' => 2,
+        'google_places' => 2,
+        'foursquare' => 1,
+    ];
+
+    /**
      * Filter garbage names from OSM-derived sources.
      * Rejects: numeric-only, generic cuisine words, quote-wrapped, price-leading.
      *
@@ -159,11 +172,15 @@ class VenuePipeline
      */
     public function mergeVenues(array $target, array $source): array
     {
+        $ratingFields = [
+            'yelp_rating', 'google_rating', 'google_review_count', 'yelp_review_count', 'rating_source',
+        ];
+
         $fields = [
             'name', 'lat', 'lng', 'latitude', 'longitude',
             'address', 'city', 'state', 'postal_code', 'country',
             'phone', 'price_range', 'photo_url',
-            'yelp_rating', 'yelp_review_count', 'google_rating', 'google_review_count',
+            'yelp_rating', 'yelp_review_count', 'google_rating', 'google_review_count', 'rating_source',
             'yelp_business_id', 'google_place_id',
             'source', 'distance', 'cuisine',
         ];
@@ -173,6 +190,16 @@ class VenuePipeline
         // Prefer the row that has rating data
         $sourceHasRating = ! empty($source['yelp_rating']) || ! empty($source['google_rating']);
         $targetHasRating = ! empty($target['yelp_rating']) || ! empty($target['google_rating']);
+
+        // spec-066: authority-aware rating selection. The source's rating wins
+        // when the target has none, OR when the source's rating is from a
+        // strictly more authoritative source (Google > Foursquare). Without this,
+        // a Foursquare rating (now present after spec-066) on a dedup-merged row
+        // would keep a lower-authority rating and the merge would silently drop
+        // the Google rating from a matching SerpApi/Google-Places row.
+        $sourceAuth = $this->ratingAuthority($source['rating_source'] ?? null);
+        $targetAuth = $this->ratingAuthority($target['rating_source'] ?? null);
+        $sourceRatingWins = $sourceHasRating && (! $targetHasRating || $sourceAuth > $targetAuth);
 
         foreach ($fields as $field) {
             $sourceValue = $source[$field] ?? null;
@@ -185,13 +212,9 @@ class VenuePipeline
                 continue;
             }
 
-            // If source has rating and target doesn't, prefer source's rating fields
-            if ($sourceHasRating && ! $targetHasRating) {
-                if (in_array($field, ['yelp_rating', 'google_rating', 'google_review_count', 'yelp_review_count'])) {
-                    if ($sourceValue !== null) {
-                        $merged[$field] = $sourceValue;
-                    }
-                }
+            // Overwrite the rating group when the source rating wins on authority
+            if ($sourceRatingWins && in_array($field, $ratingFields, true) && $sourceValue !== null) {
+                $merged[$field] = $sourceValue;
             }
         }
 
@@ -210,6 +233,14 @@ class VenuePipeline
         }
 
         return $merged;
+    }
+
+    /**
+     * Authority rank of a rating's source (spec-066). See RATING_AUTHORITY.
+     */
+    private function ratingAuthority(?string $source): int
+    {
+        return self::RATING_AUTHORITY[$source ?? ''] ?? 0;
     }
 
     /**
