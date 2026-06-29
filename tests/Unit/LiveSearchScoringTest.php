@@ -720,14 +720,15 @@ class LiveSearchScoringTest extends TestCase
 
     public function test_result_list_is_capped_to_max_results(): void
     {
-        // 40 venues (spaced >0.2km apart so dedup doesn't collapse them, all
-        // within 50km of the center) must be capped to max_results (default 30).
+        // 70 venues (spaced >0.2km apart so dedup doesn't collapse them, all
+        // within 50km of the center) must be capped to max_results (default 60
+        // since spec-067; was 30).
         $venues = [];
-        for ($i = 0; $i < 40; $i++) {
+        for ($i = 0; $i < 70; $i++) {
             $venues[] = [
                 'name' => "Venue {$i}",
                 'source' => 'serpapi',
-                'lat' => 30.65 + ($i * 0.005), // ~0.55km spacing
+                'lat' => 30.65 + ($i * 0.005), // ~0.55km spacing, all within ~42km
                 'lng' => -88.20,
             ];
         }
@@ -735,7 +736,7 @@ class LiveSearchScoringTest extends TestCase
 
         $results = $service->search(30.6199783, -88.1967496, null);
 
-        $this->assertCount(30, $results);
+        $this->assertCount(60, $results);
     }
 
     public function test_result_list_drops_below_min_score_floor(): void
@@ -1236,6 +1237,70 @@ class LiveSearchScoringTest extends TestCase
 
         $this->assertSame(4.6, $merged['google_rating']);
         $this->assertSame('serpapi', $merged['rating_source']);
+    }
+
+    public function test_overpass_query_broadens_amenity_tags(): void
+    {
+        // spec-067: the Overpass amenity filter is a configurable regex union
+        // (restaurant|fast_food|cafe|bar|pub|biergarten|ice_cream), not just
+        // amenity=restaurant — the biggest free-coverage win.
+        $service = $this->app->make(OverpassService::class);
+        $method = new \ReflectionMethod($service, 'buildQuery');
+        $method->setAccessible(true);
+        $query = $method->invoke($service, 30.65, -88.20, null, 25000, 80);
+
+        $this->assertStringContainsString('amenity"~"', $query);
+        $this->assertStringContainsString('fast_food', $query);
+        $this->assertStringContainsString('cafe', $query);
+        $this->assertStringNotContainsString('amenity"="restaurant"', $query); // no longer the equality form
+    }
+
+    public function test_overpass_amenity_filter_respects_config_override(): void
+    {
+        // Proves the knob (not a hardcode) drives the amenity set.
+        Config::set('restaurant-finder.sources.overpass.amenities', ['restaurant', 'fast_food']);
+
+        $service = $this->app->make(OverpassService::class);
+        $method = new \ReflectionMethod($service, 'buildQuery');
+        $method->setAccessible(true);
+        $query = $method->invoke($service, 30.65, -88.20, null, 25000, 80);
+
+        $this->assertStringContainsString('restaurant|fast_food', $query);
+        $this->assertStringNotContainsString('cafe', $query);
+    }
+
+    public function test_overpass_cache_key_includes_amenity_set(): void
+    {
+        // A config change to the amenity union must produce a different key (so
+        // stale restaurant-only caches invalidate cleanly).
+        $service = $this->app->make(OverpassService::class);
+        $keyA = $service->cacheKeyFor(30.65, -88.20, 'chinese');
+
+        Config::set('restaurant-finder.sources.overpass.amenities', ['restaurant']);
+        $keyB = $service->cacheKeyFor(30.65, -88.20, 'chinese');
+
+        $this->assertNotSame($keyA, $keyB);
+    }
+
+    public function test_foursquare_fires_unscoped_when_switch_on(): void
+    {
+        // spec-067: Foursquare no longer bails on null cuisine; it fires with no
+        // `query` param (adding abundance to "any cuisine" searches).
+        Config::set('services.foursquare.api_key', 'fsq-key');
+        Config::set('restaurant-finder.sources.foursquare.unscoped', true);
+
+        $specs = (new FoursquareService)->poolRequestsFor(30.65, -88.20, null, ['read_path' => true]);
+
+        $this->assertCount(1, $specs);
+        $this->assertArrayNotHasKey('query', $specs[0]->query);
+    }
+
+    public function test_foursquare_skipped_unscoped_when_switch_off(): void
+    {
+        Config::set('services.foursquare.api_key', 'fsq-key');
+        Config::set('restaurant-finder.sources.foursquare.unscoped', false);
+
+        $this->assertSame([], (new FoursquareService)->poolRequestsFor(30.65, -88.20, null, ['read_path' => true]));
     }
 
     /**

@@ -163,7 +163,17 @@ class FoursquareService
      */
     public function poolRequestsFor(float $lat, float $lng, ?string $cuisine = null, array $context = []): array
     {
-        if (empty($this->apiKey) || empty($cuisine)) {
+        if (empty($this->apiKey)) {
+            return [];
+        }
+
+        // spec-067: Foursquare previously bailed ENTIRELY when cuisine was null,
+        // contributing nothing to "any cuisine" searches. Now it fires unscoped
+        // (the `query` param omitted below) unless the kill-switch is off.
+        $unscoped = filter_var(
+            config('restaurant-finder.sources.foursquare.unscoped', true), FILTER_VALIDATE_BOOL
+        );
+        if (empty($cuisine) && ! $unscoped) {
             return [];
         }
 
@@ -171,18 +181,23 @@ class FoursquareService
             ? (float) config('restaurant-finder.live_search.foursquare_timeout', 8.0)
             : 30.0;
 
+        $query = [
+            'll' => "{$lat},{$lng}",
+            'radius' => 25000,
+            'categories' => '13065',
+            'limit' => 50,
+            'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,rating_signals,popularity,price,categories,photos',
+        ];
+        // Omit `query` on unscoped searches so the API returns all nearby dining.
+        if (! empty($cuisine)) {
+            $query['query'] = $cuisine;
+        }
+
         return [
             new RequestSpec(
                 method: 'GET',
                 url: "{$this->baseUrl}/places/search",
-                query: [
-                    'll' => "{$lat},{$lng}",
-                    'radius' => 25000,
-                    'query' => $cuisine,
-                    'categories' => '13065',
-                    'limit' => 50,
-                    'fields' => 'fsq_id,name,location,geocodes,tel,website,hours,rating,rating_signals,popularity,price,categories,photos',
-                ],
+                query: $query,
                 headers: [
                     'Authorization' => 'Bearer '.$this->apiKey,
                     'X-Places-Api-Version' => $this->version,

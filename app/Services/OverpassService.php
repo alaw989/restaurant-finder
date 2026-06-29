@@ -144,7 +144,8 @@ class OverpassService
         // key is context-independent, so both paths share one cache.
         $readPath = (bool) ($context['read_path'] ?? false);
 
-        $cacheKey = 'overpass_name:'.md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit')));
+        $amenities = $this->amenityRegex();
+        $cacheKey = 'overpass_name:'.md5(serialize(compact('lat', 'lng', 'keywords', 'radius', 'limit', 'amenities')));
 
         $cached = ExternalApiCache::findByKey($cacheKey);
         if ($cached !== null) {
@@ -167,9 +168,9 @@ class OverpassService
 
             $query = "[out:json][timeout:{$serverTimeout}];\n"
                 ."(\n"
-                ."  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                ."  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                ."  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  node'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  way'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  rel'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
                 .");\n"
                 ."out body center {$limit};";
 
@@ -276,9 +277,9 @@ class OverpassService
 
             $query = "[out:json][timeout:25];\n"
                 ."(\n"
-                ."  node[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                ."  way[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
-                ."  rel[\"amenity\"=\"restaurant\"][\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  node'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  way'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
+                .'  rel'.$this->amenityFilter()."[\"name\"~\"{$pattern}\",i](around:{$r},{$lat},{$lng});\n"
                 .");\n"
                 ."out body center {$limit};";
 
@@ -319,7 +320,7 @@ class OverpassService
     private function buildQuery(float $lat, float $lng, ?string $cuisine, int $radius, int $limit): string
     {
         $radiusM = $radius;
-        $filters = '["amenity"="restaurant"]';
+        $filters = $this->amenityFilter();
 
         if ($cuisine) {
             $filterCuisine = $this->buildCuisineFilter($cuisine);
@@ -347,6 +348,37 @@ class OverpassService
         $parts = array_map(fn ($p) => '(?:^|;)'.preg_quote($p, '/').'(?:$|;)', $parts);
 
         return implode('|', $parts);
+    }
+
+    /**
+     * The Overpass amenity tag filter (spec-067): a configurable regex union of
+     * food-establishment OSM tags. OSM tags FAR more venues than just
+     * amenity=restaurant (fast_food, cafe, bar, pub, biergarten, ice_cream), so
+     * broadening the filter is the single biggest free-coverage win. Overpass
+     * rows carry no place_types, so this tag set IS the noise guard — the
+     * downstream non-restaurant/cuisine filters can't classify OSM rows. Returned
+     * as an Overpass value-regex filter, e.g. ["amenity"~"restaurant|cafe|..."].
+     */
+    private function amenityFilter(): string
+    {
+        return '["amenity"~"'.$this->amenityRegex().'"]';
+    }
+
+    /**
+     * The pipe-delimited amenity union from config (also folded into the cache
+     * key so a config change cleanly invalidates stale restaurant-only caches).
+     */
+    private function amenityRegex(): string
+    {
+        $amenities = config('restaurant-finder.sources.overpass.amenities', [
+            'restaurant', 'fast_food', 'cafe', 'bar', 'pub', 'biergarten', 'ice_cream',
+        ]);
+        $amenities = array_values(array_filter(
+            array_map('trim', $amenities),
+            fn ($a) => $a !== ''
+        ));
+
+        return implode('|', $amenities ?: ['restaurant']);
     }
 
     /**
@@ -513,7 +545,12 @@ class OverpassService
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $cuisine = null, int $radius = 25000, int $limit = 50): string
     {
-        return 'overpass_search:'.md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit')));
+        // Fold the amenity set into the key (spec-067) so a config change to the
+        // amenity union cleanly invalidates stale restaurant-only caches instead
+        // of serving them until TTL.
+        $amenities = $this->amenityRegex();
+
+        return 'overpass_search:'.md5(serialize(compact('lat', 'lng', 'cuisine', 'radius', 'limit', 'amenities')));
     }
 
     /**
@@ -530,7 +567,9 @@ class OverpassService
             : 30.0;
 
         $resolved = $cuisine ? $this->resolveCuisine($cuisine) : null;
-        $query = $this->buildQuery($lat, $lng, $resolved, 25000, 50);
+        // spec-067: raise the live `out` cap (50→80 default) for more free coverage.
+        $limit = (int) config('restaurant-finder.sources.overpass.live_limit', 80);
+        $query = $this->buildQuery($lat, $lng, $resolved, 25000, $limit);
 
         return [
             new RequestSpec(

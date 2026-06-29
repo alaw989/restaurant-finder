@@ -143,7 +143,9 @@ return [
         // rows; without a cap the page dumps up to ~100 cards trailing to ~5%
         // score. Applied to scoped AND unscoped searches, after the cuisine and
         // distance filters and after scoring (already sorted by score desc).
-        'max_results' => (int) env('LIVE_SEARCH_MAX_RESULTS', 30),
+        // spec-067: raised 30→60 so broader OSM/Foursquare recall is actually
+        // visible (and pagination in spec-068 has rows to slice).
+        'max_results' => (int) env('LIVE_SEARCH_MAX_RESULTS', 60),
 
         // Quality floor: drop scored rows below this popularity_score before the
         // max_results cap. Scores are normalized per active set, so a fixed floor
@@ -219,6 +221,28 @@ return [
             // Bayesian quality signal (rescaled 0-10→0-5). When false, reverts to
             // the pre-spec-066 behavior (rating fetched then discarded).
             'use_rating' => filter_var(env('FOURSQUARE_USE_RATING', true), FILTER_VALIDATE_BOOL),
+
+            // spec-067: fire Foursquare on unscoped ("any cuisine") searches too
+            // (it previously bailed when cuisine was null, contributing nothing
+            // to the default search). When on, the `query` param is omitted so
+            // the search returns all nearby dining/drinking.
+            'unscoped' => filter_var(env('FOURSQUARE_UNSCOPED', true), FILTER_VALIDATE_BOOL),
+        ],
+
+        'overpass' => [
+            // spec-067: broaden OSM from amenity=restaurant ONLY to a regex union
+            // of food tags. OSM tags far more venues than restaurant (fast_food,
+            // cafe, bar, pub, biergarten, ice_cream) — the single biggest free-
+            // coverage win. This tag set IS the noise guard: Overpass rows carry
+            // no place_types, so the downstream non-restaurant filter can't
+            // classify them. Comma-separated, env-overridable.
+            'amenities' => array_filter(array_map('trim', explode(',', env('OVERPASS_AMENITIES',
+                'restaurant,fast_food,cafe,bar,pub,biergarten,ice_cream'
+            )))),
+
+            // spec-067: raise the live read-path `out` cap (50→80) for more free
+            // coverage. Enrichment keeps its own fan-out.
+            'live_limit' => (int) env('OVERPASS_LIVE_LIMIT', 80),
         ],
 
         'google_places' => [
