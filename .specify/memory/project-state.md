@@ -148,9 +148,12 @@ Plan: `~/.claude/plans/analyze-this-site-and-modular-kettle.md`. **066 + 067 SHI
   LIVE-VERIFIED 2026-06-29. Safe-by-default no-op until `FOURSQUARE_API_KEY`/`GOOGLE_PLACES_API_KEY`
   are provisioned.
 - **067** = OSM tag broadening (`amenity` regex union `restaurant|fast_food|cafe|bar|pub|biergarten|
-  ice_cream` from `sources.overpass.amenities`, folded into both Overpass cache keys; live `out` cap
+  ice_cream` from `sources.overpass.amenities`, **anchored `^(…)$`** so Overpass substring-matching
+  doesn't leak `public_bookcase` via `pub`; folded into both Overpass cache keys; live `out` cap
   50→80), Foursquare fires unscoped (`sources.foursquare.unscoped`), `max_results` 30→60. All free,
-  no quota impact.
+  no quota impact. **Deployed + LIVE-VERIFIED 2026-06-29** (commits `04be029`+`6d83ef9`, GHA green;
+  Mobile/chinese→8/7 rated no regression; broadened query verified against overpass-api.de at NYC →
+  80 elements w/ the 7 intended tags only, no substring leaks).
 
 **Next: 068 + 069 land together** (pagination + sort-before-bound; the snapshot stores the
 user-sorted array) → **069-4A** (phone dedup) + **069-4C** (credibility rating sort) → **070**
