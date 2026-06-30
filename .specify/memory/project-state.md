@@ -196,7 +196,14 @@ produced **30 confirmed findings (3 P1 / 12 P2 / 15 P3), 4 rejected.** Plan: `~/
   transaction too (adversarial-review LOW finding). 6 regression tests (359 backend, PHPStan 0, Pint clean).
   Live-verified: a real `is_live:true` Mobile/chinese result (`cuisines:[{id:3952415295}]` = the synthetic
   `abs(crc32('restaurant'))` id) → `/favorites/toggle` → **200 + favorited:true** (was 500); zero quota.
-  **P1 wave 1 of 3 done; next 086 → 087.**
+  **P1 wave: 085 + 086 done; next 087.**
+- **▶▶ 086 SHIPPED (2026-06-30, `1f1984e`, GHA-green, live-verified).** Deploy "Verify deployment" now asserts
+  HTTP 200 AND `len(data) >= DEPLOY_VERIFY_MIN_RESULTS` (default 5, `vars.` repo variable; the old check was
+  key-only → a `{"data":[]}` deploy shipped green). `DEPLOY_VERIFY_MIN_RESULTS=0` skips the COUNT check only
+  (200 + data-key always-on). Hardened per a 5-lens adversarial review (6 LOW, 5 refuted): both verify curls
+  got `--connect-timeout 10 --max-time 30` (3 lenses flagged the timeout-less curl); `isdigit()` parse so a
+  typo'd negative can't silently disable the count check. Live-verified via the run's OWN verify step on the
+  real prod API: `DEPLOY OK` + `API OK: 14 results (min=5)` (Mobile/chinese).
 - **P1 wave (do first):** **085** favoriting a LIVE result throws 500 + leaks an orphan restaurant row
   (synthetic `abs(crc32('restaurant'))` cuisine id fails the pivot FK; no `DB::transaction`; REPRODUCED —
   essentially every first-time favorite of a live venue 500s) · **086** deploy "Verify deployment" passes on
