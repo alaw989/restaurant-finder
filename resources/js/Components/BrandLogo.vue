@@ -30,6 +30,6 @@ withDefaults(defineProps<{ wordmark?: boolean }>(), {
             v-if="wordmark"
             class="mt-[0.1em] font-semibold tracking-tight text-foreground"
             style="font-size: 0.38em"
-        >ipop360</span>
+        >iPop360</span>
     </span>
 </template>
