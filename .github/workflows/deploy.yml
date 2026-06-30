@@ -228,9 +228,33 @@ jobs:
             "cd ${{ secrets.DEPLOY_PATH }} && (sudo -u www-data php8.4 artisan up 2>/dev/null || sudo rm -f storage/framework/down || true)"
 
       - name: Verify deployment
+        env:
+          # spec-086: count-check kill-switch. Repository variable (non-secret).
+          # Unset → 5. 0 → skip the count check (the 200 + data-key checks still run).
+          DEPLOY_VERIFY_MIN_RESULTS: ${{ vars.DEPLOY_VERIFY_MIN_RESULTS }}
         run: |
-          curl -s -o /dev/null -w "%{http_code}" https://ipop360.vp-associates.com | grep -q 200 && echo 'DEPLOY OK' || exit 1
-          curl -s 'https://ipop360.vp-associates.com/api/restaurants?cuisine=chinese&lat=30.6199783&lng=-88.1967496' | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if 'data' in d else 1)" && echo 'API OK' || exit 1
+          curl -s --connect-timeout 10 --max-time 30 -o /dev/null -w "%{http_code}" https://ipop360.vp-associates.com | grep -q 200 && echo 'DEPLOY OK' || exit 1
+          # spec-086: assert HTTP 200 AND non-empty data on the API. A valid 200
+          # with {"data":[]} is the app's load-bearing failure mode (a cache-nuking
+          # migration or an over-filtering ranking change); the old check only
+          # confirmed a `data` key existed, so it shipped empty deploys green.
+          # Mobile/chinese historically returns ~13-30, so min=5 is recall-safe vs
+          # a transient SerpApi quota dip. DEPLOY_VERIFY_MIN_RESULTS=0 skips the
+          # COUNT check (kill-switch); the 200 + data-key checks always run.
+          code=$(curl -s --connect-timeout 10 --max-time 30 -o /tmp/api.json -w '%{http_code}' 'https://ipop360.vp-associates.com/api/restaurants?cuisine=chinese&lat=30.6199783&lng=-88.1967496')
+          if [ "$code" != "200" ]; then echo "API VERIFY FAILED: HTTP $code (expected 200)"; exit 1; fi
+          python3 -c "
+          import json, os, sys
+          d = json.load(open('/tmp/api.json'))
+          if 'data' not in d:
+              print('API VERIFY FAILED: response has no data key'); sys.exit(1)
+          raw = os.environ.get('DEPLOY_VERIFY_MIN_RESULTS') or '5'
+          mn = int(raw) if raw.isdigit() else 5
+          n = len(d.get('data') or [])
+          if mn > 0 and n < mn:
+              print(f'API VERIFY FAILED: {n} results (expected >= {mn}); set DEPLOY_VERIFY_MIN_RESULTS=0 to relax'); sys.exit(1)
+          print(f'API OK: {n} results (min={mn})')
+          "
 
       - name: Cleanup SSH key
         if: always()
