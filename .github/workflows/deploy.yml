@@ -167,6 +167,19 @@ jobs:
              supervisorctl reread && \
              supervisorctl update"
 
+      - name: Pre-migrate DB backup + maintenance window
+        # spec-077: snapshot the SQLite DB (VACUUM INTO, rotated) so a bad
+        # migration is recoverable (data loss here = a multi-month rebuild gated
+        # by the SerpApi quota), then enter maintenance so no request hits a
+        # half-migrated schema. `down` is fatal — if we can't enter maintenance,
+        # stop rather than migrate live. `db:backup` is non-fatal (safety net).
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && \
+             php8.4 artisan down && \
+             (php8.4 artisan db:backup || echo 'db:backup failed (non-fatal)')"
+
       - name: Post-deploy (fix permissions, migrate, cache)
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -193,6 +206,17 @@ jobs:
                | sudo tee /etc/cron.d/ipop360 > /dev/null && \
              sudo chmod 644 /etc/cron.d/ipop360 && \
              echo 'CRON INSTALLED:' && sudo cat /etc/cron.d/ipop360"
+
+      - name: Bring site out of maintenance
+        # spec-077: always exit maintenance, even if migrate failed — a hard
+        # outage (stuck 503) is worse than serving the prior code while we
+        # fix-forward (and the pre-migrate snapshot enables recovery). Can't SSH
+        # from a checkout, so we must not leave the site down on failure.
+        if: always()
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && (php8.4 artisan up || true)"
 
       - name: Verify deployment
         run: |
