@@ -1,30 +1,35 @@
 <script setup lang="ts">
 /**
- * The iPop360 logo — the original brand PNG (orbit ring + "ipop360" wordmark).
+ * The iPop360 logo: the brand orbit-ring (from the original artwork) over an
+ * "ipop360" wordmark.
  *
- * Restored from the original raster asset (spec-039 had rebuilt it as an inline
- * SVG, which flattened the smooth gradient ring into three choppy dashed arcs
- * and swapped the real wordmark for a CSS approximation). Rendered theme-aware
- * via <picture>: the canonical asset in light mode, and a variant with the
- * wordmark recolored white in dark mode — the colourful ring reads on any
- * background, so only the dark-navy wordmark needed inverting. Both assets are
- * downscaled to a retina-safe 480px tall.
+ * The ring is the real raster mark (spec-039's inline-SVG rebuild had flattened
+ * it into choppy dashed arcs); the wordmark is rendered text so it stays
+ * prominent at every size and adapts to the theme via `text-foreground` — no
+ * separate dark-mode asset is needed (the colourful ring reads on any
+ * background). `:wordmark="false"` renders the mark alone.
  *
- * The asset is a vertical (mark-over-wordmark) lockup, so it scales as a unit
- * with height tracking 1em: set a font-size on the element (e.g.
- * class="text-2xl") to size it. (The legacy `wordmark`/`stacked` props are gone
- * — the PNG is one fixed image; the horizontal nav lockup is now this mark.)
+ * Scales as a unit via the inherited font-size: the ring's height tracks 1em and
+ * the wordmark ~0.38em, so set a font-size on the element (e.g. class="text-2xl")
+ * to size the whole lockup.
  */
+withDefaults(defineProps<{ wordmark?: boolean }>(), {
+    wordmark: true,
+})
 </script>
 
 <template>
-    <picture class="inline-flex shrink-0">
-        <source srcset="/img/ipop360-logo-dark.png" media="(prefers-color-scheme: dark)" />
+    <span class="inline-flex flex-col items-center leading-none">
         <img
-            src="/img/ipop360-logo.png"
+            src="/img/ipop360-mark.png"
             alt="iPop360"
             class="h-[1em] w-auto select-none"
             draggable="false"
         />
-    </picture>
+        <span
+            v-if="wordmark"
+            class="mt-[0.1em] font-semibold tracking-tight text-foreground"
+            style="font-size: 0.38em"
+        >ipop360</span>
+    </span>
 </template>
