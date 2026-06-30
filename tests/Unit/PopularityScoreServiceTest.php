@@ -377,4 +377,27 @@ class PopularityScoreServiceTest extends TestCase
         $this->assertNotContains('Quality', $labels);
         $this->assertContains('Profile Completeness', $labels);
     }
+
+    public function test_cuisine_match_signal_active_when_present_zero_but_absent_when_null(): void
+    {
+        // spec-071: the 0.0-vs-null invariant is load-bearing. A scoped search
+        // stamps EVERY row (0.0 for no match) so the active set is uniform — a
+        // 0.0 must stay ACTIVE (suppressing borderline-nearby venues via renorm),
+        // while null (unscoped, no stamp) must be INACTIVE. Only cuisine_match is
+        // weighted here to isolate the rule from the other signals.
+        $service = new PopularityScoreService(['cuisine_match' => 1.0]);
+        $all = new Collection([]);
+
+        // Present at 0.0 → ACTIVE signal (normalized/contribution 0).
+        $present = $service->calculateBreakdownForArray(['cuisine_match' => 0.0], $all);
+        $labels = collect($present['signals'])->pluck('label')->toArray();
+        $this->assertContains('Cuisine Match', $labels);
+        $cm = collect($present['signals'])->firstWhere('label', 'Cuisine Match');
+        $this->assertSame(0.0, $cm['normalized']);
+        $this->assertSame(0.0, $cm['contribution']);
+
+        // Absent → null → INACTIVE (no Cuisine Match signal in the breakdown).
+        $absent = $service->calculateBreakdownForArray([], $all);
+        $this->assertNotContains('Cuisine Match', collect($absent['signals'])->pluck('label')->toArray());
+    }
 }

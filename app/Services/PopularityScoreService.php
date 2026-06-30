@@ -23,6 +23,11 @@ class PopularityScoreService
         'proximity' => 0.20,
         'data_completeness' => 0.05,
         'has_award' => 0.15,
+        // spec-071: on a cuisine-scoped search, boost venues matching the
+        // searched cuisine. Inactive (null) unless stamped by
+        // LiveSearchService::stampCuisineMatchStrength; stamped 0.0 for
+        // scoped-but-no-match rows so the active set is uniform across rows.
+        'cuisine_match' => 0.15,
         'google_rating' => 0.0,
         'google_review_count' => 0.0,
         'popular_times_avg_busyness' => 0.0,
@@ -40,6 +45,7 @@ class PopularityScoreService
         'proximity' => 'inverse_distance',
         'data_completeness' => 'completeness',
         'has_award' => 'boolean',
+        'cuisine_match' => 'passthrough',
         'popular_times_avg_busyness' => 'minmax',
     ];
 
@@ -172,6 +178,7 @@ class PopularityScoreService
             'proximity' => 'Proximity',
             'data_completeness' => 'Profile Completeness',
             'has_award' => 'Award',
+            'cuisine_match' => 'Cuisine Match',
             'google_rating' => 'Google Rating',
             'google_review_count' => 'Google Reviews',
             'popular_times_avg_busyness' => 'Busyness',
@@ -299,6 +306,17 @@ class PopularityScoreService
             return $raw !== null && (float) $raw >= 0.0;
         }
 
+        if ($signal === 'cuisine_match') {
+            // spec-071: 0.0 means "scoped search, no keyword match" — it MUST
+            // stay active so the renormalization dilutes borderline-nearby venues
+            // (a 0 contribution suppresses them; making the signal inactive would
+            // re-inflate their proximity and undo the re-rank). null means
+            // "unscoped search, no stamp" → inactive. The 0.0-vs-null distinction
+            // is the only way to encode scoped/unscoped here (isPresent receives
+            // the raw value, not the row).
+            return $raw !== null;
+        }
+
         if ($signal === 'quality') {
             // Active only when an external quality source is configured AND this
             // row has a usable google_rating. Reviews=0 is allowed (the Bayesian
@@ -340,6 +358,8 @@ class PopularityScoreService
             'inverse_distance' => $this->normalizeInverseDistance((float) $raw),
             'completeness' => max(0.0, min(1.0, (float) $raw)),
             'boolean' => $raw ? 1.0 : 0.0,
+            // spec-071: cuisine_match is pre-normalized 0–1 by the stamp; just clamp.
+            'passthrough' => max(0.0, min(1.0, (float) $raw)),
             'minmax' => $this->normalizeMinMax((float) $raw, $minmax[$signal] ?? null),
             'bayesian_quality' => $this->normalizeBayesianQuality($raw, $qualityMean),
             default => 0.0,

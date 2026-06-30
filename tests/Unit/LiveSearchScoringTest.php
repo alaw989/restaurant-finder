@@ -1221,6 +1221,150 @@ class LiveSearchScoringTest extends TestCase
         $this->assertSame(['CloseLow', 'FarHigh'], array_column($results, 'name'));
     }
 
+    public function test_cuisine_match_bonus_ranks_genuine_match_above_borderline_nearby_venue(): void
+    {
+        // spec-071 Tampa regression: a genuine "Brazilian" steakhouse (far, 4.8/7243)
+        // must outrank a borderline-nearby bowl shop "Vale Healthy Kitchen" (near,
+        // 4.6/1893, no cuisine keyword) on a brazilian search — proximity no longer
+        // dominates because the genuine match gets the cuisine_match bonus.
+        $this->seedCuisine('Brazilian', 'brazilian');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Vale Healthy Kitchen', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.6, 'google_review_count' => 1893, 'place_types' => null],
+                ['name' => 'Terra Gaucha Brazilian Steakhouse', 'source' => 'serpapi', 'lat' => 30.6695, 'lng' => -88.1968, 'google_rating' => 4.8, 'google_review_count' => 7243, 'place_types' => null],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'brazilian');
+
+        $this->assertSame(
+            ['Terra Gaucha Brazilian Steakhouse', 'Vale Healthy Kitchen'],
+            array_column($results, 'name'),
+            'Genuine Brazilian match (cuisine_match=1.0) must outrank the nearer no-keyword venue.'
+        );
+    }
+
+    public function test_cuisine_match_kill_switch_reverts_to_proximity_ranking(): void
+    {
+        // Kill-switch off → no stamp → cuisine_match inactive → proximity dominates
+        // again → the nearer bowl shop wins (the pre-spec-071 behavior).
+        $this->seedCuisine('Brazilian', 'brazilian');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Vale Healthy Kitchen', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.6, 'google_review_count' => 1893, 'place_types' => null],
+                ['name' => 'Terra Gaucha Brazilian Steakhouse', 'source' => 'serpapi', 'lat' => 30.6695, 'lng' => -88.1968, 'google_rating' => 4.8, 'google_review_count' => 7243, 'place_types' => null],
+            ],
+        ]);
+
+        Config::set('restaurant-finder.ranking.cuisine_match', false);
+        try {
+            $results = $service->search(30.6199783, -88.1967496, 'brazilian');
+        } finally {
+            Config::set('restaurant-finder.ranking.cuisine_match', true);
+        }
+
+        $this->assertSame(
+            ['Vale Healthy Kitchen', 'Terra Gaucha Brazilian Steakhouse'],
+            array_column($results, 'name'),
+            'Kill-switch off → no cuisine_match stamp → proximity ranks the nearer venue first (pre-spec-071).'
+        );
+    }
+
+    public function test_cuisine_match_signal_absent_on_unscoped_search(): void
+    {
+        // Unscoped → no stamp → cuisine_match inactive everywhere → no row's
+        // breakdown may carry a "Cuisine Match" signal.
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Anywhere Diner', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.5, 'google_review_count' => 200, 'place_types' => null],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, null);
+
+        $this->assertNotEmpty($results);
+        foreach ($results as $r) {
+            $labels = array_column($r['score_breakdown']['signals'] ?? [], 'label');
+            $this->assertNotContains('Cuisine Match', $labels, 'Unscoped search must not emit a Cuisine Match signal.');
+        }
+    }
+
+    public function test_cuisine_match_recall_keeps_genuine_venue_with_no_keyword(): void
+    {
+        // spec-046 recall philosophy: a genuine restaurant whose name/type carry
+        // NO on-cuisine keyword is NOT dropped — it stays in the results, stamped
+        // cuisine_match=0.0 (no bonus; ranked below keyword matches, not removed).
+        $this->seedCuisine('Brazilian', 'brazilian');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Fogo de Chao', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.7, 'google_review_count' => 3000, 'place_types' => ['Restaurant'], 'description' => 'Neighborhood grill.'],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'brazilian');
+        $byName = array_column($results, null, 'name');
+
+        $this->assertArrayHasKey('Fogo de Chao', $byName, 'Genuine venue with no keyword must NOT be dropped (recall-protective).');
+        $this->assertSame(0.0, $byName['Fogo de Chao']['cuisine_match'] ?? null, 'No-keyword venue is stamped 0.0 (present, not absent).');
+    }
+
+    public function test_cuisine_match_strength_tiers_name_above_typed_above_none(): void
+    {
+        // Three venues identical in distance/rating/reviews — ONLY cuisine_match
+        // differs — so order is driven purely by the tiers: name (1.0) > typed (0.5).
+        $this->seedCuisine('Brazilian', 'brazilian');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Cafe Nowhere', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.5, 'google_review_count' => 500, 'place_types' => ['Restaurant'], 'description' => 'A place.'],
+                ['name' => "Rocha's", 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.5, 'google_review_count' => 500, 'place_types' => ['Brazilian restaurant'], 'description' => 'A place.'],
+                ['name' => 'Brazilian Steakhouse', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.5, 'google_review_count' => 500, 'place_types' => ['Restaurant'], 'description' => 'A place.'],
+            ],
+        ]);
+
+        $results = $service->search(30.6199783, -88.1967496, 'brazilian');
+
+        $this->assertSame(
+            ['Brazilian Steakhouse', "Rocha's", 'Cafe Nowhere'],
+            array_column($results, 'name'),
+            'cuisine_match tiers: name-match (1.0) > typed-match (0.5) > no-match (0.0).'
+        );
+    }
+
+    public function test_cuisine_match_never_uses_rival_keywords(): void
+    {
+        // Adversarial (spec-046-style): with the trusted-source cuisine scrutiny
+        // OFF (so a rival-cuisine venue survives the filter), the stamp must use
+        // ON keywords only — a Japanese venue stamps 0.0 on a brazilian search.
+        $this->seedCuisine('Brazilian', 'brazilian');
+
+        $service = $this->makeServiceWithVenues([
+            'serpapi' => [
+                ['name' => 'Sushi Yuki', 'source' => 'serpapi', 'lat' => 30.6245, 'lng' => -88.1968, 'google_rating' => 4.8, 'google_review_count' => 5000, 'place_types' => ['Japanese restaurant'], 'description' => 'Sushi and ramen.'],
+            ],
+        ]);
+
+        Config::set('restaurant-finder.filters.scrutinize_trusted_sources', false);
+        try {
+            $results = $service->search(30.6199783, -88.1967496, 'brazilian');
+        } finally {
+            Config::set('restaurant-finder.filters.scrutinize_trusted_sources', true);
+        }
+
+        $byName = array_column($results, null, 'name');
+        $this->assertArrayHasKey('Sushi Yuki', $byName, 'Scrutiny is off so the rival venue survives to exercise the stamp.');
+        $this->assertSame(0.0, $byName['Sushi Yuki']['cuisine_match'] ?? null, 'Rival-cuisine venue must stamp 0.0 — the bonus never fires on rival keywords.');
+    }
+
+    public function test_config_defines_cuisine_match_weight_and_kill_switch(): void
+    {
+        $this->assertSame(0.15, config('restaurant-finder.ranking.weights.cuisine_match'));
+        $this->assertTrue(config('restaurant-finder.ranking.cuisine_match'));
+    }
+
     /**
      * Create a cuisine (with the category row its FK requires). Cuisine
      * resolution now reads config/cuisine-keywords.php via CuisineMatcher, so a

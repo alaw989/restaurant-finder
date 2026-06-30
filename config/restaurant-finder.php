@@ -58,6 +58,11 @@ return [
     | Active-set renormalization:
     |  - With quality data: quality 0.60 + proximity 0.20 + award 0.15 +
     |    completeness 0.05 = 1.00.
+    |  - Cuisine-scoped search ALSO adds cuisine_match 0.15 → active set 1.15,
+    |    renormalized per row. cuisine_match is stamped 0.0 for non-matches (NOT
+    |    absent) so every row shares the same active set — a genuine cuisine match
+    |    outranks a borderline-nearby venue without dropping anything (recall-safe
+    |    re-rank, spec-046). Unscoped searches get no stamp → signal inactive.
     |  - Pure-free (no key): proximity + completeness + award = 0.40, split
     |    equally after renorm — an honest proximity-leaning sort with no quality
     |    signal available.
@@ -68,6 +73,11 @@ return [
             'proximity' => env('RANK_WEIGHT_PROXIMITY', 0.20),
             'data_completeness' => env('RANK_WEIGHT_DATA_COMPLETENESS', 0.05),
             'has_award' => env('RANK_WEIGHT_HAS_AWARD', 0.15),
+            // spec-071: on a cuisine-scoped search, boost venues matching the
+            // searched cuisine so a genuine match outranks a borderline-nearby
+            // one. Recall-safe (re-rank only, drops nothing); 0.0 unless stamped
+            // by LiveSearchService::stampCuisineMatchStrength on a scoped search.
+            'cuisine_match' => env('RANK_WEIGHT_CUISINE_MATCH', 0.15),
             'google_rating' => env('RANK_WEIGHT_GOOGLE_RATING', 0.0),
             'google_review_count' => env('RANK_WEIGHT_GOOGLE_REVIEW_COUNT', 0.0),
             'popular_times_avg_busyness' => env('RANK_WEIGHT_POPULAR_TIMES', 0.0),
@@ -104,6 +114,12 @@ return [
         // can't outrank 4.8/5000. Kill-switch RANK_RATING_SORT_CREDIBILITY.
         'rating_sort_min_reviews' => (int) env('RANK_RATING_SORT_MIN_REVIEWS', 20),
         'rating_sort_credibility' => filter_var(env('RANK_RATING_SORT_CREDIBILITY', true), FILTER_VALIDATE_BOOL),
+
+        // spec-071: cuisine_match scoring bonus on cuisine-scoped searches
+        // (boosts venues matching the searched cuisine; recall-safe re-rank).
+        // When false, no stamp is written → the signal is inactive everywhere →
+        // ranking reverts to pre-spec-071 without a redeploy.
+        'cuisine_match' => filter_var(env('RANK_CUISINE_MATCH', true), FILTER_VALIDATE_BOOL),
     ],
 
     /*

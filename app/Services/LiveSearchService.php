@@ -61,6 +61,12 @@ class LiveSearchService
         // the search center (guards against out-of-area SerpApi/Socrata matches).
         $results = $this->filterByDistance($results, $lat, $lng);
 
+        // spec-071: stamp each row's cuisine_match strength (recall-safe re-rank
+        // signal). No-op when unscoped or when the kill-switch is off (no stamp →
+        // the scorer treats cuisine_match as inactive → unscoped byte-identical).
+        // Runs after dedup/distance so the stamp is never folded away.
+        $results = $this->stampCuisineMatchStrength($results, $scope);
+
         $results = $this->scoreWithUnifiedService($results, $lat, $lng);
 
         // spec-069 4B: sort the FULL scored set by the user's mode BEFORE bounding,
@@ -626,6 +632,58 @@ class LiveSearchService
         }
 
         return false;
+    }
+
+    /**
+     * Stamp each row's `cuisine_match` strength for the cuisine_match scoring
+     * signal (spec-071, recall-safe re-rank).
+     *
+     * NO-OP when the search is unscoped (no stamp → the scorer leaves the signal
+     * inactive everywhere → unscoped searches are byte-identical) or when the
+     * kill-switch `ranking.cuisine_match` is off. Otherwise EVERY row gets a
+     * stamp so the active signal set is uniform across rows (see the 0.0-vs-null
+     * rule in PopularityScoreService::isPresent):
+     *   1.0 = an on-cuisine keyword in the NAME (strongest);
+     *   0.5 = an on-cuisine keyword only in place_types + description;
+     *   0.0 = scoped but no keyword match anywhere (CRITICAL: 0.0, not absent).
+     *
+     * Reuses the same $onPattern as filterByCuisineRelevance (the existing,
+     * already-vetted on-cuisine allowlist) — not a new denylist, so it carries
+     * no spec-046 substring-collision risk. Drops nothing (recall-protective).
+     */
+    private function stampCuisineMatchStrength(array $results, CuisineScope $scope): array
+    {
+        if (! $scope->isScoped()) {
+            return $results;
+        }
+        if (! (bool) config('restaurant-finder.ranking.cuisine_match', true)) {
+            return $results;
+        }
+
+        $onPattern = '/'.implode('|', $scope->onKeywords).'/i';
+
+        foreach ($results as &$r) {
+            $name = (string) ($r['name'] ?? '');
+            $placeTypes = is_array($r['place_types'] ?? null) ? implode(' ', $r['place_types']) : '';
+            $description = (string) ($r['description'] ?? '');
+
+            if ($name !== '' && preg_match($onPattern, $name) === 1) {
+                $r['cuisine_match'] = 1.0;
+
+                continue;
+            }
+
+            if (preg_match($onPattern, $placeTypes.' '.$description) === 1) {
+                $r['cuisine_match'] = 0.5;
+
+                continue;
+            }
+
+            $r['cuisine_match'] = 0.0;
+        }
+        unset($r);
+
+        return $results;
     }
 
     /**

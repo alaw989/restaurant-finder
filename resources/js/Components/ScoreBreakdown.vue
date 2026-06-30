@@ -41,6 +41,7 @@ const segmentColors: Record<string, string> = {
   'Proximity': 'bg-green-500',
   'Profile Completeness': 'bg-emerald-500',
   'Award': 'bg-purple-500',
+  'Cuisine Match': 'bg-fuchsia-500',
   'Rating': 'bg-orange-500',
   'Reviews': 'bg-cyan-500',
   'Busyness': 'bg-teal-500',
