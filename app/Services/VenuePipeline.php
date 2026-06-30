@@ -260,6 +260,23 @@ class VenuePipeline
             $merged['photos'] = array_slice($unioned, 0, 6);
         }
 
+        // spec-079: carry place_types + description across the merge. Previously
+        // these were dropped, so when a rich SerpApi row ("Thai restaurant" type
+        // + description) folded into a name-only OSM/BizData target, the merged
+        // row lost exactly the fields stampCuisineMatchStrength (spec-071) and
+        // the cuisine-relevance filter read → genuine cuisine matches stamped 0.0
+        // and got demoted. Union place_types (dedup); prefer a non-empty
+        // description (SerpApi's is the cuisine signal).
+        if (! empty($source['place_types'])) {
+            $merged['place_types'] = array_values(array_unique(array_merge(
+                $merged['place_types'] ?? [],
+                $source['place_types'],
+            )));
+        }
+        if (! empty($source['description']) && empty($merged['description'])) {
+            $merged['description'] = $source['description'];
+        }
+
         return $merged;
     }
 
