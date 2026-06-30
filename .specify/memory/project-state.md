@@ -186,6 +186,31 @@ value → failed toggles left stale favorites; fixed by snapshotting pre-mutatio
 `openWebsite` mangles non-http schemes (`ftp://`), and `useSeo` canonical keeps URL fragments. Detail:
 `history.md` / `specs/064`.
 
+**▶ UPDATE (2026-06-30) — FRESH FULL-APP AUDIT → specs 085–087 PROPOSED (queue refilled).** With the
+queue empty (001–084 done), a fresh 8-dimension read-only audit (each finder cited `file:line`; a per-
+dimension skeptic refuted every finding vs the shipped 001–084 + rejected + tracked lists; 16 agents)
+produced **30 confirmed findings (3 P1 / 12 P2 / 15 P3), 4 rejected.** Plan: `~/.claude/plans/fresh-full-audit-2026-06-30.md`.
+- **P1 wave (do first):** **085** favoriting a LIVE result throws 500 + leaks an orphan restaurant row
+  (synthetic `abs(crc32('restaurant'))` cuisine id fails the pivot FK; no `DB::transaction`; REPRODUCED —
+  essentially every first-time favorite of a live venue 500s) · **086** deploy "Verify deployment" passes on
+  empty data (`{"data":[]}` → green) — assert HTTP 200 + non-empty · **087** post-deploy is one `&&`-chained
+  SSH command; a mid-chain failure (e.g. `view:cache`) leaves the droplet half-applied, then `if: always()`
+  lifts maintenance — broken mixed state, NO auto-rollback.
+- **P2 clusters:** security (favorites write throttle+cap+source-tag + registration throttle/MustVerifyEmail
+  — they compound) · ranking fidelity (OSM `cuisine=` tag invisible to cuisine_match stamp) · read-path perf
+  (`crossSourceDedup` O(n²) similar_text; `snapshotLiveResults` 20 unbatched writes; `allowLiveSerpApiFetch`
+  full-stats()) · infra/observability (silent enrichment failure — no `onFailure`; un-rotated scheduler.log) ·
+  testing (`useRestaurantSearch` zero Vitest coverage; cuisine_match E2E w/ no SerpApi key — mutation-confirmed;
+  `mergeVenues` rating-fold zero assertions) · frontend (`LocationPicker` debounce leak on unmount).
+- **P3** grouped: ~42-knob config invariant test + catalog (cheap insurance for the quota surface); parallel
+  cache-API unify; controller-writes-cache → `LiveSearchSnapshotService`; live-vs-DB sort parity;
+  `expires_at`/`fetched_at` indexes; gitleaks on the PR gate (not just deploy); etc.
+- **Rejected (don't re-chase):** cuisine on/rival patterns "missing `preg_quote`" — FALSE (the `.` is INTENTIONAL
+  separator-wildcard behavior, documented; `preg_quote` would REGRESS recall) — salvage is a pattern-compile
+  drift-guard (P3). Plus: `loadMore` expired-snapshot infinite-loop (impossible vs current code), `api()`
+  Content-Type no-cache (zero runtime callers), `LogApiRequest` PII (perf angle survives as P3).
+**Ralph runs lowest-first; the P1 wave (085→087) is next.** Source of truth: the plan + `specs/085-…087`.
+
 **▶ UPDATE (2026-06-30) — spec-071 SHIPPED: cuisine-match scoring bonus.** A "brazilian
 food in Tampa" search ranked an açaí-bowl shop (#1) above genuine Brazilian steakhouses
 because proximity dominated when all venues rated 4.4–4.8. New recall-safe `cuisine_match`
