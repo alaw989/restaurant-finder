@@ -412,13 +412,27 @@ class PopularityScoreService
             $rating = $r['google_rating'] ?? null;
             $reviews = $r['google_review_count'] ?? null;
 
-            if ($rating !== null && is_numeric($rating) && (float) $rating > 0.0
-                && $reviews !== null && is_numeric($reviews) && (float) $reviews >= $this->qualityPrior
-            ) {
-                return (float) $rating;
+            $credible = $rating !== null && is_numeric($rating) && (float) $rating > 0.0
+                && $reviews !== null && is_numeric($reviews) && (float) $reviews >= $this->qualityPrior;
+
+            if (! $credible) {
+                return null;
             }
 
-            return null;
+            // spec-081: exclude the (0,0) null-island artifact. A phantom venue
+            // whose geometry is unresolved would otherwise contribute its rating
+            // to the credible mean C that Bayesian-shrinks every OTHER venue's
+            // quality — and because quality leads the ranking, a corrupted C
+            // shifts the whole ordering (uniformly, so it's invisible in tests).
+            // Reuses the same null-island predicate as filterByDistance. Reads
+            // either key convention (live arrays: lat/lng; Eloquent: latitude/longitude).
+            $lat = $r['lat'] ?? $r['latitude'] ?? null;
+            $lng = $r['lng'] ?? $r['longitude'] ?? null;
+            if ($lat === null || $lng === null || ((float) $lat === 0.0 && (float) $lng === 0.0)) {
+                return null;
+            }
+
+            return (float) $rating;
         })->filter();
 
         if ($ratings->isEmpty()) {

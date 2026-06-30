@@ -98,6 +98,26 @@ class LiveSearchScoringTest extends TestCase
         $this->assertGreaterThan($farProximity['normalized'], $nearbyProximity['normalized']);
     }
 
+    /**
+     * spec-081: a (0,0) null-island phantom with a wildly different rating must
+     * NOT pollute the Bayesian credible mean C (which shrinks every other
+     * venue's quality). Without the fix it would pull C toward the phantom.
+     */
+    public function test_quality_mean_excludes_null_island_ratings(): void
+    {
+        $venues = collect([
+            ['name' => 'A', 'google_rating' => 4.5, 'google_review_count' => 500, 'lat' => 40.0, 'lng' => -74.0],
+            ['name' => 'B', 'google_rating' => 4.0, 'google_review_count' => 500, 'lat' => 41.0, 'lng' => -75.0],
+            // Null-island phantom — geometry unresolved, rating is an artifact.
+            ['name' => 'Phantom', 'google_rating' => 1.0, 'google_review_count' => 500, 'lat' => 0.0, 'lng' => 0.0],
+        ]);
+
+        $mean = $this->scoreService->computeAggregates($venues)['quality']['mean_rating'];
+
+        // Excluding the phantom: C = (4.5 + 4.0) / 2 = 4.25. With the bug: 3.1667.
+        $this->assertSame(4.25, round($mean, 4));
+    }
+
     public function test_live_and_db_breakdowns_share_labels(): void
     {
         // Live result array
