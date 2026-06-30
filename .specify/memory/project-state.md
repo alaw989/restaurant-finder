@@ -172,7 +172,19 @@ live (068); score_breakdown on every row (078). ~3 SerpApi calls burned (cache-c
 250 remaining. Two non-blocking follow-ups surfaced: `distance` is `null` on live API results (pre-existing;
 live rows compute it internally for sort/score but the Resource only serializes a non-null model attribute),
 and JSON-LD is post-hydration only (`JsonLd.vue` client-side by design — server-rendering it is a P3 lever
-now that SSR is live). Detail: `history.md` (2026-06-30 entry). **Next: spec-064 (Vitest) — the only open spec.**
+now that SSR is live). Detail: `history.md` (2026-06-30 entry).
+
+**▶ UPDATE (2026-06-30) — spec-064 SHIPPED (Vitest). The queue is now EMPTY.** The project's first
+frontend tests (was zero): Vitest 4 + jsdom + `@vue/test-utils`, `vitest.config.ts` mirroring the `@`
+alias, `npm run test` wired into CI, test files excluded from the build's `vue-tsc`. **52 tests across 8
+files** (lib/utils, lib/cuisine, lib/restaurant, lib/api, useSeo, usePersistedLocation, useFavorites,
+useBaseUrl SSR-fallback). Hardened by a 3-lens adversarial review. The useFavorites tests surfaced + fixed
+a real rollback no-op (optimistic write ran before the await → onError/catch restored the already-mutated
+value → failed toggles left stale favorites; fixed by snapshotting pre-mutation). Commits `191dc55` (feat)
++ `0ac3480` (fix). 353 backend tests unchanged; build clean. **Specs 001–084 are now all COMPLETE/SHIPPED
+(066 reverted) — no open specs.** Two tracked follow-ups (outward-facing, deferred for browser live-verify):
+`openWebsite` mangles non-http schemes (`ftp://`), and `useSeo` canonical keeps URL fragments. Detail:
+`history.md` / `specs/064`.
 
 **▶ UPDATE (2026-06-30) — spec-071 SHIPPED: cuisine-match scoring bonus.** A "brazilian
 food in Tampa" search ranked an açaí-bowl shop (#1) above genuine Brazilian steakhouses

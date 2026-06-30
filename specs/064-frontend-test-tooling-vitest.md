@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: PROPOSED (audit spec, from the full-optimization backlog 047–064)
+**Status**: COMPLETE (2026-06-30) — Vitest 4 + jsdom + @vue/test-utils harness, 52 tests across 8 files (lib/utils, lib/cuisine, lib/restaurant, lib/api, useSeo, usePersistedLocation, useFavorites, useBaseUrl SSR fallback); `npm run test` wired into the CI quality gate; hardened by a 3-lens adversarial review. Also fixed a useFavorites optimistic-rollback no-op the new tests surfaced. Commits `191dc55` (feat) + `0ac3480` (fix).
 
 **Series**: Tier 5 — Architecture / tooling. Adds the project's **first**
 frontend tests (currently zero — no vitest/jest/playwright in `package.json`).
