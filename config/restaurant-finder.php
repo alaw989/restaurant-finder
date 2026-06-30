@@ -377,4 +377,18 @@ return [
         ),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Restaurant website scraper (opening-hours enrichment)
+    |--------------------------------------------------------------------------
+    | The scheduled scraper fetches each restaurant's own website_url. Since
+    | favorites (spec-035) let an authenticated user persist an arbitrary
+    | website_url, the scraper is an SSRF surface. The guard (spec-075) resolves
+    | each target host and rejects private/loopback/link-local/metadata IPs,
+    | non-http(s) schemes, and unsafe redirect hops — fail-closed.
+    */
+    'website_scraper' => [
+        'ssrf_guard' => filter_var(env('WEBSITE_SCRAPER_SSRF_GUARD', true), FILTER_VALIDATE_BOOL),
+    ],
+
 ];

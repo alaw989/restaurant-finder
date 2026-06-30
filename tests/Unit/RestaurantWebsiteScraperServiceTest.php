@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Services\RestaurantWebsiteScraperService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -16,6 +17,10 @@ class RestaurantWebsiteScraperServiceTest extends TestCase
         parent::setUp();
         $this->service = new RestaurantWebsiteScraperService;
         Cache::flush();
+        // These tests cover parsing / robots / caching logic, NOT the spec-075
+        // SSRF guard (which resolves the host via DNS — non-deterministic in the
+        // test env). The guard is exercised in WebsiteScraperSsrfGuardTest.
+        Config::set('restaurant-finder.website_scraper.ssrf_guard', false);
     }
 
     public function test_scrape_returns_null_for_empty_url(): void

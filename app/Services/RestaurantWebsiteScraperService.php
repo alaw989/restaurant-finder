@@ -69,6 +69,17 @@ class RestaurantWebsiteScraperService
             return null;
         }
 
+        // spec-075 SSRF guard: the website_url is user-controllable (via
+        // favorites), so resolve the host and reject private/loopback/link-local/
+        // metadata IPs + non-http(s) schemes BEFORE any fetch — including the
+        // robots.txt fetch below, which would otherwise itself be the SSRF call.
+        // Fail-closed.
+        if (config('restaurant-finder.website_scraper.ssrf_guard', true) && ! $this->isSafeUrl($websiteUrl)) {
+            Log::warning('Website scrape blocked by SSRF guard', ['url' => $websiteUrl, 'domain' => $domain]);
+
+            return null;
+        }
+
         // Check robots.txt before scraping
         if (! $this->isAllowedByRobotsTxt($websiteUrl, $domain)) {
             Log::info('Website scraping disallowed by robots.txt', ['url' => $websiteUrl, 'domain' => $domain]);
@@ -116,6 +127,54 @@ class RestaurantWebsiteScraperService
         }
 
         return $parsed['host'];
+    }
+
+    /**
+     * spec-075 SSRF guard: is this URL safe for the server to fetch?
+     *
+     * Allows only http(s), resolves the host, and rejects any resolved IP in a
+     * private/loopback/link-local/reserved range — including 169.254.169.254
+     * (cloud instance metadata), 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, ::1,
+     * and fc00::/7. Fail-closed: an unparseable URL, a non-http(s) scheme, or a
+     * DNS resolution failure → unsafe (return false).
+     */
+    private function isSafeUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        if ($parts === false) {
+            return false;
+        }
+
+        $scheme = strtolower($parts['scheme'] ?? '');
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return false; // rejects file://, gopher://, ftp://, etc.
+        }
+
+        $host = $parts['host'] ?? '';
+        if ($host === '') {
+            return false;
+        }
+
+        // Host may already be an IP literal (e.g. http://127.0.0.1 or an IPv6
+        // [::1]); otherwise resolve it. gethostbynamel is IPv4-only, so IPv6-only
+        // hostnames fail closed — but bracketed IPv6 literals are validated here.
+        $hostLiteral = str_starts_with($host, '[') ? trim($host, '[]') : $host;
+        $ips = filter_var($hostLiteral, FILTER_VALIDATE_IP) !== false
+            ? [$hostLiteral]
+            : gethostbynamel($host);
+
+        if ($ips === false || $ips === []) {
+            return false; // DNS failure → fail closed
+        }
+
+        foreach ($ips as $ip) {
+            $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+            if (filter_var($ip, FILTER_VALIDATE_IP, $flags) === false) {
+                return false; // private / reserved / loopback / link-local
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -255,8 +314,24 @@ class RestaurantWebsiteScraperService
 
         for ($attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++) {
             try {
+                // spec-075: cap redirects + re-validate each hop's host so a
+                // public initial URL can't redirect into an internal/metadata
+                // endpoint. An unsafe hop throws → caught below → null (no retry).
+                $allowRedirects = config('restaurant-finder.website_scraper.ssrf_guard', true)
+                    ? [
+                        'max' => 3,
+                        'protocols' => ['https', 'http'],
+                        'on_redirect' => function ($request, $response, $uri): void {
+                            if (! $this->isSafeUrl((string) $uri)) {
+                                throw new \RuntimeException('SSRF guard blocked unsafe redirect target: '.$uri);
+                            }
+                        },
+                    ]
+                    : ['max' => 3];
+
                 $response = Http::timeout(self::REQUEST_TIMEOUT)
                     ->withUserAgent(self::USER_AGENT)
+                    ->withOptions(['allow_redirects' => $allowRedirects])
                     ->get($url);
 
                 if (! $response->successful()) {
