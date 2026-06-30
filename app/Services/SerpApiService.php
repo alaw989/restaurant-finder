@@ -233,14 +233,30 @@ class SerpApiService
 
     /**
      * Build the search query for SerpApi.
+     *
+     * A BARE cuisine adjective returns 0 results from google_maps for many
+     * cuisines — verified directly against SerpApi: "jamaican"→0, "caribbean"→0,
+     * (same for cuban/ethiopian/trinidadian/haitian/nigerian in production),
+     * while the common adjectives happen to work bare ("italian"→20, "chinese",
+     * "thai", "mexican"), which masked this for months. Appending the "restaurant"
+     * noun makes Google return actual places for EVERY cuisine (jamaican 0→20,
+     * caribbean 0→20, all confirmed). The noun is NOT redundant like the old
+     * "near me" suffix was — geo-anchoring comes from ll=, but "restaurant" is
+     * the search discriminator; without it Google's bare-adjective lookup is a
+     * coin flip per cuisine. The cache key is built from the raw $query term
+     * (not this output), so this never turns over cache entries.
      */
     private function buildQuery(?string $query): string
     {
-        // Just the cuisine term. SerpApi's google_maps engine is geo-anchored
-        // via its ll=@lat,lng param, so a "near me" suffix was redundant and
-        // biased toward literal phrase-matching. The cache key uses the raw
-        // term (not this output), so dropping it never turns over cache entries.
-        return trim($query ?? 'restaurants');
+        $query = trim($query ?? '');
+
+        // Unscoped search: the generic default Google Maps understands.
+        if ($query === '') {
+            return 'restaurants';
+        }
+
+        // Scoped cuisine/category search: "<cuisine> restaurant".
+        return $query.' restaurant';
     }
 
     /**
