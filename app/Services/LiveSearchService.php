@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\ExternalApiCache;
 use App\Services\Http\RequestSpec;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
@@ -157,22 +159,54 @@ class LiveSearchService
             unset($toFetch['serpapi']);
         }
 
-        // PASS 2 — pool only the cache-miss requests, concurrently.
-        $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
-
-        // PASS 3 — consume cache hits + pool results into normalized venues.
-        $merged = [];
-        foreach ($sources as $label => $service) {
+        // spec-074: serialize concurrent cold fetches of the SAME SerpApi key so a
+        // burst of requests for one cold city/cuisine makes ONE outbound call, not
+        // N (thundering herd → quota burn). Waiters block briefly, then re-check
+        // the cache (warmed by the holder) and skip the fetch. Recall-safe: if we
+        // can't acquire the lock in time we proceed without it (one extra call is
+        // far better than returning nothing). Free sources are uncapped (no quota).
+        $serpApiLock = null;
+        if (isset($toFetch['serpapi'])) {
+            $lock = Cache::lock("serpapi_fetch:{$keys['serpapi']}", 30);
             try {
-                $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
-                if (isset($hits[$label])) {
-                    $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $sourceCuisine));
-                } elseif (isset($poolResults[$label])) {
-                    $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $sourceCuisine, $keys[$label]));
-                }
-            } catch (\Throwable $e) {
-                Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
+                $lock->block((int) config('restaurant-finder.live_search.serpapi_lock_wait', 8));
+                $serpApiLock = $lock; // acquired — we own the fetch
+            } catch (LockTimeoutException $e) {
+                $serpApiLock = null; // timed out waiting — proceed unserialized
             }
+
+            // Double-checked locking: another request may have warmed the key
+            // while we waited. If so, treat it as a hit and skip our own fetch,
+            // releasing the lock immediately so other waiters aren't serialized.
+            $warmed = ExternalApiCache::findByKey($keys['serpapi']);
+            if ($warmed !== null) {
+                $hits['serpapi'] = $warmed;
+                unset($toFetch['serpapi']);
+                $serpApiLock?->release();
+                $serpApiLock = null;
+            }
+        }
+
+        $merged = [];
+        try {
+            // PASS 2 — pool only the cache-miss requests, concurrently.
+            $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
+
+            // PASS 3 — consume cache hits + pool results into normalized venues.
+            foreach ($sources as $label => $service) {
+                try {
+                    $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
+                    if (isset($hits[$label])) {
+                        $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $sourceCuisine));
+                    } elseif (isset($poolResults[$label])) {
+                        $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $sourceCuisine, $keys[$label]));
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
+                }
+            }
+        } finally {
+            $serpApiLock?->release();
         }
 
         // Overpass name-regex fallback — serial and conditional, as before:

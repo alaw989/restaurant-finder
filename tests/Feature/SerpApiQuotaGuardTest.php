@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ExternalApiCache;
 use App\Services\SerpApiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -167,5 +168,28 @@ class SerpApiQuotaGuardTest extends TestCase
 
         $this->assertSame(2, $afterTwo, 'first two distinct misses each fetch + cache SerpApi');
         $this->assertSame($afterTwo, $afterThree, 'third distinct miss within the hour is blocked by the per-IP limiter');
+    }
+
+    /**
+     * spec-074: when another request already holds the per-key SerpApi fetch
+     * lock, a waiter times out and falls back to an unserialized fetch rather
+     * than blocking forever (recall-safe: one extra call >> returning nothing).
+     * (True N-concurrent herd-collapse can't be exercised in single-threaded
+     * PHPUnit; this proves the lock can never cause a denial of service.)
+     */
+    public function test_serpapi_lock_falls_back_when_already_held(): void
+    {
+        $key = app(SerpApiService::class)->cacheKeyFor(40.75, -74.05, 'Italian');
+        $holder = Cache::lock("serpapi_fetch:{$key}", 30);
+        $holder->get(); // acquire and hold, simulating an in-flight fetch
+
+        Config::set('restaurant-finder.live_search.serpapi_lock_wait', 1); // short wait
+        $this->fakeSources(40.75, -74.05);
+
+        $before = ExternalApiCache::where('source', 'serpapi')->count();
+        $this->getJson('/api/restaurants?lat=40.75&lng=-74.05&cuisine=italian');
+        $after = ExternalApiCache::where('source', 'serpapi')->count();
+
+        $this->assertSame($before + 1, $after, 'lock timeout falls back to an unserialized fetch (recall-safe)');
     }
 }

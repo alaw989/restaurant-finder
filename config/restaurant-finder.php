@@ -136,6 +136,11 @@ return [
         // Default per-request timeout for the simple sources (BizData, SerpApi).
         'http_timeout' => (float) env('LIVE_SEARCH_HTTP_TIMEOUT', 8.0),
 
+        // spec-074: max seconds a waiter blocks on the per-key SerpApi fetch lock
+        // (thundering-herd guard). Concurrent cold requests for the same key wait
+        // for the holder to warm the cache, then reuse it instead of re-fetching.
+        'serpapi_lock_wait' => (int) env('LIVE_SEARCH_SERPAPI_LOCK_WAIT', 8),
+
         // Overpass fan-out caps. Enrichment tries 3 radii x 3 mirrors; the live
         // path uses the first of each only, with a tighter timeout.
         'overpass_timeout' => (float) env('LIVE_SEARCH_OVERPASS_TIMEOUT', 10.0),
