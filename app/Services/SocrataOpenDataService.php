@@ -486,6 +486,15 @@ class SocrataOpenDataService
     /**
      * Deduplicate results by name within a small radius.
      * Socrata datasets may have multiple inspection records for the same business.
+     *
+     * spec-083: key on name + COORDINATES (rounded ~4dp ≈ 11m), not the derived
+     * distance. The old name+round(distance,1) key collapsed distinct same-named
+     * venues at coincidentally-equal distance (two SUBWAY franchises both ~1.2km
+     * out) — a silent recall loss on the read path. It also bucketed every
+     * unlocated row at ':0.0' (the round(null ?? 0) footgun). Now: coords are the
+     * identity (true same-location inspection records still collapse; same-name
+     * different-location venues don't), and no-coords rows are kept without
+     * deduping (recall-protective — crossSourceDedup handles further merging).
      */
     private function deduplicateByName(array $results): array
     {
@@ -493,7 +502,18 @@ class SocrataOpenDataService
         $deduped = [];
 
         foreach ($results as $r) {
-            $key = strtolower($r['name']).':'.round($r['distance'] ?? 0, 1);
+            $lat = $r['lat'] ?? null;
+            $lng = $r['lng'] ?? null;
+
+            // No usable coords → keep without deduping (can't build a true
+            // identity key; the old code conflated 'no coords' with '0.0km').
+            if ($lat === null || $lng === null) {
+                $deduped[] = $r;
+
+                continue;
+            }
+
+            $key = strtolower((string) $r['name']).':'.round((float) $lat, 4).','.round((float) $lng, 4);
             if (! isset($seen[$key])) {
                 $seen[$key] = true;
                 $deduped[] = $r;
