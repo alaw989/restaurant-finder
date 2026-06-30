@@ -56,7 +56,7 @@ function onDetect() {
         <div class="w-full max-w-4xl text-center">
             <!-- Logo -->
             <a href="/" class="mb-8 inline-block" aria-label="iPop360 home" @click.prevent="$emit('search')">
-                <BrandLogo class="text-[5rem]" />
+                <BrandLogo class="text-[8rem]" />
             </a>
 
             <!-- Dynamic sentence -->
