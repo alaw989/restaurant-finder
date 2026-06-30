@@ -10,6 +10,7 @@ use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\GeolocationService;
 use App\Services\LiveSearchService;
+use App\Services\PopularityScoreService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -185,10 +186,16 @@ class RestaurantController extends Controller
         $items = $restaurants->getCollection();
         $allItems = $items; // Keep for score_breakdown fallback
 
+        // spec-078: compute normalization aggregates ONCE over the displayed set
+        // and share across every resource (avoids the O(n²) per-row recompute).
+        $aggregates = app(PopularityScoreService::class)->computeAggregates($allItems);
+
         /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
-        // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
+        // Attach the full collection + precomputed aggregates to each resource
+        $formatted->collection->each(fn ($resource) => $resource
+            ->withAllRestaurants($allItems)
+            ->withAggregates($aggregates));
 
         $formattedArray = $formatted->resolve();
 
@@ -346,11 +353,17 @@ class RestaurantController extends Controller
         $items = $restaurants->getCollection();
         $allItems = $items; // Keep for score_breakdown fallback
 
+        // spec-078: compute normalization aggregates ONCE over the displayed set
+        // and share across every resource (avoids the O(n²) per-row recompute).
+        $aggregates = app(PopularityScoreService::class)->computeAggregates($allItems);
+
         // Format using RestaurantResource (collection)
         /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($items);
-        // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($allItems));
+        // Attach the full collection + precomputed aggregates to each resource
+        $formatted->collection->each(fn ($resource) => $resource
+            ->withAllRestaurants($allItems)
+            ->withAggregates($aggregates));
 
         return response()->json([
             'data' => $formatted->resolve(),

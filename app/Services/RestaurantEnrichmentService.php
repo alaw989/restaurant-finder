@@ -98,13 +98,16 @@ class RestaurantEnrichmentService
         $this->enrichWithAi($restaurants);
 
         // Score the persisted set together (uses the now-bonus-enriched models)
-        // Compute all breakdowns first, then batch-update using CASE WHEN
+        // Compute all breakdowns first, then batch-update using CASE WHEN.
+        // spec-078: compute the collection-level aggregates ONCE and reuse per
+        // row — calculateBreakdown() recomputed them every iteration (O(n²)).
         $scoresByRestaurant = [];
         $updatedAt = now()->toDateTimeString();
+        $aggregates = $this->popularityScore->computeAggregates($restaurants);
 
         foreach ($restaurants as $restaurant) {
             try {
-                $breakdown = $this->popularityScore->calculateBreakdown($restaurant, $restaurants);
+                $breakdown = $this->popularityScore->calculateBreakdownWithAggregatesFromEloquent($restaurant, $aggregates);
                 $scoresByRestaurant[$restaurant->id] = [
                     'popularity_score' => $breakdown['total'],
                     'score_breakdown' => json_encode($breakdown),

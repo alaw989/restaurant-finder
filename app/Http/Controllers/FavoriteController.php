@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\RestaurantResource;
 use App\Models\Restaurant;
+use App\Services\PopularityScoreService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -19,11 +20,19 @@ class FavoriteController extends Controller
         $user = $request->user();
         $favorites = $user->favorites()->with('cuisines')->get();
 
+        // Compute the normalization aggregates ONCE over the displayed set and
+        // share them across every resource (spec-078). Previously each resource's
+        // score_breakdown fallback recomputed aggregates over the full collection
+        // → O(n²) on this unbounded page; now it's O(n) total.
+        $aggregates = app(PopularityScoreService::class)->computeAggregates($favorites);
+
         // Format using RestaurantResource (collection)
         /** @var AnonymousResourceCollection $formatted */
         $formatted = RestaurantResource::collection($favorites);
-        // Attach the full collection to each resource for score_breakdown fallback
-        $formatted->collection->each(fn ($resource) => $resource->withAllRestaurants($favorites));
+        // Attach the full collection + precomputed aggregates to each resource
+        $formatted->collection->each(fn ($resource) => $resource
+            ->withAllRestaurants($favorites)
+            ->withAggregates($aggregates));
 
         return Inertia::render('Favorites/Index', [
             'favorites' => $formatted->resolve(),

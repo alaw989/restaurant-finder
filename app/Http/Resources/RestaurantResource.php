@@ -27,6 +27,14 @@ class RestaurantResource extends JsonResource
     private ?Collection $allRestaurants = null;
 
     /**
+     * Precomputed collection-level aggregates (spec-078). When set, the score
+     * breakdown fallback uses these instead of recomputing them per row — the
+     * O(n²) hole (each row re-running computeAggregates over the full set) that
+     * LiveSearchService deliberately avoids but the Resource re-opened.
+     */
+    private ?array $aggregates = null;
+
+    /**
      * Transform a single Restaurant model into the API response shape.
      */
     public function toArray(Request $request): array
@@ -81,10 +89,25 @@ class RestaurantResource extends JsonResource
     }
 
     /**
+     * Provide precomputed collection aggregates so the score-breakdown fallback
+     * doesn't recompute them per row (spec-078). Computed once at the controller
+     * level over the displayed collection and shared across every resource.
+     *
+     * @return $this
+     */
+    public function withAggregates(array $aggregates): self
+    {
+        $this->aggregates = $aggregates;
+
+        return $this;
+    }
+
+    /**
      * Get the score breakdown for a restaurant.
      *
      * Prefers the stored value (most efficient). Falls back to computation for
-     * legacy rows using PopularityScoreService.
+     * legacy rows using PopularityScoreService — using precomputed aggregates
+     * when available (O(1) per row) to avoid the O(n²) per-row recompute.
      */
     private function getScoreBreakdown(): ?array
     {
@@ -93,10 +116,15 @@ class RestaurantResource extends JsonResource
             return $this->resource->score_breakdown;
         }
 
-        // Fallback: compute on-the-fly for legacy rows (if we have the collection)
-        if ($this->allRestaurants !== null) {
-            $service = app(PopularityScoreService::class);
+        $service = app(PopularityScoreService::class);
 
+        // Preferred fallback (spec-078): precomputed collection aggregates.
+        if ($this->aggregates !== null) {
+            return $service->calculateBreakdownWithAggregatesFromEloquent($this->resource, $this->aggregates);
+        }
+
+        // Single-resource path (e.g. show()): compute once for this one row.
+        if ($this->allRestaurants !== null) {
             return $service->calculateBreakdown($this->resource, $this->allRestaurants);
         }
 
