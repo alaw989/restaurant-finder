@@ -2,7 +2,7 @@
 
 > Living snapshot for Claude (and humans) picking up this project. Read this
 > together with `constitution.md` and `history.md` at session start. Detailed
-> per-spec history lives in `history/`. Updated: 2026-06-27.
+> per-spec history lives in `history/`. Updated: 2026-06-30.
 
 ## What this is
 A restaurant-discovery app that ranks venues with a free-first scoring blend.
@@ -190,6 +190,13 @@ value → failed toggles left stale favorites; fixed by snapshotting pre-mutatio
 queue empty (001–084 done), a fresh 8-dimension read-only audit (each finder cited `file:line`; a per-
 dimension skeptic refuted every finding vs the shipped 001–084 + rejected + tracked lists; 16 agents)
 produced **30 confirmed findings (3 P1 / 12 P2 / 15 P3), 4 rejected.** Plan: `~/.claude/plans/fresh-full-audit-2026-06-30.md`.
+- **▶▶ 085 SHIPPED (2026-06-30, `e20f9a5`, GHA-green, live-verified).** Favoriting a live result no longer 500s /
+  leaks an orphan — `FavoriteController::ensurePersisted()` now filters cuisine ids to those that exist
+  (`resolveCuisineIds`) + wraps create/attach in `DB::transaction`; `merge()`'s loop+sync wrapped in an outer
+  transaction too (adversarial-review LOW finding). 6 regression tests (359 backend, PHPStan 0, Pint clean).
+  Live-verified: a real `is_live:true` Mobile/chinese result (`cuisines:[{id:3952415295}]` = the synthetic
+  `abs(crc32('restaurant'))` id) → `/favorites/toggle` → **200 + favorited:true** (was 500); zero quota.
+  **P1 wave 1 of 3 done; next 086 → 087.**
 - **P1 wave (do first):** **085** favoriting a LIVE result throws 500 + leaks an orphan restaurant row
   (synthetic `abs(crc32('restaurant'))` cuisine id fails the pivot FK; no `DB::transaction`; REPRODUCED —
   essentially every first-time favorite of a live venue 500s) · **086** deploy "Verify deployment" passes on

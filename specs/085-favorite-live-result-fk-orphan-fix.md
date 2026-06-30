@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-30
 
-**Status**: PROPOSED (P1 — fresh audit `fresh-full-audit-2026-06-30.md`, P1.1)
+**Status**: COMPLETE — shipped `e20f9a5`, GHA-green (Deploy to Staging run `28478026339`), live-verified 2026-06-30 (P1 — fresh audit `fresh-full-audit-2026-06-30.md`, P1.1).
 
 **Series**: Fresh-audit P1 wave (085 → 086 → 087).
 
@@ -54,3 +54,24 @@ transaction is pure durability. Behavior of the happy path (real cuisines) is un
 ## Quota / deploy
 Zero API calls. A live browser-verify (favorite a live result as an authed user → 200, appears in
 `/favorites`) is the load-bearing post-deploy check — the bug is invisible to local CI (no SerpApi key).
+
+## Shipped (2026-06-30) — `e20f9a5`
+- `FavoriteController::ensurePersisted()`: new `resolveCuisineIds()` keeps only ids present in the
+  `cuisines` table (synthetic/decorative ids silently dropped); create + cuisine-attach wrapped in
+  `DB::transaction`.
+- **Scope widened per the adversarial review's 1 confirmed finding (LOW):** `merge()`'s venue loop +
+  `syncWithoutDetaching` are now wrapped in an **outer** `DB::transaction` so a mid-merge failure can't
+  leave committed-but-unfavorited orphan rows — the same invariant, same fix class (each `ensurePersisted`
+  keeps its per-venue nested/savepoint transaction). Pre-existing gap; the review flagged it as blast-radius
+  in the code this spec touched, "no code change required to ship," but closing it makes the orphan-invariant
+  hold across BOTH favorites write paths. (3 of 4 review findings refuted.)
+- **6 regression tests** (`FavoriteControllerTest`): live-shape toggle (200, persisted, 0 bogus cuisines);
+  mixed real+synthetic (real kept / synthetic dropped); idempotent re-favorite (no orphan); merge w/ synthetic
+  cuisine; single-venue forced-failure rollback; **mid-merge forced-failure rollback** (venue #1 not orphaned).
+  Both halves of the bug reproduced before the fix (4 tests → `500 / FOREIGN KEY constraint failed`; rollback
+  test → orphan count `1` vs expected `0`). 359 backend tests, PHPStan 0, Pint clean, build OK.
+- **Live-verified** (live-API flow; browser MCPs unavailable): registered a throwaway user, fetched a real
+  `is_live:true` Mobile/chinese result ("China Chef II", `cuisines:[{id:3952415295,…}]` = the synthetic id,
+  restaurant `id:-3669859679` → negative → create path), POSTed it to `/favorites/toggle` exactly as
+  `useFavorites` does → **`{"favorited":true,"favoriteIds":[927]}` HTTP 200** (was 500 before). Zero quota
+  (Mobile/chinese warm). P1 wave: 085 ✅, next 086 → 087.
