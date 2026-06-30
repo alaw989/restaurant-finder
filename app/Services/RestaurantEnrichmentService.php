@@ -46,7 +46,7 @@ class RestaurantEnrichmentService
     public function enrichByCuisine(float $lat, float $lng, Cuisine $cuisine): int
     {
         // Fetch all sources concurrently
-        $venues = $this->fetchAndNormalizeAllSources($lat, $lng, $cuisine->name);
+        $venues = $this->fetchAndNormalizeAllSources($lat, $lng, $cuisine);
 
         if (empty($venues)) {
             Log::info('No free venues found', [
@@ -165,15 +165,22 @@ class RestaurantEnrichmentService
      * Fetch and normalize all sources using real Http::pool() concurrency.
      * Wall time is max of sources, not sum. Isolates failures per source.
      */
-    private function fetchAndNormalizeAllSources(float $lat, float $lng, string $cuisine): array
+    private function fetchAndNormalizeAllSources(float $lat, float $lng, Cuisine $cuisine): array
     {
-        // Build request specs for each source (enrichment context = generous timeouts)
+        // Enrichment must issue the SAME queries the live read path issues and
+        // cache them under the SAME keys, so nightly enrichment pre-warms the
+        // read path (and never re-burns SerpApi quota on a key mismatch — the
+        // spec-072 fix). Query-style sources get the humanized term (identical
+        // to LiveSearchService's $scope->queryTerm); Overpass gets the slug
+        // (identical to $scope->primarySlug, which its config lookup expects).
         $context = ['read_path' => false];
+        $queryTerm = $this->cuisineMatcher->humanize($cuisine->slug);
+
         $specs = [
-            'bizdata' => $this->bizData->poolRequestsFor($lat, $lng, $cuisine, $context),
-            'overpass' => $this->overpass->poolRequestsFor($lat, $lng, $cuisine, $context),
-            'serpapi' => $this->serpApiService->poolRequestsFor($lat, $lng, $cuisine, $context),
-            'socrata' => $this->socrataService->poolRequestsFor($lat, $lng, $cuisine, $context),
+            'bizdata' => $this->bizData->poolRequestsFor($lat, $lng, $queryTerm, $context),
+            'overpass' => $this->overpass->poolRequestsFor($lat, $lng, $cuisine->slug, $context),
+            'serpapi' => $this->serpApiService->poolRequestsFor($lat, $lng, $queryTerm, $context),
+            'socrata' => $this->socrataService->poolRequestsFor($lat, $lng, $queryTerm, $context),
         ];
 
         // Flatten to composite keys for the pool
@@ -237,15 +244,35 @@ class RestaurantEnrichmentService
      * Then delegates to each service's normalizeForEnrichment for the enrichment format.
      * Handles failures (throwables) by skipping the source.
      */
-    private function normalizePoolResponses(string $label, array $responses, float $lat, float $lng, string $cuisine): array
+    private function normalizePoolResponses(string $label, array $responses, float $lat, float $lng, Cuisine $cuisine): array
     {
         try {
-            $cacheKey = $this->buildCacheKey($label, $lat, $lng, $cuisine);
+            // Cache under each source's OWN cacheKeyFor, using the same canonical
+            // value the live read path uses — so enrichment writes land in the
+            // exact entries the read path reads (spec-072). The old generic
+            // buildCacheKey() used a `cuisine` compact key for every source,
+            // which matched no source's read-path key; for SerpApi it diverged
+            // from isSerpApiCacheFresh's `query` key, so the skip-check never saw
+            // its own store → enrichment re-fetched every combo every run.
+            $queryTerm = $this->cuisineMatcher->humanize($cuisine->slug);
+            $cacheKey = match ($label) {
+                'serpapi' => $this->serpApiService->cacheKeyFor($lat, $lng, $queryTerm),
+                'socrata' => $this->socrataService->cacheKeyFor($lat, $lng, $queryTerm),
+                'bizdata' => $this->bizData->cacheKeyFor($lat, $lng, $queryTerm),
+                'overpass' => $this->overpass->cacheKeyFor($lat, $lng, $cuisine->slug),
+                default => $this->buildCacheKey($label, $lat, $lng, $queryTerm),
+            };
+
+            // Each source's consumer expects its canonical cuisine string: the
+            // humanized query term for query-style sources, the slug for Overpass
+            // (its config lookup + keywordsFor() name-fallback are slug-keyed).
+            $consumeCuisine = $label === 'overpass' ? $cuisine->slug : $queryTerm;
+
             $normalized = match ($label) {
-                'bizdata' => $this->bizData->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
-                'serpapi' => $this->serpApiService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
-                'socrata' => $this->socrataService->consumePoolResponses($responses, $lat, $lng, $cuisine, $cacheKey),
-                'overpass' => $this->consumeOverpassResponses($responses, $lat, $lng, $cuisine, $cacheKey),
+                'bizdata' => $this->bizData->consumePoolResponses($responses, $lat, $lng, $consumeCuisine, $cacheKey),
+                'serpapi' => $this->serpApiService->consumePoolResponses($responses, $lat, $lng, $consumeCuisine, $cacheKey),
+                'socrata' => $this->socrataService->consumePoolResponses($responses, $lat, $lng, $consumeCuisine, $cacheKey),
+                'overpass' => $this->consumeOverpassResponses($responses, $lat, $lng, $consumeCuisine, $cacheKey),
                 default => [],
             };
 
@@ -544,9 +571,12 @@ class RestaurantEnrichmentService
      */
     private function isSerpApiCacheFresh(float $lat, float $lng, string $query): bool
     {
-        $cacheKey = 'serpapi:'.md5(serialize(compact('lat', 'lng', 'query')));
-
-        return ExternalApiCache::findByKey($cacheKey) !== null;
+        // Delegate to SerpApiService::cacheKeyFor so the skip-check key is
+        // byte-identical to the key enrichment stores under AND the read path
+        // reads — the fix for the re-fetch leak (spec-072).
+        return ExternalApiCache::findByKey(
+            $this->serpApiService->cacheKeyFor($lat, $lng, $query)
+        ) !== null;
     }
 
     /**
@@ -603,7 +633,7 @@ class RestaurantEnrichmentService
             $lng = $combo['lng'];
             $cuisine = $combo['cuisine'];
 
-            if ($this->shouldSkipCombo($lat, $lng, $cuisine->name, $cityName)) {
+            if ($this->shouldSkipCombo($lat, $lng, $cuisine, $cityName)) {
                 $cacheHitsSkipped++;
 
                 continue;
@@ -704,12 +734,12 @@ class RestaurantEnrichmentService
     /**
      * Check if a combo should be skipped (cache is fresh).
      */
-    private function shouldSkipCombo(float $lat, float $lng, string $cuisine, string $cityName): bool
+    private function shouldSkipCombo(float $lat, float $lng, Cuisine $cuisine, string $cityName): bool
     {
-        if ($this->isSerpApiCacheFresh($lat, $lng, $cuisine)) {
+        if ($this->isSerpApiCacheFresh($lat, $lng, $this->cuisineMatcher->humanize($cuisine->slug))) {
             Log::debug('Skipping cache-fresh combo', [
                 'city' => $cityName,
-                'cuisine' => $cuisine,
+                'cuisine' => $cuisine->name,
             ]);
 
             return true;

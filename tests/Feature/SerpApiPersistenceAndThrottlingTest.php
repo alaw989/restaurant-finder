@@ -7,6 +7,7 @@ use App\Models\CuisineCategory;
 use App\Models\ExternalApiCache;
 use App\Models\Restaurant;
 use App\Services\RestaurantEnrichmentService;
+use App\Services\SerpApiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -379,5 +380,68 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
 
         // Should have enriched at least one restaurant
         $this->assertGreaterThan(0, $count);
+    }
+
+    /**
+     * Test spec-072: enrichment must write the SerpApi cache under the SAME key
+     * the live read path reads (and the skip-check reads). Before the fix the
+     * store used a `cuisine` compact key while the skip-check used `query`, so
+     * the freshness check never saw its own store → enrichment re-fetched every
+     * combo every nightly run (quota leak), and never pre-warmed the read path.
+     */
+    public function test_enrichment_writes_serpapi_cache_under_the_read_path_key(): void
+    {
+        Config::set('restaurant-finder.cities', [
+            'prewarm-city' => [37.7749, -122.4194],
+        ]);
+        Config::set('restaurant-finder.enrich.per_run_cap', 5);
+        Config::set('restaurant-finder.enrich.monthly_budget', 40);
+
+        $category = CuisineCategory::create(['name' => 'European', 'slug' => 'european']);
+        Cuisine::create([
+            'category_id' => $category->id,
+            'name' => 'Italian',
+            'slug' => 'italian',
+        ]);
+
+        Http::fake([
+            'bizdata-web.vercel.app/*' => Http::response(['businesses' => []], 200),
+            'overpass-api.de/*' => Http::response(['elements' => []], 200),
+            'socrata*/*' => Http::response(['data' => []], 200),
+            'query.wikidata.org/*' => Http::response(['results' => ['bindings' => []]], 200),
+            'serpapi.com/*' => Http::response([
+                'local_results' => [
+                    [
+                        'title' => 'Prewarm Pizzeria',
+                        'gps_coordinates' => ['latitude' => 37.7749, 'longitude' => -122.4194],
+                        'rating' => 4.5,
+                        'reviews' => 100,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $service = app(RestaurantEnrichmentService::class);
+        $service->enrichAllCitiesThrottled();
+
+        // (a) Enrichment stored under the EXACT key the read path reads.
+        //     humanize('italian') === 'Italian' === CuisineMatcher's queryTerm.
+        $readPathKey = app(SerpApiService::class)->cacheKeyFor(37.7749, -122.4194, 'Italian');
+        $this->assertNotNull(
+            ExternalApiCache::findByKey($readPathKey),
+            'enrichment must write the SerpApi cache under the read-path key'
+        );
+
+        // (b) A second run must skip the now-fresh combo (zero new calls) — the
+        //     leak was the skip-check never finding its own store, so it re-fetched.
+        $afterFirstRun = ExternalApiCache::where('source', 'serpapi')->count();
+        $service->enrichAllCitiesThrottled();
+        $afterSecondRun = ExternalApiCache::where('source', 'serpapi')->count();
+
+        $this->assertSame(
+            $afterFirstRun,
+            $afterSecondRun,
+            'second run should skip the cache-fresh combo (no re-fetch)'
+        );
     }
 }
