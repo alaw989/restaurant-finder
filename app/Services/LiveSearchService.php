@@ -446,14 +446,39 @@ class LiveSearchService
         $aggregates = $this->scoreService->computeAggregates($all);
 
         foreach ($results as &$r) {
-            // Ensure distance is set (from scopeNearby or calculated)
-            if (! isset($r['distance']) && isset($r['lat'], $r['lng'])) {
-                $r['distance'] = $this->venuePipeline->haversineKm($searchLat, $searchLng, (float) $r['lat'], (float) $r['lng']);
+            // Ensure distance is set (from scopeNearby or calculated). Rows with
+            // no usable coords (null, or the (0,0) null-island artifact) get a
+            // NEUTRAL sentinel distance for scoring only (spec-082) — otherwise
+            // their proximity would be inactive and the per-row weight
+            // renormalization would inflate their other signals, letting a
+            // mystery-location venue outrank closer geolocated peers. The
+            // sentinel is removed after scoring so the card doesn't show a fake
+            // distance. Kill-switch RANK_NO_COORDS_NEUTRAL_PROXIMITY.
+            $lat = $r['lat'] ?? null;
+            $lng = $r['lng'] ?? null;
+            $noUsableCoords = $lat === null || $lng === null
+                || ((float) $lat === 0.0 && (float) $lng === 0.0);
+            $stampedNeutral = false;
+
+            if (! isset($r['distance'])) {
+                if ($noUsableCoords
+                    && config('restaurant-finder.ranking.no_coords_neutral_proximity', true)
+                ) {
+                    $r['distance'] = (float) config('restaurant-finder.ranking.proximity_scale_km', 2.0);
+                    $stampedNeutral = true;
+                } elseif (! $noUsableCoords) {
+                    $r['distance'] = $this->venuePipeline->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng);
+                }
             }
 
             $breakdown = $this->scoreService->calculateBreakdownWithAggregates($r, $aggregates);
             $r['popularity_score'] = $breakdown['total'];
             $r['score_breakdown'] = $breakdown;
+
+            // Don't surface the neutral sentinel as a real distance.
+            if ($stampedNeutral) {
+                unset($r['distance']);
+            }
         }
 
         // Sort by popularity score descending

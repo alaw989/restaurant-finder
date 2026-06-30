@@ -97,6 +97,14 @@ return [
         // At 1× scale (default 2km), a venue at 2km distance scores 0.5.
         'proximity_scale_km' => (float) env('RANK_PROXIMITY_SCALE_KM', 2.0),
 
+        // spec-082: a venue with no usable coords (null, or the (0,0) null-island
+        // artifact) gets NEUTRAL proximity (sentinel = proximity_scale_km → ~0.5)
+        // instead of leaving proximity inactive. Otherwise per-row weight
+        // renormalization drops proximity and inflates the other signals, letting
+        // a mystery-location venue outrank closer geolocated peers. false reverts
+        // to the old inactive-proximity behavior.
+        'no_coords_neutral_proximity' => filter_var(env('RANK_NO_COORDS_NEUTRAL_PROXIMITY', true), FILTER_VALIDATE_BOOL),
+
         // Floor for the log-review-count denominator: max(collectionMax, floor).
         // Prevents a single low-review venue from compressing everyone to ~1.0.
         'log_review_floor' => (int) env('RANK_LOG_REVIEW_FLOOR', 500),

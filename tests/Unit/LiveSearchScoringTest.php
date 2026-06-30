@@ -118,6 +118,33 @@ class LiveSearchScoringTest extends TestCase
         $this->assertSame(4.25, round($mean, 4));
     }
 
+    /**
+     * spec-082: a no-coords venue must get NEUTRAL proximity (~0.5), not an
+     * inactive proximity. Otherwise per-row renormalization drops proximity and
+     * inflates the other signals, letting a mystery-location venue outrank
+     * closer geolocated peers. The neutral sentinel is stamped for scoring then
+     * removed so the card shows no fake distance.
+     */
+    public function test_no_coords_venue_gets_neutral_proximity(): void
+    {
+        $method = new \ReflectionMethod(LiveSearchService::class, 'scoreWithUnifiedService');
+        $method->setAccessible(true);
+
+        $results = [
+            ['name' => 'Geo', 'google_rating' => 4.0, 'google_review_count' => 500, 'lat' => 40.0, 'lng' => -74.0],
+            ['name' => 'Mystery', 'google_rating' => 4.0, 'google_review_count' => 500], // no coords
+        ];
+
+        $scored = $method->invoke($this->liveSearchService, $results, 40.0, -74.0);
+
+        $mystery = collect($scored)->first(fn ($r) => $r['name'] === 'Mystery');
+        $proximity = collect($mystery['score_breakdown']['signals'])->first(fn ($s) => $s['label'] === 'Proximity');
+
+        $this->assertNotNull($proximity, 'no-coords venue has an ACTIVE proximity (not inactive)');
+        $this->assertEqualsWithDelta(0.5, $proximity['normalized'], 0.01, 'neutral midpoint');
+        $this->assertArrayNotHasKey('distance', $mystery, 'neutral sentinel not surfaced as a fake distance');
+    }
+
     public function test_live_and_db_breakdowns_share_labels(): void
     {
         // Live result array
