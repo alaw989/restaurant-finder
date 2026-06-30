@@ -17,7 +17,12 @@ jobs:
 
     steps:
       - name: Checkout code
+        # Full history (fetch-depth: 0) so gitleaks can resolve the push's
+        # base^..head range — a shallow clone makes base^ "unknown revision"
+        # and aborts the scan (blocking deploy) on multi-commit pushes.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run Gitleaks (secret scanning)
         uses: gitleaks/gitleaks-action@v2
