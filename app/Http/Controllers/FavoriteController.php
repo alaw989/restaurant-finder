@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\RestaurantResource;
+use App\Models\Cuisine;
 use App\Models\Restaurant;
 use App\Services\PopularityScoreService;
 use Illuminate\Http\Request;
@@ -100,20 +101,24 @@ class FavoriteController extends Controller
         $existingIds = $validated['ids'] ?? [];
         $unpersistedVenues = $validated['venues'] ?? [];
 
-        // Collect all target IDs (existing + newly-persisted) into one array
-        $allIds = $existingIds;
+        // Persist every venue AND attach them as favorites atomically. Each
+        // ensurePersisted() opens its own (nested, savepoint) transaction for the
+        // per-venue create+attach; this OUTER transaction guarantees that if any
+        // single venue fails mid-merge, the already-created venues roll back too
+        // — so a partial merge can never leave committed-but-unfavorited orphan
+        // rows (the same invariant spec-085 gives the single-venue toggle path).
+        $favoriteIds = DB::transaction(function () use ($user, $existingIds, $unpersistedVenues) {
+            $allIds = $existingIds;
 
-        // Persist unpersisted venues and collect their IDs
-        foreach ($unpersistedVenues as $venueData) {
-            $restaurant = $this->ensurePersisted($venueData);
-            $allIds[] = $restaurant->id;
-        }
+            foreach ($unpersistedVenues as $venueData) {
+                $allIds[] = $this->ensurePersisted($venueData)->id;
+            }
 
-        // Sync all IDs in one batch query
-        $user->favorites()->syncWithoutDetaching($allIds);
+            // Sync all IDs in one batch query
+            $user->favorites()->syncWithoutDetaching($allIds);
 
-        // Return the merged list of favorited restaurant IDs
-        $favoriteIds = $user->favorites()->pluck('restaurants.id')->all();
+            return $user->favorites()->pluck('restaurants.id')->all();
+        });
 
         return response()->json([
             'favoriteIds' => $favoriteIds,
@@ -169,17 +174,46 @@ class FavoriteController extends Controller
             }
         }
 
-        // Create the restaurant with minimal data
-        $restaurant = Restaurant::create($attributes);
+        // Resolve cuisines ONCE, up-front: keep only ids that actually exist in
+        // the cuisines table. Live-source results embed a synthetic placeholder
+        // cuisine id (abs(crc32('restaurant')), see SerpApiService /
+        // SocrataOpenDataService / BizDataApiService) whose 'restaurant' slug is
+        // decorative — it must never reach the cuisine_restaurant pivot or its FK
+        // rejects it. Real ids pass through unchanged. (spec-085)
+        $cuisineIds = $this->resolveCuisineIds($data['cuisines'] ?? null);
 
-        // Sync cuisines if provided
-        if (! empty($data['cuisines']) && is_array($data['cuisines'])) {
-            $cuisineIds = array_filter(array_column($data['cuisines'], 'id'));
+        // Wrap create + attach in a transaction so any failure rolls back the
+        // restaurant row instead of leaving an orphan. (spec-085)
+        return DB::transaction(function () use ($attributes, $cuisineIds) {
+            $restaurant = Restaurant::create($attributes);
+
             if (! empty($cuisineIds)) {
                 $restaurant->cuisines()->sync($cuisineIds);
             }
+
+            return $restaurant;
+        });
+    }
+
+    /**
+     * Extract cuisine ids from the client payload and keep only those that
+     * actually exist in the cuisines table. Dropping unknown ids here is what
+     * stops a live result's synthetic placeholder cuisine
+     * (abs(crc32('restaurant'))) from ever reaching the cuisine_restaurant
+     * pivot FK. (spec-085)
+     */
+    private function resolveCuisineIds(mixed $cuisines): array
+    {
+        if (! is_array($cuisines) || empty($cuisines)) {
+            return [];
         }
 
-        return $restaurant;
+        $ids = array_filter(array_column($cuisines, 'id'));
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        return Cuisine::whereIn('id', $ids)->pluck('id')->all();
     }
 }
