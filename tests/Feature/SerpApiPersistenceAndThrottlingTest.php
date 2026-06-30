@@ -258,10 +258,11 @@ class SerpApiPersistenceAndThrottlingTest extends TestCase
             'slug' => 'italian',
         ]);
 
-        // Pre-warm the cache for this combo
+        // Pre-warm the cache for this combo (compute the key via the service so
+        // it stays correct as cacheKeyFor evolves — e.g. spec-073 coord rounding).
         ExternalApiCache::create([
             'source' => 'serpapi',
-            'external_id' => 'serpapi:'.md5(serialize(['lat' => 37.7749, 'lng' => -122.4194, 'query' => 'Italian'])),
+            'external_id' => app(SerpApiService::class)->cacheKeyFor(37.7749, -122.4194, 'Italian'),
             'data' => ['local_results' => []],
             'fetched_at' => now(),
             'expires_at' => now()->addDays(30),

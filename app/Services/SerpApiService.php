@@ -149,9 +149,16 @@ class SerpApiService
      * Cache key for a SerpApi query. Shared by search()/fetchRaw() and the live
      * concurrent-pool path (byte-identical) — critical because SerpApi is the
      * quota-constrained source.
+     *
+     * Coordinates are rounded to ~3 dp IN THE KEY (not the fetch) so sub-100m
+     * GPS/IP-geo jitter no longer mints distinct cache entries and re-burns
+     * quota (spec-073). The outbound ll= call still uses full-precision coords.
      */
     public function cacheKeyFor(float $lat, float $lng, ?string $query = null): string
     {
+        $lat = round($lat, 3);
+        $lng = round($lng, 3);
+
         return 'serpapi:'.md5(serialize(compact('lat', 'lng', 'query')));
     }
 

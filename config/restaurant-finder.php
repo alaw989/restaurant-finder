@@ -253,33 +253,54 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | SerpApi quota limits
+    | SerpApi quota limits + read-path guard
     |--------------------------------------------------------------------------
-    | Free tier quota per month for SerpApi Google Maps searches.
-    | This is the hard limit enforced by the service; the enrichment budget
-    | (enrich.monthly_budget) is a self-imposed cap below this to leave
-    | headroom for live search and audits.
+    | Monthly quota for SerpApi Google Maps searches (the ONLY free rating
+    | source). 250/mo on the current plan. The read-path guard (spec-073)
+    | protects this quota from being burned by the public /api/restaurants
+    | endpoint: coord rounding collapses GPS/IP-geo jitter in the cache key,
+    | a monthly circuit breaker pauses live fetches near the quota, and a
+    | per-IP hourly limit bounds abuse. The enrichment budget (enrich.*) is a
+    | separate self-imposed cap below this to leave headroom for live search.
     */
     'serpapi' => [
-        'free_quota' => (int) env('SERPAPI_FREE_QUOTA', 50),
+        // Monthly quota (current plan = 250; was mis-assumed as 50 for months).
+        'free_quota' => (int) env('SERPAPI_FREE_QUOTA', 250),
+
+        // Master kill-switch for the read-path quota guard. false → both the
+        // circuit breaker and the per-IP limiter are bypassed (reverts to
+        // pre-073 behavior). Warm-cache requests are NEVER guarded regardless.
+        'read_path_guard' => (bool) env('SERPAPI_READ_PATH_GUARD', true),
+
+        // Circuit breaker: when real SerpApi calls in the last 30d reach this
+        // fraction of free_quota, the live read path stops making outbound
+        // calls (serves warm cache + free sources only) until the window rolls.
+        // Guarantees the read path alone can never exhaust the monthly quota.
+        'circuit_breaker_fraction' => (float) env('SERPAPI_CIRCUIT_BREAKER_FRACTION', 0.8),
+
+        // Per-IP cap on DISTINCT cache-miss SerpApi live fetches per hour.
+        // Bounds quota-burn abuse (rotating cuisines / nudging coords) from a
+        // single client. Warm-cache requests don't count.
+        'live_misses_per_hour' => (int) env('SERPAPI_LIVE_MISSES_PER_HOUR', 30),
     ],
 
     /*
     |--------------------------------------------------------------------------
     | DB enrichment throttling (SerpApi quota protection)
     |--------------------------------------------------------------------------
-    | Enrichment progressively fills the DB under the free tier quota (~50/mo).
-    | Per-run cap bounds real (cache-miss) SerpApi calls per execution; monthly
-    | budget bounds total across a 30-day window. The rotation walks all
-    | city×cuisine combos over many runs, skipping cache-fresh combos.
+    | Enrichment progressively fills the DB under the monthly quota. Per-run
+    | cap bounds real (cache-miss) SerpApi calls per execution; monthly budget
+    | bounds total across a 30-day window. The rotation walks all city×cuisine
+    | combos over many runs, skipping cache-fresh combos (and, since spec-072,
+    | pre-warming the live read path under the same cache keys).
     */
     'enrich' => [
         // Max real SerpApi calls per enrich run (cache hits don't count).
         // Defaults to 5 to leave headroom for live search + audits.
         'per_run_cap' => (int) env('ENRICH_PER_RUN_CAP', 5),
 
-        // Max real SerpApi calls per 30-day rolling window (must stay under 50).
-        // Defaults to 40, leaving headroom for live search + manual audits.
+        // Max real SerpApi calls per 30-day rolling window. Conservative at 40
+        // even though the quota is now 250 — leaves the bulk for live search.
         'monthly_budget' => (int) env('ENRICH_MONTHLY_BUDGET', 40),
     ],
 

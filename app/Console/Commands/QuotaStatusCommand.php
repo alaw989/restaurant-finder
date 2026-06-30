@@ -28,7 +28,7 @@ class QuotaStatusCommand extends Command
         $stats = ExternalApiCache::stats($days);
 
         // Quota figures
-        $freeQuota = config('restaurant-finder.serpapi.free_quota', 50);
+        $freeQuota = config('restaurant-finder.serpapi.free_quota', 250);
         $monthlyBudget = config('restaurant-finder.enrich.monthly_budget', 40);
         $burned = $stats['serpapi_calls_last_30d'];
         $remainingFromQuota = max(0, $freeQuota - $burned);

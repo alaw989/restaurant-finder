@@ -13,7 +13,7 @@ use Tests\TestCase;
  *
  * Verifies that:
  * - The command runs successfully with zero quota burn
- * - It prints the correct quota figures (50 free, 40 budget default)
+ * - It prints the correct quota figures (250 free, 40 budget default)
  * - It reports cache inventory correctly
  * - It is truly read-only (no DB writes, no HTTP calls)
  */
@@ -34,8 +34,8 @@ class QuotaStatusCommandTest extends TestCase
     {
         $this->artisan('quota:status')
             ->assertExitCode(0)
-            ->expectsOutputToContain('Calls made: 0 / 50 (free tier) | 0 / 40 (enrich budget)')
-            ->expectsOutputToContain('Remaining: 50 (100% of free) | 40 (100% of budget)')
+            ->expectsOutputToContain('Calls made: 0 / 250 (free tier) | 0 / 40 (enrich budget)')
+            ->expectsOutputToContain('Remaining: 250 (100% of free) | 40 (100% of budget)')
             ->expectsOutputToContain('Total rows: 0')
             ->expectsOutputToContain('Expiring within 7 days: 0');
     }
@@ -75,8 +75,8 @@ class QuotaStatusCommandTest extends TestCase
         // old-entry is outside 30 days, so not counted
         $this->artisan('quota:status')
             ->assertExitCode(0)
-            ->expectsOutputToContain('Calls made: 13 / 50 (free tier) | 13 / 40 (enrich budget)')
-            ->expectsOutputToContain('Remaining: 37 (74% of free) | 27 (68% of budget)')
+            ->expectsOutputToContain('Calls made: 13 / 250 (free tier) | 13 / 40 (enrich budget)')
+            ->expectsOutputToContain('Remaining: 237 (95% of free) | 27 (68% of budget)')
             ->expectsOutputToContain('Total rows: 14')
             ->expectsOutputToContain('Expiring within 7 days: 1')
             ->expectsOutputToContain('serpapi: 14');
@@ -227,7 +227,7 @@ class QuotaStatusCommandTest extends TestCase
 
         $this->artisan('quota:status')
             ->assertExitCode(0)
-            ->expectsOutputToContain('Calls made: 10 / 50 (free tier) | 10 / 5 (enrich budget)')
-            ->expectsOutputToContain('Remaining: 40 (80% of free) | 0 (0% of budget)');
+            ->expectsOutputToContain('Calls made: 10 / 250 (free tier) | 10 / 5 (enrich budget)')
+            ->expectsOutputToContain('Remaining: 240 (96% of free) | 0 (0% of budget)');
     }
 }

@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 class LiveSearchService
 {
@@ -145,6 +146,17 @@ class LiveSearchService
             }
         }
 
+        // spec-073 quota guard: SerpApi is the only quota-constrained source, so
+        // gate its LIVE (cache-miss) fetch behind the monthly circuit breaker +
+        // per-IP hourly limiter. Warm-cache requests short-circuited in PASS 1
+        // and never reach here. If the guard trips we skip the outbound SerpApi
+        // call — recall-protective: the other (free, unlimited) sources still
+        // serve this query, it simply carries no Google ratings until the guard
+        // clears or the cache warms.
+        if (isset($toFetch['serpapi']) && ! $this->allowLiveSerpApiFetch()) {
+            unset($toFetch['serpapi']);
+        }
+
         // PASS 2 — pool only the cache-miss requests, concurrently.
         $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
 
@@ -171,6 +183,65 @@ class LiveSearchService
         }
 
         return $merged;
+    }
+
+    /**
+     * spec-073: should the live read path make an outbound SerpApi call right
+     * now? Guards the binding quota resource on the cache-MISS path only (warm
+     * requests never reach the fetch). Two independent checks, either of which
+     * can pause live SerpApi fetches — recall-protective, since the free
+     * unlimited sources and warm caches keep serving:
+     *
+     *  1. Monthly circuit breaker — when real SerpApi calls in the last 30d
+     *     reach a configurable fraction of the monthly quota, stop calling out.
+     *     Guarantees the read path alone can never exhaust the quota.
+     *  2. Per-IP hourly limiter — bounds how many DISTINCT cache-miss fetches a
+     *     single client triggers per hour (quota-burn abuse defense). Null IP
+     *     (CLI/artisan) → skipped; the circuit breaker still applies.
+     *
+     * Bypassed entirely by the SERPAPI_READ_PATH_GUARD kill-switch.
+     */
+    private function allowLiveSerpApiFetch(): bool
+    {
+        if (! config('restaurant-finder.serpapi.read_path_guard', true)) {
+            return true;
+        }
+
+        // (1) Monthly circuit breaker.
+        $freeQuota = (int) config('restaurant-finder.serpapi.free_quota', 250);
+        $fraction = (float) config('restaurant-finder.serpapi.circuit_breaker_fraction', 0.8);
+        $limit = $freeQuota > 0 ? (int) ceil($freeQuota * $fraction) : 0;
+        $callsLast30d = ExternalApiCache::stats()['serpapi_calls_last_30d'];
+
+        if ($limit > 0 && $callsLast30d >= $limit) {
+            Log::warning('SerpApi circuit breaker tripped; live fetches paused', [
+                'calls_last_30d' => $callsLast30d,
+                'limit' => $limit,
+                'free_quota' => $freeQuota,
+            ]);
+
+            return false;
+        }
+
+        // (2) Per-IP hourly limiter on distinct cache-miss live fetches.
+        $ip = request()?->ip();
+        if ($ip !== null) {
+            $maxPerHour = (int) config('restaurant-finder.serpapi.live_misses_per_hour', 30);
+            $key = "serpapi_live_miss:{$ip}";
+
+            if (RateLimiter::tooManyAttempts($key, $maxPerHour)) {
+                Log::info('SerpApi per-IP live-miss limit reached', [
+                    'ip' => $ip,
+                    'max_per_hour' => $maxPerHour,
+                ]);
+
+                return false;
+            }
+
+            RateLimiter::hit($key, 3600);
+        }
+
+        return true;
     }
 
     /**
