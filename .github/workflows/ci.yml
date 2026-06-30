@@ -41,6 +41,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Run frontend tests (Vitest)
+        run: npm run test
+
       - name: Create empty .env for testing
         # CI has no .env (gitignored). Without it, booting the artisan kernel
         # emits a file_get_contents('.env') warning per test (~260 spurious
