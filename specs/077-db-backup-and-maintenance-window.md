@@ -46,3 +46,12 @@ step is the alarm.
 ## Out of scope
 - Releases-dir + `current` symlink rollback model (bigger infra change; the snapshot covers recovery).
 - Moving off SQLite / WAL-by-default (the env knob is now there for experimentation).
+
+## Post-implementation review fix (maintenance-mode permissions)
+The first draft ran `artisan down`/`up` as the bare deploy user. After Post-deploy's
+`chown www-data:www-data storage`, the deploy user may not be able to unlink the down file → site stuck
+in maintenance (503). Fixed: `down` is now **best-effort** (a failed maintenance entry falls through to
+migrating live — the prior behavior — rather than aborting), and `up` **always** succeeds
+(`sudo -u www-data php8.4 artisan up || sudo rm -f storage/framework/down`) so the down file is removed
+no matter who owns it. Combined with the `if: always()` step, the site can never be wedged in
+maintenance by this deploy.

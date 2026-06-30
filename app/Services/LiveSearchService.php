@@ -161,52 +161,40 @@ class LiveSearchService
 
         // spec-074: serialize concurrent cold fetches of the SAME SerpApi key so a
         // burst of requests for one cold city/cuisine makes ONE outbound call, not
-        // N (thundering herd → quota burn). Waiters block briefly, then re-check
-        // the cache (warmed by the holder) and skip the fetch. Recall-safe: if we
-        // can't acquire the lock in time we proceed without it (one extra call is
-        // far better than returning nothing). Free sources are uncapped (no quota).
-        $serpApiLock = null;
+        // N (thundering herd → quota burn). The lock is scoped to a SerpApi-ONLY
+        // fetch+store — NOT the shared multi-source pool — so it spans only the
+        // SerpApi round-trip (~1-2s), not the routinely-slowest Overpass leg
+        // (~10s). Otherwise waiters would time out (8s) before the holder (held
+        // ~10s by Overpass) releases, each do their own fetch, and the herd
+        // wouldn't collapse. Waiters block briefly, re-check the warmed cache, and
+        // reuse it. Recall-safe: if we can't acquire the lock in time we proceed
+        // without it (one extra call is far better than returning nothing).
+        $merged = [];
         if (isset($toFetch['serpapi'])) {
-            $lock = Cache::lock("serpapi_fetch:{$keys['serpapi']}", 30);
-            try {
-                $lock->block((int) config('restaurant-finder.live_search.serpapi_lock_wait', 8));
-                $serpApiLock = $lock; // acquired — we own the fetch
-            } catch (LockTimeoutException $e) {
-                $serpApiLock = null; // timed out waiting — proceed unserialized
-            }
-
-            // Double-checked locking: another request may have warmed the key
-            // while we waited. If so, treat it as a hit and skip our own fetch,
-            // releasing the lock immediately so other waiters aren't serialized.
-            $warmed = ExternalApiCache::findByKey($keys['serpapi']);
-            if ($warmed !== null) {
-                $hits['serpapi'] = $warmed;
-                unset($toFetch['serpapi']);
-                $serpApiLock?->release();
-                $serpApiLock = null;
-            }
+            $serpApiSpecs = $toFetch['serpapi'];
+            unset($toFetch['serpapi']);
+            $merged = array_merge(
+                $merged,
+                $this->fetchSerpApiUnderLock($lat, $lng, $queryCuisine, $keys['serpapi'], $serpApiSpecs)
+            );
         }
 
-        $merged = [];
-        try {
-            // PASS 2 — pool only the cache-miss requests, concurrently.
-            $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
+        // PASS 2 — pool the remaining (free) sources concurrently. Unlocked —
+        // their thundering herd is wasteful, not quota-burning.
+        $poolResults = $this->dispatchPool($toFetch); // label => (Response|Throwable)[]
 
-            // PASS 3 — consume cache hits + pool results into normalized venues.
-            foreach ($sources as $label => $service) {
-                try {
-                    $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
-                    if (isset($hits[$label])) {
-                        $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $sourceCuisine));
-                    } elseif (isset($poolResults[$label])) {
-                        $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $sourceCuisine, $keys[$label]));
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
+        // PASS 3 — consume SerpApi/free cache hits + the free-source pool results.
+        foreach ($sources as $label => $service) {
+            try {
+                $sourceCuisine = $label === 'overpass' ? $overpassCuisine : $queryCuisine;
+                if (isset($hits[$label])) {
+                    $merged = array_merge($merged, $this->normalizeCachedHit($label, $hits[$label], $lat, $lng, $sourceCuisine));
+                } elseif (isset($poolResults[$label])) {
+                    $merged = array_merge($merged, $service->consumePoolResponses($poolResults[$label], $lat, $lng, $sourceCuisine, $keys[$label]));
                 }
+            } catch (\Throwable $e) {
+                Log::warning("LiveSearch {$label} consume failed", ['message' => $e->getMessage()]);
             }
-        } finally {
-            $serpApiLock?->release();
         }
 
         // Overpass name-regex fallback — serial and conditional, as before:
@@ -217,6 +205,48 @@ class LiveSearchService
         }
 
         return $merged;
+    }
+
+    /**
+     * spec-074: fetch a cold SerpApi key under a per-key lock scoped to SerpApi
+     * only. Waiters block briefly, then reuse the holder's warmed cache instead
+     * of re-fetching (collapses a thundering herd to one outbound call). The lock
+     * spans ONLY the SerpApi pool+store — not the free sources — so a slow
+     * Overpass leg can't keep the lock held past the waiter's block timeout.
+     *
+     * @param  RequestSpec[]  $specs
+     */
+    private function fetchSerpApiUnderLock(float $lat, float $lng, ?string $queryCuisine, string $cacheKey, array $specs): array
+    {
+        $lock = Cache::lock("serpapi_fetch:{$cacheKey}", 30);
+        try {
+            $lock->block((int) config('restaurant-finder.live_search.serpapi_lock_wait', 8));
+        } catch (LockTimeoutException $e) {
+            $lock = null; // couldn't acquire in time — proceed unserialized (recall-safe)
+        }
+
+        // Double-checked locking: another request may have warmed the key while
+        // we waited. Reuse it instead of fetching.
+        $warmed = ExternalApiCache::findByKey($cacheKey);
+        if ($warmed !== null) {
+            $lock?->release();
+
+            return $this->normalizeCachedHit('serpapi', $warmed, $lat, $lng, $queryCuisine);
+        }
+
+        try {
+            $poolResults = $this->dispatchPool(['serpapi' => $specs]);
+
+            return $this->serpApiService->consumePoolResponses(
+                $poolResults['serpapi'] ?? [],
+                $lat,
+                $lng,
+                $queryCuisine,
+                $cacheKey
+            );
+        } finally {
+            $lock?->release();
+        }
     }
 
     /**

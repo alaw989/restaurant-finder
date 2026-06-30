@@ -130,6 +130,34 @@ class RestaurantWebsiteScraperService
     }
 
     /**
+     * spec-075: the guarded allow_redirects config — capped at 3, http(s)-only,
+     * and each hop re-validated by isSafeUrl so a public host can't redirect
+     * into a private/loopback/metadata endpoint. Honors the SSRF kill-switch
+     * (returns a plain cap when the guard is off). Shared by the robots.txt
+     * fetch and the main page fetch — BOTH must re-validate hops (the robots.txt
+     * fetch is otherwise an SSRF bypass, being the first outbound call).
+     *
+     * @return array<string,mixed>
+     */
+    private function redirectOptions(): array
+    {
+        if (! config('restaurant-finder.website_scraper.ssrf_guard', true)) {
+            return ['max' => 3];
+        }
+
+        return [
+            'max' => 3,
+            'strict' => true,
+            'protocols' => ['https', 'http'],
+            'on_redirect' => function ($request, $response, $uri): void {
+                if (! $this->isSafeUrl((string) $uri)) {
+                    throw new \RuntimeException('SSRF guard blocked unsafe redirect target: '.$uri);
+                }
+            },
+        ];
+    }
+
+    /**
      * spec-075 SSRF guard: is this URL safe for the server to fetch?
      *
      * Allows only http(s), resolves the host, and rejects any resolved IP in a
@@ -192,6 +220,7 @@ class RestaurantWebsiteScraperService
 
                 $response = Http::timeout(self::REQUEST_TIMEOUT)
                     ->withUserAgent(self::USER_AGENT)
+                    ->withOptions(['allow_redirects' => $this->redirectOptions()])
                     ->get($robotsUrl);
 
                 if ($response->successful()) {
@@ -317,21 +346,9 @@ class RestaurantWebsiteScraperService
                 // spec-075: cap redirects + re-validate each hop's host so a
                 // public initial URL can't redirect into an internal/metadata
                 // endpoint. An unsafe hop throws → caught below → null (no retry).
-                $allowRedirects = config('restaurant-finder.website_scraper.ssrf_guard', true)
-                    ? [
-                        'max' => 3,
-                        'protocols' => ['https', 'http'],
-                        'on_redirect' => function ($request, $response, $uri): void {
-                            if (! $this->isSafeUrl((string) $uri)) {
-                                throw new \RuntimeException('SSRF guard blocked unsafe redirect target: '.$uri);
-                            }
-                        },
-                    ]
-                    : ['max' => 3];
-
                 $response = Http::timeout(self::REQUEST_TIMEOUT)
                     ->withUserAgent(self::USER_AGENT)
-                    ->withOptions(['allow_redirects' => $allowRedirects])
+                    ->withOptions(['allow_redirects' => $this->redirectOptions()])
                     ->get($url);
 
                 if (! $response->successful()) {

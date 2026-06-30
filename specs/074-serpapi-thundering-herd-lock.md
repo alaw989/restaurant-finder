@@ -53,3 +53,12 @@ releases even if the pool throws.
   fallback test + code review + post-deploy live burn-rate observation.
 - The cache-key unification (072) and rounding (073) are what make the lock effective (same logical
   query → same key → same lock).
+
+## Post-implementation review fix (lock scope)
+The first draft held the lock across the **entire** multi-source pool (including the routinely-slowest
+Overpass leg ~10s). Since the waiter `block` is 8s, waiters timed out before the holder released and
+each did its own fetch — defeating the herd collapse. Fixed by scoping the lock to a **SerpApi-only**
+fetch+store (`fetchSerpApiUnderLock`): serpapi is fetched under the lock in its own pool, then the free
+sources run unlocked. The lock now spans only the SerpApi RTT (~1-2s) → waiters acquire within the
+window, re-check the warmed cache, and reuse it. (Slight cost: serpapi + free sources are now sequential
+rather than concurrent on a cold search — acceptable for the quota guarantee.)

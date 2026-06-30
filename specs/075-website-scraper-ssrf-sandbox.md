@@ -53,3 +53,23 @@ same outcome as any other scrape failure. Legit public-IP / resolvable-host site
 - Trusted-proxy hardening for `request()->ip()` (the favorites SSRF doesn't use the client IP — it uses
   the persisted URL, which the guard now validates directly).
 - Per-user favorites count cap / mass-assignment tightening (separate audit P2).
+
+## Post-implementation review fixes
+- **Robots.txt redirect bypass (HIGH):** the first draft applied the `on_redirect` re-validation only to
+  the page fetch — but `isAllowedByRobotsTxt` issues its own `Http::get` for `/robots.txt` (the FIRST
+  outbound call) with no guard, so a robots.txt `302 → 169.254.169.254` bypassed the sandbox. Fixed by
+  extracting a shared `redirectOptions()` helper (kill-switch-aware, http(s)-only, `on_redirect`
+  re-validates each hop) and applying it to BOTH fetches. +3 redirect tests (page→metadata blocked,
+  robots→metadata blocked, same-host public→public allowed) — the negative ones are discriminating
+  (the metadata host is faked to return valid hours, so the test only passes if the redirect is blocked).
+
+## Tracked follow-ups (adversarial review, not blocking)
+- **DNS rebinding TOCTOU:** `isSafeUrl` resolves the host, then Guzzle re-resolves — a TTL=0 record can
+  flip public→private between the two lookups. Robust fix = pin the validated IP via Guzzle
+  `curl.options.resolve` (CURLOPT_RESOLVE). Sophisticated attack; deferred.
+- **IPv6 dual-stack bypass:** `gethostbynamel` is IPv4-only, so a host with a benign A record AND a
+  private AAAA record passes `isSafeUrl` while Guzzle may connect over IPv6. Fix = also resolve/validate
+  AAAA records (`dns_get_record`) and/or the IP-pinning above. Deferred.
+- **Socrata grade string in merged `description`** (medium, UI/SEO): carrying description across dedup
+  can surface a Socrata health-inspection grade as a venue's description. Minor; revisit with the
+  description-source-origin field if it shows up.

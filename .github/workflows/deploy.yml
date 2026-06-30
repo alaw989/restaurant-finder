@@ -171,13 +171,15 @@ jobs:
         # spec-077: snapshot the SQLite DB (VACUUM INTO, rotated) so a bad
         # migration is recoverable (data loss here = a multi-month rebuild gated
         # by the SerpApi quota), then enter maintenance so no request hits a
-        # half-migrated schema. `down` is fatal — if we can't enter maintenance,
-        # stop rather than migrate live. `db:backup` is non-fatal (safety net).
+        # half-migrated schema. Both are best-effort: if `down` can't write its
+        # file (perms), we still migrate (the prior behavior); `db:backup` is the
+        # safety net and never blocks. The matching `up` below unconditionally
+        # removes the down file, so a failed `down` can never wedge the site.
         run: |
           ssh -i ~/.ssh/deploy_key \
             ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
             "cd ${{ secrets.DEPLOY_PATH }} && \
-             php8.4 artisan down && \
+             (php8.4 artisan down || echo 'artisan down failed (non-fatal — migrating live)') && \
              (php8.4 artisan db:backup || echo 'db:backup failed (non-fatal)')"
 
       - name: Post-deploy (fix permissions, migrate, cache)
@@ -208,15 +210,17 @@ jobs:
              echo 'CRON INSTALLED:' && sudo cat /etc/cron.d/ipop360"
 
       - name: Bring site out of maintenance
-        # spec-077: always exit maintenance, even if migrate failed — a hard
+        # spec-077: ALWAYS exit maintenance, even if migrate failed — a hard
         # outage (stuck 503) is worse than serving the prior code while we
         # fix-forward (and the pre-migrate snapshot enables recovery). Can't SSH
-        # from a checkout, so we must not leave the site down on failure.
+        # from a checkout, so the down file must be removed no matter who owns it.
+        # Run `artisan up` as www-data (the storage owner after Post-deploy's
+        # chown); if that can't unlink the file, fall back to a root `rm`.
         if: always()
         run: |
           ssh -i ~/.ssh/deploy_key \
             ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
-            "cd ${{ secrets.DEPLOY_PATH }} && (php8.4 artisan up || true)"
+            "cd ${{ secrets.DEPLOY_PATH }} && (sudo -u www-data php8.4 artisan up 2>/dev/null || sudo rm -f storage/framework/down || true)"
 
       - name: Verify deployment
         run: |
