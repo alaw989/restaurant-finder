@@ -102,13 +102,45 @@ class CuisineMatcher
                 continue;
             }
             foreach ($kws as $kw) {
-                if (! isset($onSet[$kw])) {
-                    $rival[] = $kw;
+                if (isset($onSet[$kw])) {
+                    continue; // an on-cuisine keyword is never a rival
                 }
+
+                // spec-080: skip shared terms that are a proper substring of an
+                // on-cuisine keyword — curry⊂curry.goat, roti⊂roti.canai/
+                // sel.roti, pita⊂spanakopita, kaya⊂izakaya, milan⊂milanesa.
+                // Keeping them as rivals would false-drop legitimate on-cuisine
+                // venues (e.g. a Jamaican place described only as "Caribbean
+                // Curry"). Recall-protective: excluding a rival can only keep
+                // more venues, never drop more.
+                if ($this->isSubstringOfAnyOnKeyword($kw, $onKeywords)) {
+                    continue;
+                }
+
+                $rival[] = $kw;
             }
         }
 
         return array_values(array_unique($rival));
+    }
+
+    /**
+     * Is $needle a proper substring of any of the on-cuisine keywords? (Used to
+     * keep shared dish terms out of the rival set — spec-080.)
+     */
+    private function isSubstringOfAnyOnKeyword(string $needle, array $onKeywords): bool
+    {
+        if ($needle === '') {
+            return false;
+        }
+
+        foreach ($onKeywords as $onKw) {
+            if ($onKw !== $needle && str_contains((string) $onKw, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

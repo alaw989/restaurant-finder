@@ -139,6 +139,35 @@ class CuisineMatcherTest extends TestCase
         $this->assertContains('pizza', $scope->rivalKeywords);
     }
 
+    /**
+     * spec-080: a shared dish term claimed by one cuisine must NOT be a rival
+     * for another cuisine whose lexicon contains it as a substring of a longer
+     * on-cuisine keyword — otherwise a genuine on-cuisine venue described only
+     * by that shared term (e.g. a Jamaican place described "Caribbean Curry")
+     * is false-dropped. Drift guard mirroring the spa⊂spanish lesson.
+     */
+    public function test_rival_keywords_exclude_substrings_of_on_keywords(): void
+    {
+        $cases = [
+            ['jamaican', 'curry'],   // ⊂ curry.goat
+            ['malaysian', 'roti'],   // ⊂ roti.canai
+            ['nepalese', 'roti'],    // ⊂ sel.roti
+            ['greek', 'pita'],       // ⊂ spanakopita
+            ['japanese', 'kaya'],    // ⊂ izakaya
+            ['argentine', 'milan'],  // ⊂ milanesa
+        ];
+
+        foreach ($cases as [$searchSlug, $sharedTerm]) {
+            $scope = $this->matcher->resolveScope($searchSlug, null);
+
+            $this->assertNotContains(
+                $sharedTerm,
+                $scope->rivalKeywords,
+                "'{$sharedTerm}' must not rival a '{$searchSlug}' search (substring of an on-cuisine keyword)"
+            );
+        }
+    }
+
     public function test_humanize_handles_multiword_slugs(): void
     {
         $this->assertSame('South African', $this->matcher->humanize('south-african'));
