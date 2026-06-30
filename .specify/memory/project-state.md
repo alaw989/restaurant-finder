@@ -163,8 +163,16 @@ adversarial review that fixed 4 HIGHs (`cd0609c`). **344 tests green (+30), PHPS
 - **LESSON:** the binding constraint is **250/mo**, not 50 — the architecture's budget math was off 5× yet
   still burned hot, which is what surfaced the cache-key drift (072) + the read-path having no cap (073).
   → `[[serpapi-quota-is-250-not-50]]`.
-Status at this writing: **committed locally, NOT yet pushed** (pushing next; live-verify watches the
-SerpApi dashboard burn-rate drop). Source of truth: `specs/072-…079` + this file.
+Status: **PUSHED + GHA-green + live-verified (2026-06-30).** The ranking-correctness P2 cluster
+(**080–083**) then shipped on top (`16ce6cc`…`0bf7e1f` + review `c011d7f`, 353 tests green). Both waves
+verified live via the API + raw SSR HTML (browser MCPs unavailable this session — no X server / profile
+lock, the spec-071 fallback): Mobile/chinese → 13 all-Chinese rated results (080); Mobile live coords rows
+get a real Proximity signal 0.8026 not the neutral sentinel (082); SSR hero in initial HTML (063); pagination
+live (068); score_breakdown on every row (078). ~3 SerpApi calls burned (cache-cold Mobile queries), ~59 of
+250 remaining. Two non-blocking follow-ups surfaced: `distance` is `null` on live API results (pre-existing;
+live rows compute it internally for sort/score but the Resource only serializes a non-null model attribute),
+and JSON-LD is post-hydration only (`JsonLd.vue` client-side by design — server-rendering it is a P3 lever
+now that SSR is live). Detail: `history.md` (2026-06-30 entry). **Next: spec-064 (Vitest) — the only open spec.**
 
 **▶ UPDATE (2026-06-30) — spec-071 SHIPPED: cuisine-match scoring bonus.** A "brazilian
 food in Tampa" search ranked an açaí-bowl shop (#1) above genuine Brazilian steakhouses
