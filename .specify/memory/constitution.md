@@ -33,7 +33,7 @@
 - **Frontend:** Vue 3 (Composition API), TypeScript, Vite 8, Tailwind CSS 4, shadcn-vue 2, Leaflet 1.9
 - **Testing:** PHPUnit 12 (266 tests, 972 assertions)
 - **Infra:** DigitalOcean droplet, GitHub Actions CI/CD
-- **Free APIs:** BizData (bizdata-web.vercel.app), Overpass/OSM, Wikidata SPARQL, Nominatim, Photon, SerpApi google_maps (~50/mo free — the ONLY rating source)
+- **Free APIs:** BizData (bizdata-web.vercel.app), Overpass/OSM, Wikidata SPARQL, Nominatim, Photon, SerpApi google_maps (~250/mo on the current plan — the ONLY rating source; was long mis-assumed as ~50)
 - **Removed paid APIs (do NOT re-add — see `memory/paid-ratings-no-free-lunch.md`):** Foursquare Places (rating fields are premium-tier, $18.75/1k from call 1), Google Places (~$32/1k Nearby), Outscraper. Their service classes + read-path/enrichment wiring were deleted (spec-066 revert + cleanup). Ratings are a walled garden — SerpApi's 50/mo is the only free source.
 
 ---

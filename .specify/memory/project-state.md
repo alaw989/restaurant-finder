@@ -137,6 +137,35 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
+**▶ UPDATE (2026-06-30) — full-app AUDIT shipped as specs 072–079 (8 specs).** An 8-dimension audit
+(49 confirmed findings: 7 P1, 23 P2, 19 P3) + a live SerpApi email (**188/250 used mid-cycle; quota is
+250/mo, not the long-assumed 50**) drove an 8-spec P1 batch (`292e3e6`…`d1dfbd1`) + a 5-dimension
+adversarial review that fixed 4 HIGHs (`cd0609c`). **344 tests green (+30), PHPStan 0, Pint clean.**
+- **Quota-integrity wave (the urgent fix):** **072** unify SerpApi cache keys (enrichment skip-check/store
+  diverged → re-fetch leak + never pre-warmed reads; now all via `cacheKeyFor`); **073** read-path quota
+  guard (`cacheKeyFor` rounds lat/lng ~3dp in the key; monthly circuit breaker at 0.8·free_quota →
+  cache-only; per-IP hourly limiter; `free_quota` 50→250; kill-switch `SERPAPI_READ_PATH_GUARD`);
+  **074** thundering-herd `Cache::lock` scoped to a SerpApi-only fetch+store (review-fixed — was spanning
+  the slow Overpass leg).
+- **Security wave:** **075** SSRF sandbox for the website scraper (`isSafeUrl` + shared `redirectOptions()`
+  on BOTH robots.txt + page fetch; kill-switch `WEBSITE_SCRAPER_SSRF_GUARD`); **076** Pulse gate →
+  `PULSE_ADMIN_EMAILS` allow-list.
+- **Data-integrity wave:** **077** pre-migration `db:backup` (`VACUUM INTO`+rotation) + `artisan down/up`
+  maintenance window (`up` always succeeds — can't wedge the site) + `busy_timeout` 5s; **078** fix the
+  O(n²) `RestaurantResource` score-breakdown fallback (aggregates once via `withAggregates`); **079**
+  carry `place_types`+`description` through `VenuePipeline::mergeVenues` (fixes spec-071's stamp being
+  zeroed on cross-source merges).
+- **Tracked follow-ups (not blocking):** SSRF DNS-rebinding + IPv6 dual-stack (need CURLOPT_RESOLVE IP
+  pinning); favorites per-user cap/pagination; Socrata grade-string in merged description; circuit-breaker
+  counting expired rows; `stats()` query cost on the miss path. **The P2/P3 backlog stands** (ranking-
+  correctness cluster: cross-cuisine substring collisions, null-island coords, no-coords renormalization;
+  frontend a11y/races; ~1500-LOC dead-code; **spec-064 Vitest** remains the only pre-existing open spec).
+- **LESSON:** the binding constraint is **250/mo**, not 50 — the architecture's budget math was off 5× yet
+  still burned hot, which is what surfaced the cache-key drift (072) + the read-path having no cap (073).
+  → `[[serpapi-quota-is-250-not-50]]`.
+Status at this writing: **committed locally, NOT yet pushed** (pushing next; live-verify watches the
+SerpApi dashboard burn-rate drop). Source of truth: `specs/072-…079` + this file.
+
 **▶ UPDATE (2026-06-30) — spec-071 SHIPPED: cuisine-match scoring bonus.** A "brazilian
 food in Tampa" search ranked an açaí-bowl shop (#1) above genuine Brazilian steakhouses
 because proximity dominated when all venues rated 4.4–4.8. New recall-safe `cuisine_match`
