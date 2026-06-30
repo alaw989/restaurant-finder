@@ -137,6 +137,18 @@ To verify local ranking quality after setup: `php artisan search:audit nyc`.
 
 ## What's next (queued specs — as of 2026-06-27)
 
+**▶ UPDATE (2026-06-30) — spec-071 SHIPPED: cuisine-match scoring bonus.** A "brazilian
+food in Tampa" search ranked an açaí-bowl shop (#1) above genuine Brazilian steakhouses
+because proximity dominated when all venues rated 4.4–4.8. New recall-safe `cuisine_match`
+scoring signal: `LiveSearchService::stampCuisineMatchStrength` stamps 1.0/0.5/0.0 (name /
+type+desc / no-match) on scoped searches; `PopularityScoreService` adds the signal (0.15,
+`passthrough`). **Load-bearing:** the scorer renormalizes over each row's active set, so
+the signal MUST stay active at `0.0` for no-match rows (else proximity re-inflates) —
+encoded as `0.0` (scoped, active) vs `null` (unscoped, inactive). Kill-switch
+`RANK_CUISINE_MATCH`. Live path only (DB path untouched). 314 tests, deployed green
+(476ca34), live-verified: Terra Gaucha now #1, bowl shops demoted; unscoped unchanged.
+Lesson → [[scoring-signal-must-stay-active-at-zero]]. Detail: `history/2026-06-30--spec-071-cuisine-match.md`.
+
 **▶ Resume point (2026-06-29) — Coverage & Quality plan: 4 of 5 specs SHIPPED, 066 REVERTED.**
 Plan: `~/.claude/plans/analyze-this-site-and-modular-kettle.md`. Shipped + deployed green + live-verified:
 - **067** = OSM tag broadening (`amenity` regex union `restaurant|fast_food|cafe|bar|pub|biergarten|
