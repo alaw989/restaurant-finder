@@ -34,6 +34,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Dashboard Admin Emails (spec-076)
+    |--------------------------------------------------------------------------
+    |
+    | Comma-separated allow-list of emails permitted to view the /pulse
+    | dashboard in production. Empty → no one (the dashboard is effectively
+    | private except in local env). Registration is open, so the gate must NOT
+    | accept "any authenticated user" — Pulse exposes slow SQL (schema/column
+    | names), exception stack traces, server load, and outgoing SerpApi/Overpass
+    | call frequency (operational intel on the quota-binding resource).
+    |
+    */
+    'admin_emails' => env('PULSE_ADMIN_EMAILS', ''),
+
+    /*
+    |--------------------------------------------------------------------------
     | Pulse Master Switch
     |--------------------------------------------------------------------------
     |
