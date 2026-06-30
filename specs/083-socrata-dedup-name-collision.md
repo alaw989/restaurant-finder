@@ -36,3 +36,10 @@ duplicates, so no previously-kept row is dropped.
 - Keying on the dataset's own business ID (camis/permit_id) — the column name varies per dataset and
   isn't currently captured in `normalizeRow`; name+coords is a robust identity without schema assumptions.
 - Broader Socrata coverage (it had no test file; this adds the first 3 — more cases can follow).
+
+## Post-implementation review fixes
+- **No-coords rows key on name (low):** the first draft kept every no-coords row unconditionally, which
+  could surface N near-duplicate rows for ONE unlocated business. Fixed: unlocated rows key on name
+  alone (collapse same-name — they're the same business when location is unknown; distinct names kept).
+- **`(0,0)` consistency (low):** the `(0,0)` null-island predicate is now treated as "no usable coords"
+  (name-keyed), matching filterByDistance / spec-081 / spec-082, instead of bucketing at `:0.0000,0.0000`.

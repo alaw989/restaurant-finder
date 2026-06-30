@@ -61,6 +61,32 @@ class SocrataOpenDataServiceTest extends TestCase
             ['name' => 'Mystery B', 'lat' => null, 'lng' => null, 'distance' => null],
         ];
 
-        $this->assertCount(2, $this->dedup($results), 'no-coords rows are kept individually');
+        $this->assertCount(2, $this->dedup($results), 'distinct-named no-coords rows are kept individually');
+    }
+
+    public function test_same_name_no_coords_rows_collapse(): void
+    {
+        // spec-083 (review fix): unlocated rows have only their name as identity —
+        // same-named unlocated rows are the same business → collapse (inspection
+        // records), distinct names kept.
+        $results = [
+            ['name' => 'Mystery Diner', 'lat' => null, 'lng' => null, 'distance' => null],
+            ['name' => 'Mystery Diner', 'lat' => null, 'lng' => null, 'distance' => null],
+        ];
+
+        $this->assertCount(1, $this->dedup($results), 'same-named unlocated rows collapse to one');
+    }
+
+    public function test_null_island_rows_keyed_by_name(): void
+    {
+        // spec-083 (review fix): (0,0) null-island rows are "no usable coords" —
+        // keyed by name (collapse same-name), not at ':0.0000,0.0000'.
+        $results = [
+            ['name' => 'Null Place', 'lat' => 0.0, 'lng' => 0.0, 'distance' => 5432.1],
+            ['name' => 'Null Place', 'lat' => 0.0, 'lng' => 0.0, 'distance' => 5432.1],
+            ['name' => 'Other', 'lat' => 0.0, 'lng' => 0.0, 'distance' => 5432.1],
+        ];
+
+        $this->assertCount(2, $this->dedup($results), 'same-named (0,0) rows collapse; distinct name kept');
     }
 }

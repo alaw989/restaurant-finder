@@ -504,16 +504,19 @@ class SocrataOpenDataService
         foreach ($results as $r) {
             $lat = $r['lat'] ?? null;
             $lng = $r['lng'] ?? null;
+            $noUsableCoords = $lat === null || $lng === null
+                || ((float) $lat === 0.0 && (float) $lng === 0.0);
 
-            // No usable coords → keep without deduping (can't build a true
-            // identity key; the old code conflated 'no coords' with '0.0km').
-            if ($lat === null || $lng === null) {
-                $deduped[] = $r;
-
-                continue;
+            // No usable coords → name is the only identity signal. Collapse
+            // same-named unlocated rows (they're the same business when location
+            // is unknown), distinct names kept. Consistent with the null-island
+            // predicate used by filterByDistance / spec-081 / spec-082 (review fix).
+            if ($noUsableCoords) {
+                $key = strtolower((string) $r['name']);
+            } else {
+                $key = strtolower((string) $r['name']).':'.round((float) $lat, 4).','.round((float) $lng, 4);
             }
 
-            $key = strtolower((string) $r['name']).':'.round((float) $lat, 4).','.round((float) $lng, 4);
             if (! isset($seen[$key])) {
                 $seen[$key] = true;
                 $deduped[] = $r;

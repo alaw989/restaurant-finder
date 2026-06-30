@@ -155,6 +155,11 @@ class CuisineMatcherTest extends TestCase
             ['greek', 'pita'],       // ⊂ spanakopita
             ['japanese', 'kaya'],    // ⊂ izakaya
             ['argentine', 'milan'],  // ⊂ milanesa
+            // Documented trade-off (review): pho (vietnamese) ⊂ pholourie (trinidadian).
+            // Excluding pho from rivals is recall-protective for Vietnamese pho places
+            // on other-cuisine searches, at a small precision cost on trinidadian
+            // searches. Kept intentional; suppress via an explicit allowlist if undesired.
+            ['trinidadian', 'pho'],
         ];
 
         foreach ($cases as [$searchSlug, $sharedTerm]) {

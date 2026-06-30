@@ -42,3 +42,13 @@ location" (→ neutral is right) from a synthetic no-data row (→ should stay 0
   rare there + the path is rarely hit (live-first). Noted.
 - Strict alternative (drop no-coords from the scored set, surface a "N venues without confirmed
   location" note) — more invasive UX; the neutral-proximity policy keeps recall + comparable scoring.
+
+## Post-implementation review fixes
+- **`(0,0)` sentinel bypass (medium):** the first draft only stamped the sentinel when `distance` was
+  unset — but SerpApi/Socrata pre-set a huge haversine-to-null-island distance for `(0,0)` rows (lat/lng
+  non-null), so the sentinel never fired and they scored proximity ≈ 0 "far". Fixed: force the sentinel
+  whenever `noUsableCoords` is true, overriding any preset distance. Now consistent with spec-081.
+- **`?sort=nearest` (intended, no change):** no-coords rows sink to the bottom of a nearest sort via
+  NULLS-LAST, ordered by score among themselves; `nearest` is distance-based by definition, so sinking
+  unknown-distance rows is correct. The 082 score boost helps in `best_match` (default); in `nearest`,
+  distance rules.

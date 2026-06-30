@@ -460,15 +460,20 @@ class LiveSearchService
                 || ((float) $lat === 0.0 && (float) $lng === 0.0);
             $stampedNeutral = false;
 
-            if (! isset($r['distance'])) {
-                if ($noUsableCoords
-                    && config('restaurant-finder.ranking.no_coords_neutral_proximity', true)
-                ) {
-                    $r['distance'] = (float) config('restaurant-finder.ranking.proximity_scale_km', 2.0);
-                    $stampedNeutral = true;
-                } elseif (! $noUsableCoords) {
-                    $r['distance'] = $this->venuePipeline->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng);
-                }
+            // spec-082 (review fix): force the neutral sentinel whenever the row
+            // has no usable coords — even if a source pre-set a (huge, misleading)
+            // haversine-to-null-island distance for a (0,0) row (SerpApi/Socrata
+            // compute one whenever lat/lng are non-null, and 0.0 is non-null).
+            // Otherwise the (0,0) subset scores proximity ≈ 0 "far" instead of the
+            // intended neutral ~0.5 — inconsistent with spec-081 (which excludes
+            // (0,0) from the quality mean).
+            if ($noUsableCoords
+                && config('restaurant-finder.ranking.no_coords_neutral_proximity', true)
+            ) {
+                $r['distance'] = (float) config('restaurant-finder.ranking.proximity_scale_km', 2.0);
+                $stampedNeutral = true;
+            } elseif (! $noUsableCoords && ! isset($r['distance'])) {
+                $r['distance'] = $this->venuePipeline->haversineKm($searchLat, $searchLng, (float) $lat, (float) $lng);
             }
 
             $breakdown = $this->scoreService->calculateBreakdownWithAggregates($r, $aggregates);

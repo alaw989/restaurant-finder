@@ -145,6 +145,31 @@ class LiveSearchScoringTest extends TestCase
         $this->assertArrayNotHasKey('distance', $mystery, 'neutral sentinel not surfaced as a fake distance');
     }
 
+    /**
+     * spec-082 (review fix): a (0,0) null-island row that arrives with a
+     * pre-set huge haversine distance must STILL get neutral proximity (the
+     * sentinel overrides the preset), and the preset must not be surfaced.
+     */
+    public function test_null_island_row_with_preset_distance_gets_neutral_proximity(): void
+    {
+        $method = new \ReflectionMethod(LiveSearchService::class, 'scoreWithUnifiedService');
+        $method->setAccessible(true);
+
+        $results = [
+            ['name' => 'Geo', 'google_rating' => 4.0, 'google_review_count' => 500, 'lat' => 40.0, 'lng' => -74.0],
+            ['name' => 'Phantom', 'google_rating' => 4.0, 'google_review_count' => 500, 'lat' => 0.0, 'lng' => 0.0, 'distance' => 5432.1],
+        ];
+
+        $scored = $method->invoke($this->liveSearchService, $results, 40.0, -74.0);
+
+        $phantom = collect($scored)->first(fn ($r) => $r['name'] === 'Phantom');
+        $proximity = collect($phantom['score_breakdown']['signals'])->first(fn ($s) => $s['label'] === 'Proximity');
+
+        $this->assertNotNull($proximity);
+        $this->assertEqualsWithDelta(0.5, $proximity['normalized'], 0.01, 'neutral, not "far" from the 5432km preset');
+        $this->assertArrayNotHasKey('distance', $phantom, 'preset 5432.1 not surfaced');
+    }
+
     public function test_live_and_db_breakdowns_share_labels(): void
     {
         // Live result array
