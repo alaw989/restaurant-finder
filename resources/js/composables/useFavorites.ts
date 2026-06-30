@@ -87,6 +87,10 @@ export function useFavorites() {
             // Authed: server-side toggle with optimistic update
             const wasFavorited = serverFavoriteIds.value.includes(restaurant.id);
 
+            // Snapshot BEFORE the optimistic write — onError/catch must restore
+            // THIS, not the (already-mutated) computed, or the rollback is a no-op.
+            const previousFavorites = [...serverFavoriteIds.value];
+
             // Optimistic update
             const newFavorites = wasFavorited
                 ? serverFavoriteIds.value.filter((id) => id !== restaurant.id)
@@ -109,7 +113,7 @@ export function useFavorites() {
                         onError: () => {
                             // Rollback on error
                             if ((page.props as PageProps).auth) {
-                                (page.props as PageProps).auth!.favorites = serverFavoriteIds.value;
+                                (page.props as PageProps).auth!.favorites = previousFavorites;
                             }
                         },
                     }
@@ -117,7 +121,7 @@ export function useFavorites() {
             } catch (error) {
                 // Rollback on network error
                 if ((page.props as PageProps).auth) {
-                    (page.props as PageProps).auth!.favorites = serverFavoriteIds.value;
+                    (page.props as PageProps).auth!.favorites = previousFavorites;
                 }
                 throw error;
             }

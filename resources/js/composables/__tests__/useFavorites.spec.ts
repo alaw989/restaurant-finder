@@ -67,6 +67,9 @@ beforeEach(() => {
         },
     });
     inertia.post.mockReset();
+    // Faithful default: real Inertia router.post returns a resolved Promise on
+    // success (individual tests override to drive onError / rejection).
+    inertia.post.mockResolvedValue(undefined);
 });
 
 describe('useFavorites — guest (localStorage) path', () => {
@@ -162,5 +165,31 @@ describe('useFavorites — authed (server) path', () => {
 
         expect(isFavorited(venue)).toBe(false);
         expect(inertia.page.props.auth?.favorites).toEqual([]);
+    });
+
+    it('rolls back the optimistic add when the server fires onError (4xx)', async () => {
+        // Faithful Inertia: the Promise resolves, but onError is invoked on a
+        // validation/server error. Without the pre-mutation snapshot this
+        // rollback was a no-op (the computed had already re-evaluated).
+        inertia.post.mockImplementation((_url, _body, opts: { onError?: (e: unknown) => void }) => {
+            opts?.onError?.({ id: ['invalid'] });
+            return Promise.resolve();
+        });
+
+        const { toggle, isFavorited } = useFavorites();
+        await toggle(makeVenue({ id: 6 }));
+
+        expect(isFavorited(makeVenue({ id: 6 }))).toBe(false);
+        expect(inertia.page.props.auth?.favorites).toEqual([5]);
+    });
+
+    it('rolls back and rethrows when the network call rejects', async () => {
+        inertia.post.mockRejectedValue(new Error('Network error'));
+
+        const { toggle, isFavorited } = useFavorites();
+        await expect(toggle(makeVenue({ id: 6 }))).rejects.toThrow('Network error');
+
+        expect(isFavorited(makeVenue({ id: 6 }))).toBe(false);
+        expect(inertia.page.props.auth?.favorites).toEqual([5]);
     });
 });
