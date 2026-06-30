@@ -1,50 +1,30 @@
 <script setup lang="ts">
 /**
- * The iPop360 brand mark + wordmark, as an inline vector.
+ * The iPop360 logo — the original brand PNG (orbit ring + "ipop360" wordmark).
  *
- * - Mark: three interlocking arc-circles (brand blue/orange/purple) — the "360"
- *   orbit motif, matching `public/favicon.svg`. Fixed brand colours → legible on
- *   both light and dark backgrounds.
- * - Wordmark: lowercase "ipop360" in the app font (matches the source logo
- *   asset). `text-foreground` so it adapts to the theme.
+ * Restored from the original raster asset (spec-039 had rebuilt it as an inline
+ * SVG, which flattened the smooth gradient ring into three choppy dashed arcs
+ * and swapped the real wordmark for a CSS approximation). Rendered theme-aware
+ * via <picture>: the canonical asset in light mode, and a variant with the
+ * wordmark recolored white in dark mode — the colourful ring reads on any
+ * background, so only the dark-navy wordmark needed inverting. Both assets are
+ * downscaled to a retina-safe 480px tall.
  *
- * Scales as a unit via the inherited font-size: set a font-size on the element
- * (e.g. `class="text-2xl"`) and both the mark (`h-[1em]`) and the wordmark scale
- * together. `stacked` renders the mark over the wordmark (the hero lockup);
- * default is the horizontal mark+wordmark used in the nav/compact bar.
- * `:wordmark="false"` for mark-only.
+ * The asset is a vertical (mark-over-wordmark) lockup, so it scales as a unit
+ * with height tracking 1em: set a font-size on the element (e.g.
+ * class="text-2xl") to size it. (The legacy `wordmark`/`stacked` props are gone
+ * — the PNG is one fixed image; the horizontal nav lockup is now this mark.)
  */
-withDefaults(defineProps<{ wordmark?: boolean; stacked?: boolean }>(), {
-    wordmark: true,
-    stacked: false,
-})
 </script>
 
 <template>
-    <span
-        :class="[
-            'inline-flex leading-none',
-            stacked ? 'flex-col items-center gap-[0.14em]' : 'items-center gap-[0.3em]',
-        ]"
-    >
-        <svg
-            viewBox="0 0 44 44"
-            class="h-[1em] w-auto"
-            :role="wordmark ? undefined : 'img'"
-            :aria-label="wordmark ? undefined : 'iPop360'"
-            :aria-hidden="wordmark ? 'true' : undefined"
-            fill="none"
-            stroke-width="6"
-            stroke-linecap="round"
-        >
-            <circle cx="22" cy="22" r="16" stroke="#2a7fff" stroke-dasharray="66 34" transform="rotate(-60 22 22)" />
-            <circle cx="22" cy="22" r="16" stroke="#ff6b35" stroke-dasharray="66 34" transform="rotate(60 22 22)" />
-            <circle cx="22" cy="22" r="16" stroke="#8a2be2" stroke-dasharray="66 34" transform="rotate(180 22 22)" />
-        </svg>
-        <span
-            v-if="wordmark"
-            class="font-semibold tracking-tight text-foreground"
-            :style="{ fontSize: stacked ? '0.42em' : '0.82em' }"
-        >ipop360</span>
-    </span>
+    <picture class="inline-flex shrink-0">
+        <source srcset="/img/ipop360-logo-dark.png" media="(prefers-color-scheme: dark)" />
+        <img
+            src="/img/ipop360-logo.png"
+            alt="iPop360"
+            class="h-[1em] w-auto select-none"
+            draggable="false"
+        />
+    </picture>
 </template>
