@@ -35,8 +35,9 @@ Route::middleware('auth')->group(function () {
 
     // Favorites
     Route::get('/favorites', [FavoriteController::class, 'index'])->name('favorites.index');
-    Route::post('/favorites/toggle', [FavoriteController::class, 'toggle'])->name('favorites.toggle');
-    Route::post('/favorites/merge', [FavoriteController::class, 'merge'])->name('favorites.merge');
+    // spec-088: throttle the write endpoints (DoS + corpus-poisoning guard).
+    Route::post('/favorites/toggle', [FavoriteController::class, 'toggle'])->middleware('throttle:30,1')->name('favorites.toggle');
+    Route::post('/favorites/merge', [FavoriteController::class, 'merge'])->middleware('throttle:10,1')->name('favorites.merge');
 });
 
 require __DIR__.'/auth.php';

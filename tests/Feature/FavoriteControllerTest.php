@@ -541,4 +541,113 @@ class FavoriteControllerTest extends TestCase
         // And nothing was attached as a favorite.
         $this->assertCount(0, $user->refresh()->favorites);
     }
+
+    // ---------------------------------------------------------------------
+    // spec-088: a client-favorited restaurant must NOT enter the public
+    // discovery corpus. ensurePersisted() quarantines CLIENT-CREATED rows
+    // (is_active=false) so scopeActive excludes them from /restaurants +
+    // /api/restaurants — an authenticated user can no longer inject
+    // attacker-named/website'd rows into the public ranking. A pre-existing
+    // (active) row is unchanged. Plus a create kill-switch + a merge cap.
+    // ---------------------------------------------------------------------
+
+    public function test_client_favorited_venue_is_quarantined_out_of_public_corpus(): void
+    {
+        $user = User::factory()->create();
+
+        // A client payload (the live-result / attacker shape), favorited via toggle.
+        $response = $this
+            ->actingAs($user)
+            ->postJson('/favorites/toggle', [
+                'restaurant' => [
+                    'name' => 'Spam Venue',
+                    'slug' => 'spam-venue',
+                    'website_url' => 'https://spam.example',
+                    'address' => '123 Anywhere St',
+                    'city' => 'Austin',
+                    'state' => 'TX',
+                    'lat' => 30.2672,
+                    'lng' => -97.7431,
+                ],
+            ]);
+
+        $response->assertStatus(200)->assertJson(['favorited' => true]);
+
+        $venue = Restaurant::where('slug', 'spam-venue')->first();
+        $this->assertNotNull($venue, 'venue was persisted');
+        $this->assertFalse((bool) $venue->is_active, 'client-created venue is quarantined (is_active=false)');
+        $this->assertTrue($user->favorites()->where('restaurant_id', $venue->id)->exists(), 'still favorited by the user');
+
+        // It must NOT appear in the public discovery corpus — scopeActive (used
+        // by /restaurants + /api/restaurants) excludes is_active=false rows.
+        $this->assertFalse(
+            Restaurant::active()->where('slug', 'spam-venue')->exists(),
+            'quarantined venue is excluded from the public corpus'
+        );
+    }
+
+    public function test_existing_active_restaurant_favorited_stays_active(): void
+    {
+        // Sanity: favoriting an ALREADY-active (enriched/seeded) restaurant does
+        // not flip it inactive — the quarantine applies only to CLIENT-CREATED
+        // rows (no existing id), not pre-existing ones.
+        $user = User::factory()->create();
+        $restaurant = Restaurant::factory()->create(['is_active' => true]);
+
+        $response = $this
+            ->actingAs($user)
+            ->postJson('/favorites/toggle', [
+                'restaurant' => ['name' => $restaurant->name, 'slug' => $restaurant->slug],
+                'id' => $restaurant->id,
+            ]);
+
+        $response->assertStatus(200)->assertJson(['favorited' => true]);
+        $this->assertTrue((bool) $restaurant->fresh()->is_active, 'pre-existing active row stays active');
+        $this->assertTrue(Restaurant::active()->where('slug', $restaurant->slug)->exists());
+    }
+
+    public function test_toggle_kill_switch_off_does_not_create_restaurant(): void
+    {
+        $user = User::factory()->create();
+
+        // Extra-paranoia kill-switch: with client-driven creation disabled,
+        // favoriting an unknown venue is a graceful no-op (spec-088).
+        config()->set('restaurant-finder.favorites.allow_user_create_restaurants', false);
+        try {
+            $response = $this
+                ->actingAs($user)
+                ->postJson('/favorites/toggle', [
+                    'restaurant' => [
+                        'name' => 'Blocked Venue',
+                        'slug' => 'blocked-venue',
+                    ],
+                ]);
+
+            $response->assertStatus(200)->assertJson(['favorited' => false, 'persisted' => false]);
+            $this->assertEquals(0, Restaurant::where('slug', 'blocked-venue')->count(), 'no row created');
+            $this->assertCount(0, $user->refresh()->favorites, 'nothing favorited');
+        } finally {
+            config()->set('restaurant-finder.favorites.allow_user_create_restaurants', true);
+        }
+    }
+
+    public function test_merge_rejects_more_than_fifty_venues(): void
+    {
+        $user = User::factory()->create();
+        $venues = [];
+        for ($i = 0; $i < 51; $i++) {
+            $venues[] = ['name' => "Venue {$i}", 'slug' => "merge-cap-venue-{$i}"];
+        }
+
+        $response = $this
+            ->actingAs($user)
+            ->postJson('/favorites/merge', ['ids' => [], 'venues' => $venues]);
+
+        // The cap rejects the over-limit payload — validation fails BEFORE the
+        // controller runs, so the response is a non-200 rejection (this app
+        // renders JSON validation errors as a 302 redirect) and NOTHING is
+        // persisted. That closes the unbounded-merge DoS / poisoning vector.
+        $this->assertNotEquals(200, $response->status(), 'over-cap merge is rejected (not 200 OK)');
+        $this->assertEquals(0, Restaurant::where('slug', 'LIKE', 'merge-cap-venue-%')->count(), 'no cap-test venues persisted');
+    }
 }

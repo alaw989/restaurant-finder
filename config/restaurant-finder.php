@@ -399,4 +399,27 @@ return [
         'ssrf_guard' => filter_var(env('WEBSITE_SCRAPER_SSRF_GUARD', true), FILTER_VALIDATE_BOOL),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Favorites write path (spec-088)
+    |--------------------------------------------------------------------------
+    | A client-favorited restaurant is persisted from the request payload. To
+    | stop an authenticated user poisoning the public discovery corpus, a
+    | CLIENT-created row is quarantined (is_active=false) so scopeActive excludes
+    | it from /restaurants + /api/restaurants until an enrichment path vets it.
+    |
+    | allow_user_create_restaurants: when false, favoriting an unknown venue is a
+    |   graceful no-op (no row created; the favorite isn't saved server-side) —
+    |   an extra-paranoia kill-switch. Default true preserves the favorites UX
+    |   (the row is created but quarantined, so the favorite still works).
+    | index_cap: bounds the /favorites index query (memory-DoS guard for power
+    |   users). Full pagination (paginator + frontend load-more) is a follow-up.
+    */
+    'favorites' => [
+        'allow_user_create_restaurants' => filter_var(
+            env('FAVORITES_ALLOW_USER_CREATE_RESTAURANTS', true), FILTER_VALIDATE_BOOL
+        ),
+        'index_cap' => (int) env('FAVORITES_INDEX_CAP', 200),
+    ],
+
 ];
