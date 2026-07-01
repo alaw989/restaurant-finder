@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-30
 
-**Status**: PROPOSED (P2 that compounds with the spec-088 P1 — fresh full-app audit 2026-06-30 cycle 2)
+**Status**: SHIPPED (2026-06-30, `85dc9df`) — P1 wave 2 of 3. `verified`-gate deferred (needs SMTP). See *Shipped & deferred* at the end.
 
 **Series**: Fresh-audit security wave (088 → 089 — ship together).
 
@@ -34,3 +34,8 @@
 
 ## Quota / deploy
 No SerpApi quota impact. Before enabling `require_verified_for_favorites` in prod, confirm the droplet's mail driver works (default off → safe). Verify live: registration still succeeds; (if enabled) an unverified session is blocked from favorites.
+
+## Shipped & deferred (2026-06-30, `85dc9df`)
+**Shipped:** `throttle:5,1` on `POST /register` (bounds Sybil registration — the favorites-write on-ramp); `User` now `implements MustVerifyEmail` (the Breeze default that was commented out) — the `Registered` event auto-fires `Illuminate\Auth\Notifications\VerifyEmail`, activating the verification infrastructure (verify-email routes, the signed link, the existing `verified` gate on `/dashboard`). 1 new test (registration fires `VerifyEmail` via `Notification::fake`); 364 backend tests (+1), PHPStan 0, Pint clean.
+
+**Deferred — the favorites `verified`-gate** (`require_verified_for_favorites`): the mailer is `log` (prod) / `array` (tests), so no real user can actually verify (no SMTP). A `verified`-gate on favorites would therefore block favorites for **everyone** — a footgun. It's deferred to when SMTP is configured; at that point uncommenting the gate is a one-line route change. `MustVerifyEmail` alone is safe: mail→log (one log line per registration, no errors), factory users stay verified by default, and registration still redirects to `/dashboard` (the `RegisteredUserController` flow is unchanged). 088's quarantine already neutralized the corpus-poisoning the gate was meant to additionally bound.
