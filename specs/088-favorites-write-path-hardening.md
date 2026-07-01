@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-30
 
-**Status**: PROPOSED (P1 — fresh full-app audit 2026-06-30 cycle 2, security/data-integrity)
+**Status**: SHIPPED (2026-06-30, `220eae3`) — P1 wave 1 of 3. See *Shipped & deferred* at the end.
 
 **Series**: Fresh-audit P1 wave (088 → 089 → 090).
 
@@ -48,3 +48,11 @@ CI is blind: every `FavoriteControllerTest` uses `Restaurant::factory()` (benign
 
 ## Quota / deploy
 No live-path ranking-recall change (client rows were never intended to be public). No SerpApi quota impact. Standard deploy; verify live that a favorited live venue no longer appears in `/restaurants` and that favoriting a live venue still returns 200.
+
+## Shipped & deferred (2026-06-30, `220eae3`)
+**Shipped** (all of the core P1): `is_active=false` quarantine on client-created restaurants (so `scopeActive` excludes them from `/restaurants` + `/api/restaurants`); tightened client-payload validation (length caps, lat/lng range, array caps — rating/score/is_active never accepted); `merge` venues `max:50` + `ids max:200`; throttle `30,1` toggle / `10,1` merge; `index()` query cap (`favorites.index_cap`, default 200); TOCTOU catch-retry on the unique slug/google_place_id; kill-switch `favorites.allow_user_create_restaurants` (default true). 4 new tests (363 backend, PHPStan 0, Pint clean).
+
+**Deferred to P3 follow-ups** (out of scope — would break favorites UX without a larger change):
+- **`show/{slug}` IDOR gate** (`abort_unless($r->is_active, 404)`): `RestaurantCard.vue:34-42` links persisted favorites (`id > 0`) to the `show` route, so 404-ing `is_active=false` rows would break favorited-venue detail pages. Needs a `source`/`is_user_created` column + frontend-routing change so favorited rows render while quarantined rows still 404 for the public. The quarantine already fully closes the public-corpus vector; the residual is slug-guessing a row you yourself created (low harm, bounded by the new throttle).
+- **`index()` full pagination** (paginator + frontend load-more): the cap bounds the memory-DoS for now; true pagination needs Favorites/Index + RestaurantCard wiring.
+- **JSON validation responses render as 302** (app-wide Inertia exception handling, pre-existing): the cap rejects the over-cap payload (no persistence) but responds 302 not 422. Worth a separate cleanup if a JSON client needs structured 422s.

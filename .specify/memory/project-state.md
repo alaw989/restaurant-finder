@@ -192,6 +192,7 @@ dims, each **seeded with cycle-1's known findings so it went net-new**; every fi
 shipped 001–086 + the rejected/tracked lists; **both P1s self-verified by reading the code** rather than
 trusting one agent) produced **~43 confirmed findings (3 P1 / ~16 P2 / ~24 P3).** Plan:
 `~/.claude/plans/lets-audit-the-application-soft-kay.md`.
+- **▶▶ 088 SHIPPED (2026-06-30, `220eae3`; pending push + GHA + live-verify).** Client-favorited restaurants are now quarantined (`is_active=false` → `scopeActive` excludes them from `/restaurants` + `/api/restaurants`); client payload tightened (length/range/array caps, rating/score never accepted); `merge` venues `max:50`; throttle `30,1` toggle / `10,1` merge; `index` cap (200); TOCTOU catch-retry on the unique slug/google_place_id; kill-switch `favorites.allow_user_create_restaurants` (default true). 4 new tests (363 backend, PHPStan 0, Pint clean). The `show`-gate + full `index` pagination **deferred** (would break favorited-venue detail pages — `RestaurantCard.vue:34-42` links persisted favorites to the `show` route; needs a source-column/FE change). The quarantine already fully closes the public-corpus vector.
 - **P1 wave (do first):** **088** favorites write-path **poisons the ranking corpus** —
   `FavoriteController::ensurePersisted()` does `Restaurant::create($attributes)` from the request payload with
   `is_active` defaulting `true` → any authed user injects attacker-named/coordinated/website'd rows into
