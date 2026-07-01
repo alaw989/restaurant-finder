@@ -186,6 +186,45 @@ value → failed toggles left stale favorites; fixed by snapshotting pre-mutatio
 `openWebsite` mangles non-http schemes (`ftp://`), and `useSeo` canonical keeps URL fragments. Detail:
 `history.md` / `specs/064`.
 
+**▶ UPDATE (2026-06-30) — FRESH FULL-APP AUDIT (cycle 2) → specs 088–103 PROPOSED (queue refilled).** With
+085/086 shipped and 087 the only open spec, a second 8-dimension read-only audit (6 finder agents across 8
+dims, each **seeded with cycle-1's known findings so it went net-new**; every finding skeptic-verified vs
+shipped 001–086 + the rejected/tracked lists; **both P1s self-verified by reading the code** rather than
+trusting one agent) produced **~43 confirmed findings (3 P1 / ~16 P2 / ~24 P3).** Plan:
+`~/.claude/plans/lets-audit-the-application-soft-kay.md`.
+- **P1 wave (do first):** **088** favorites write-path **poisons the ranking corpus** —
+  `FavoriteController::ensurePersisted()` does `Restaurant::create($attributes)` from the request payload with
+  `is_active` defaulting `true` → any authed user injects attacker-named/coordinated/website'd rows into
+  `/restaurants` (spec-085 fixed the orphan, NOT this) + no throttle / `merge` cap / `index` pagination /
+  `show` active-scope / TOCTOU · **089** registration unthrottled + `MustVerifyEmail` disabled (the on-ramp
+  making 088 anonymously exploitable; login throttle IS present → that half is stale) · **090** deploy injects
+  the SerpApi secret as a **literal into shell argv** (`deploy.yml:143`; the already-declared `env: SERPAPI_KEY`
+  is ignored) + quoting bug. **090 + the audit's extra atomicity facets (un-`|| true`'d worker restart, non-atomic
+  rsync, maintenance-after-rsync) fold into the open 087, not new specs.**
+- **P2 wave:** **092** frontend request-cancellation race (`useRestaurantSearch` has no `AbortController`/request-id
+  → a stale search/resort/loadMore silently overwrites the fresh grid; `loadMore` also duplicates cards) · **093**
+  OSM `cuisine=` tag invisible to `cuisine_match` stamp (free lever, zero quota) · **094** VenueShape contract +
+  `mergeVenues` drops `google_review_count`/`website_url` on fold (root cause of a silent rating under-weight) ·
+  **095** read-path DB indexes (`cuisines.slug`, `expires_at`/`fetched_at`) + targeted `stats()`/snapshot batching ·
+  **096** scheduled-job observability (silent enrichment failure, `quota:status` unscheduled, breaker overcounts empty
+  rows, `scheduler.log` un-rotated, canary false-negatives) · **097** config + cuisine-keyword regex compile drift-guards.
+- **P3 wave:** **098** frontend a11y/motion/polish (SubcategoryCard keyboard = WCAG 2.1.1 Level A, global
+  `prefers-reduced-motion`, StarRating precision, openWebsite schemes, SSR guards, …) · **099** DetailMap Leaflet leak
+  (uncancelled `setTimeout`) · **100** architecture cleanup (two cache APIs unify, `LiveSearchSnapshotService` extract,
+  ~135-LOC fetch dedup, dead code incl. `lib/api.ts`) · **101** ranking sort parity + edges (preview overwrite, live-vs-DB
+  sort divergence, pole bbox, limiter-on-fail) · **102** test backfill (`quality`×`cuisine_match` E2E w/ key, merge round-trip) ·
+  **103** infra defense-in-depth (TrustHosts, SSRF DNS-rebinding, CI PHPStan/gitleaks, db:backup blocking, cron verify).
+- **⏸ 091 PARKED** — AI enrichment is **dormant, not broken**: `enrichWithAi()` is key-guarded
+  (`RestaurantEnrichmentService.php:514`) and the deploy injects no AI key → it no-ops nightly (nothing piles up).
+  It's a separate product discussion (LLM field-normalization via Groq free tier; ~400 LOC if removed). NOT in the
+  authoring batch.
+- **2 cycle-1 items DEMOTED:** `LocationPicker` debounce "leak" (STALE — the `watch` already clears it; only an
+  unmount clear remains → P3) and `useSeo` canonical "fragment" (**not a bug** — `u.hash` is untouched so it's
+  preserved; clearing is cosmetic). Also: cycle-1's "AI enrichment silent dead-letter **P1**" was **wrong**
+  (it missed the `:514` key guard) → downgraded to P3/parked.
+- **Next:** implement P1-first (088 → 089 → 090, fold into 087), one-per-iteration. Source of truth: the plan +
+  `specs/088-…103`. **Ralph runs lowest-first.**
+
 **▶ UPDATE (2026-06-30) — FRESH FULL-APP AUDIT → specs 085–087 PROPOSED (queue refilled).** With the
 queue empty (001–084 done), a fresh 8-dimension read-only audit (each finder cited `file:line`; a per-
 dimension skeptic refuted every finding vs the shipped 001–084 + rejected + tracked lists; 16 agents)
